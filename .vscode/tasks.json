@@ -1,0 +1,33 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "CMake Build",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build"],
+            "group": "build",
+            "problemMatcher": ["$gcc", "$msCompile"],
+            "detail": "Build the C++ project using CMake."
+        },
+        {
+            "label": "CMake Configure",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["-S", ".", "-B", "build"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "Configure the CMake project."
+        },
+        {
+            "label": "Run Engine",
+            "type": "shell",
+            "command": "build/bin/Debug/MMORPGEnginePrototype.exe",
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "Run the built engine executable."
+        }
+    ]
+}

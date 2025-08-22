@@ -1,0 +1,18 @@
+[submodule "libs/bgfx"]
+	path = libs/bgfx
+	url = https://github.com/bkaradzic/bgfx.git
+[submodule "libs/bx"]
+	path = libs/bx
+	url = https://github.com/bkaradzic/bx.git
+[submodule "libs/bimg"]
+	path = libs/bimg
+	url = https://github.com/bkaradzic/bimg.git
+[submodule "libs/imgui"]
+	path = libs/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "libs/JoltPhysics"]
+	path = libs/JoltPhysics
+	url = https://github.com/jrouwe/JoltPhysics.git
+[submodule "libs/glfw"]
+	path = libs/glfw
+	url = https://github.com/glfw/glfw.git

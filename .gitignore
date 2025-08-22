@@ -1,0 +1,77 @@
+# Build directories
+build/
+build_clean/
+out/
+bin/
+lib/
+
+# Visual Studio files
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+*.suo
+*.user
+*.aps
+*.pch
+*.vspscc
+*_i.c
+*_p.c
+*.ncb
+*.tlb
+*.tlh
+*.bak
+*.cache
+*.ilk
+*.log
+*.lib
+*.sbr
+*.obj
+*.pdb
+*.idb
+*.res
+*.suo
+*.exe
+*.dll
+*.manifest
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# IDE files
+.vscode/settings.json
+.vscode/launch.json
+.vscode/c_cpp_properties.json
+
+# OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Dependencies and packages
+node_modules/
+*.a
+*.so
+*.dylib
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Temporary files
+*~
+*.swp
+*.swo
+
+# Assets that might be large (add specific ones to include if needed)
+# assets/textures/
+# assets/models/
