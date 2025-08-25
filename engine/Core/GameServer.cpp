@@ -1,6 +1,7 @@
 // GameServer.cpp - Headless game server implementation
 #include "GameServer.h"
 #include "../Network/NetworkMessages.h"
+#include "../World/VoxelChunk.h"  // For accessing voxel data
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -242,22 +243,47 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer) {
         return;
     }
     
+    auto server = m_networkManager->getServer();
+    if (!server) {
+        std::cerr << "No server instance available" << std::endl;
+        return;
+    }
+    
+    // Get island system from game state
+    auto* islandSystem = m_gameState->getIslandSystem();
+    if (!islandSystem) {
+        std::cerr << "No island system available" << std::endl;
+        return;
+    }
+    
     // Create world state message from current game state
     WorldStateMessage worldState;
     worldState.numIslands = 3;  // We know we have 3 islands from createDefaultWorld
     
-    // Get island positions (for now, use hardcoded positions from createDefaultWorld)
-    worldState.islandPositions[0] = Vec3(0, 0, 0);     // Main island
-    worldState.islandPositions[1] = Vec3(50, 10, 30);  // Second island  
-    worldState.islandPositions[2] = Vec3(-30, 5, 40);  // Third island
+    // Get actual island positions from the island system
+    const std::vector<uint32_t>& islandIDs = m_gameState->getAllIslandIDs();
+    for (int i = 0; i < 3 && i < islandIDs.size(); i++) {
+        Vec3 islandCenter = islandSystem->getIslandCenter(islandIDs[i]);
+        worldState.islandPositions[i] = islandCenter;
+    }
     
     // Set player spawn position (center of main island)
-    worldState.playerSpawnPosition = Vec3(8, 10, 8);
+    worldState.playerSpawnPosition = Vec3(16, 16, 16);  // Updated to match island generation
     
     std::cout << "Sending world state to client: " << worldState.numIslands << " islands" << std::endl;
     
-    // Send through network manager
-    if (auto server = m_networkManager->getServer()) {
-        server->sendWorldStateToClient(peer, worldState);
+    // Send basic world state first
+    server->sendWorldStateToClient(peer, worldState);
+    
+    // Now send compressed voxel data for each island
+    for (int i = 0; i < 3 && i < islandIDs.size(); i++) {
+        const FloatingIsland* island = islandSystem->getIsland(islandIDs[i]);
+        if (island && island->mainChunk) {
+            const uint8_t* voxelData = island->mainChunk->getRawVoxelData();
+            uint32_t voxelDataSize = island->mainChunk->getVoxelDataSize();
+            
+            std::cout << "Sending compressed island " << islandIDs[i] << " data (" << voxelDataSize << " bytes)" << std::endl;
+            server->sendCompressedIslandToClient(peer, islandIDs[i], worldState.islandPositions[i], voxelData, voxelDataSize);
+        }
     }
 }

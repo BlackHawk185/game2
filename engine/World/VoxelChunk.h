@@ -30,6 +30,11 @@ public:
     uint8_t getVoxel(int x, int y, int z) const;
     void setVoxel(int x, int y, int z, uint8_t type);
     
+    // Network serialization - get raw voxel data for transmission
+    const uint8_t* getRawVoxelData() const { return voxels.data(); }
+    uint32_t getVoxelDataSize() const { return VOLUME; }
+    void setRawVoxelData(const uint8_t* data, uint32_t size);
+    
     // Dynamic mesh generation for physics
     void generateMesh();
     void updatePhysicsMesh(); // Convert to Jolt collision mesh

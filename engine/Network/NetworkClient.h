@@ -37,6 +37,7 @@ public:
     std::function<void(const PlayerPositionUpdate&)> onPlayerPositionUpdate;
     std::function<void(const HelloWorldMessage&)> onHelloWorld;
     std::function<void(const WorldStateMessage&)> onWorldStateReceived;
+    std::function<void(uint32_t, const Vec3&, const uint8_t*, uint32_t)> onCompressedIslandReceived;
     
 private:
     void handleServerEvent(const ENetEvent& event);

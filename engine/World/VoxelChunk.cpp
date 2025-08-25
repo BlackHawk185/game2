@@ -7,6 +7,7 @@
 #include <GL/gl.h>
 #include <cmath>
 #include <iostream>
+#include <cstring>  // For memcpy
 
 #include <thread>
 #include <chrono>
@@ -39,6 +40,17 @@ void VoxelChunk::setVoxel(int x, int y, int z, uint8_t type) {
         voxels[index] = type;
         meshDirty = true; // Mark for re-meshing
     }
+}
+
+void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size) {
+    if (!data || size != VOLUME) {
+        std::cerr << "Invalid voxel data size. Expected: " << VOLUME << ", Got: " << size << std::endl;
+        return;
+    }
+    
+    // Copy raw voxel data
+    std::memcpy(voxels.data(), data, VOLUME);
+    meshDirty = true; // Mark for re-meshing since we've changed the data
 }
 
 bool VoxelChunk::isVoxelSolid(int x, int y, int z) const {

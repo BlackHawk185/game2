@@ -152,6 +152,11 @@ private:
     void handleWorldStateReceived(const WorldStateMessage& worldState);
     
     /**
+     * Handle received compressed island data from server
+     */
+    void handleCompressedIslandReceived(uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize);
+    
+    /**
      * Render waiting screen for remote clients
      */
     void renderWaitingScreen();

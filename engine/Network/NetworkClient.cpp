@@ -1,6 +1,8 @@
 #include "NetworkClient.h"
+#include "VoxelCompression.h"
 #include <iostream>
 #include <cstring>
+#include <vector>
 
 NetworkClient::NetworkClient() 
     : client(nullptr), serverConnection(nullptr), nextSequenceNumber(0) {
@@ -153,6 +155,41 @@ void NetworkClient::processServerMessage(ENetPacket* packet) {
                 
                 if (onWorldStateReceived) {
                     onWorldStateReceived(worldState);
+                }
+            }
+            break;
+        }
+        
+        case NetworkMessageType::COMPRESSED_ISLAND_DATA: {
+            if (packet->dataLength >= sizeof(CompressedIslandHeader)) {
+                CompressedIslandHeader header = *(CompressedIslandHeader*)packet->data;
+                
+                std::cout << "Received compressed island " << header.islandID 
+                          << " (compressed: " << header.compressedSize 
+                          << " bytes, original: " << header.originalSize << " bytes)" << std::endl;
+                
+                // The compressed data starts after the header
+                const uint8_t* compressedData = (const uint8_t*)packet->data + sizeof(CompressedIslandHeader);
+                uint32_t availableDataSize = packet->dataLength - sizeof(CompressedIslandHeader);
+                
+                if (availableDataSize >= header.compressedSize) {
+                    // Decompress the voxel data
+                    std::vector<uint8_t> decompressedData(header.originalSize);
+                    
+                    if (VoxelCompression::decompressRLE(compressedData, header.compressedSize, 
+                                                       decompressedData.data(), header.originalSize)) {
+                        std::cout << "Successfully decompressed island " << header.islandID << std::endl;
+                        
+                        if (onCompressedIslandReceived) {
+                            onCompressedIslandReceived(header.islandID, header.position, 
+                                                     decompressedData.data(), header.originalSize);
+                        }
+                    } else {
+                        std::cerr << "Failed to decompress island " << header.islandID << std::endl;
+                    }
+                } else {
+                    std::cerr << "Incomplete island data packet. Expected: " << header.compressedSize 
+                              << ", Available: " << availableDataSize << std::endl;
                 }
             }
             break;

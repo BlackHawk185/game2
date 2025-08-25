@@ -1,4 +1,5 @@
 #include "IntegratedServer.h"
+#include "VoxelCompression.h"
 #include <iostream>
 #include <cstring>
 #include <algorithm>
@@ -144,6 +145,44 @@ void IntegratedServer::broadcastPlayerPosition(uint32_t playerId, const Vec3& po
 void IntegratedServer::sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState) {
     std::cout << "Sending world state to client..." << std::endl;
     sendToClient(client, &worldState, sizeof(worldState));
+}
+
+void IntegratedServer::sendCompressedIslandToClient(ENetPeer* client, uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t voxelDataSize) {
+    if (!client || !voxelData || voxelDataSize == 0) {
+        std::cerr << "Invalid parameters for compressed island transmission" << std::endl;
+        return;
+    }
+    
+    // Compress the voxel data
+    std::vector<uint8_t> compressedData;
+    uint32_t compressedSize = VoxelCompression::compressRLE(voxelData, voxelDataSize, compressedData);
+    
+    if (compressedSize == 0 || compressedData.empty()) {
+        std::cerr << "Failed to compress island data for island " << islandID << std::endl;
+        return;
+    }
+    
+    std::cout << "Compressed island " << islandID << ": " << voxelDataSize << " -> " << compressedSize 
+              << " bytes (" << (100.0f * compressedSize / voxelDataSize) << "% ratio)" << std::endl;
+    
+    // Create header
+    CompressedIslandHeader header;
+    header.islandID = islandID;
+    header.position = position;
+    header.originalSize = voxelDataSize;
+    header.compressedSize = compressedSize;
+    
+    // Create combined packet: header + compressed data
+    std::vector<uint8_t> combinedPacket(sizeof(header) + compressedSize);
+    
+    // Copy header to the beginning
+    std::memcpy(combinedPacket.data(), &header, sizeof(header));
+    
+    // Copy compressed data after header
+    std::memcpy(combinedPacket.data() + sizeof(header), compressedData.data(), compressedSize);
+    
+    // Send as single packet
+    sendToClient(client, combinedPacket.data(), combinedPacket.size());
 }
 
 void IntegratedServer::sendToClient(ENetPeer* client, const void* data, size_t size) {

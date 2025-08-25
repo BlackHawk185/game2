@@ -43,6 +43,7 @@ add_library(engine STATIC
     Network/NetworkManager.cpp
     Network/IntegratedServer.cpp
     Network/NetworkClient.cpp
+    Network/VoxelCompression.cpp
 )
 
 # === Third-party sources: Jolt Physics ==Move-Item "c:\Users\steve-17\Desktop\game2\engine\Renderer.h" "c:\Users\steve-17\Desktop\game2\engine\Rendering\Renderer.h"=

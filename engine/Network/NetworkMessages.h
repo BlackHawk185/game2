@@ -17,7 +17,8 @@ enum NetworkMessageType : uint8_t {
     PLAYER_MOVEMENT_REQUEST = 2,
     PLAYER_POSITION_UPDATE = 3,
     CHAT_MESSAGE = 4,
-    WORLD_STATE = 5
+    WORLD_STATE = 5,
+    COMPRESSED_ISLAND_DATA = 6
 };
 
 // Simple hello world message
@@ -58,6 +59,19 @@ struct PACKED WorldStateMessage {
     Vec3 islandPositions[3];
     Vec3 playerSpawnPosition;
 };
+
+// Compressed island chunk data for efficient transmission
+struct PACKED CompressedIslandHeader {
+    uint8_t type = COMPRESSED_ISLAND_DATA;
+    uint32_t islandID;
+    Vec3 position;
+    uint32_t originalSize;      // Uncompressed voxel data size (should be 32*32*32 = 32768)
+    uint32_t compressedSize;    // Size of the compressed data that follows
+    // Compressed voxel data follows this header (variable length)
+};
+
+// Maximum size for compressed data (conservative estimate)
+constexpr uint32_t MAX_COMPRESSED_ISLAND_SIZE = 16384; // 16KB max compressed size
 
 // Restore packing
 #ifdef _MSC_VER

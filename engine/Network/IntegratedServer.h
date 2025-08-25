@@ -31,6 +31,7 @@ public:
     void broadcastHelloWorld();
     void broadcastPlayerPosition(uint32_t playerId, const Vec3& position, const Vec3& velocity);
     void sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState);
+    void sendCompressedIslandToClient(ENetPeer* client, uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t voxelDataSize);
     void sendToClient(ENetPeer* client, const void* data, size_t size);
     void broadcastToAllClients(const void* data, size_t size);
     

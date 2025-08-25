@@ -4,10 +4,12 @@
 #include "../Rendering/Renderer.h"
 #include "../Time/TimeEffects.h"
 #include "../Network/NetworkMessages.h"
+#include "../World/VoxelChunk.h"  // For accessing voxel data
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
 #include <imgui.h>
 #include <iostream>
+#include <memory>
 
 // External systems that we'll refactor later
 extern TimeEffects* g_timeEffects;
@@ -20,6 +22,10 @@ GameClient::GameClient() {
     if (auto client = m_networkManager->getClient()) {
         client->onWorldStateReceived = [this](const WorldStateMessage& worldState) {
             this->handleWorldStateReceived(worldState);
+        };
+        
+        client->onCompressedIslandReceived = [this](uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize) {
+            this->handleCompressedIslandReceived(islandID, position, voxelData, dataSize);
         };
     }
 }
@@ -481,15 +487,59 @@ void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState) {
         return;
     }
     
-    // TODO: Apply the world state data to our local game state
-    // For now, the game state has already created the default world
-    // In a full implementation, we'd populate the chunks based on worldState.islandPositions
-    
     // Set camera position to the spawn location
     m_camera.position = worldState.playerSpawnPosition;
     m_camera.position.y += 2.0f;  // Position camera slightly above spawn point
     
-    std::cout << "✅ Client world state initialized successfully!" << std::endl;
+    std::cout << "✅ Client world state initialized successfully! Waiting for island data..." << std::endl;
+}
+
+void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize) {
+    if (!m_gameState) {
+        std::cerr << "Cannot handle island data: No game state initialized" << std::endl;
+        return;
+    }
+    
+    std::cout << "🏝️ Applying island " << islandID << " data at position (" 
+              << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
+    
+    auto* islandSystem = m_gameState->getIslandSystem();
+    if (!islandSystem) {
+        std::cerr << "No island system available" << std::endl;
+        return;
+    }
+    
+    // Create the island at the specified position with the server's ID
+    // We'll create it locally and map the server ID to our local island
+    uint32_t localIslandID = islandSystem->createIsland(position);
+    std::cout << "Created local island with ID: " << localIslandID << std::endl;
+    
+    // Get the island and apply the voxel data
+    FloatingIsland* island = islandSystem->getIsland(localIslandID);
+    if (island) {
+        std::cout << "Successfully retrieved island " << localIslandID << std::endl;
+        
+        // Create the main chunk if it doesn't exist (client islands don't auto-generate chunks)
+        if (!island->mainChunk) {
+            std::cout << "Creating main chunk for island " << localIslandID << std::endl;
+            island->mainChunk = std::make_unique<VoxelChunk>();
+        }
+        
+        if (island->mainChunk) {
+            std::cout << "Island has main chunk, applying voxel data..." << std::endl;
+            
+            // Apply the voxel data directly - this replaces any procedural generation
+            island->mainChunk->setRawVoxelData(voxelData, dataSize);
+            island->mainChunk->generateMesh();  // Regenerate the mesh with the new data
+            
+            std::cout << "✅ Applied voxel data to island " << islandID << " (local ID: " << localIslandID << ")" << std::endl;
+            std::cout << "   Island positioned at: (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
+        } else {
+            std::cerr << "Failed to create main chunk for island " << localIslandID << std::endl;
+        }
+    } else {
+        std::cerr << "Failed to retrieve island with local ID: " << localIslandID << std::endl;
+    }
 }
 
 void GameClient::windowResizeCallback(GLFWwindow* window, int width, int height) {
