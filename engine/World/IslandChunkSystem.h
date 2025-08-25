@@ -8,14 +8,9 @@
 // Forward declarations
 class VoxelChunk;
 
-// Jolt Physics integration
-namespace JPH {
-    using BodyID = uint32_t;  // Placeholder for now
-}
-
 // An Island is a collection of chunks that move together as one physics body
 struct FloatingIsland {
-    JPH::BodyID joltBodyID;        // The Jolt physics body ID (if any)
+    uint32_t joltBodyID;           // The Jolt physics body ID (will be properly typed later)
     Vec3 physicsCenter{0,0,0};     // Center of mass for physics
     Vec3 velocity{0,0,0};          // Island velocity for physics simulation
     Vec3 acceleration{0,0,0};      // Island acceleration (gravity, wind, etc.)
@@ -49,15 +44,14 @@ public:
     uint32_t createIsland(const Vec3& physicsCenter);
     void destroyIsland(uint32_t islandID);
     FloatingIsland* getIsland(uint32_t islandID);
-    Vec3 getIslandCenter(uint32_t islandID); // Get current physics center of island
-    Vec3 getIslandVelocity(uint32_t islandID); // Get current velocity of island
+    const FloatingIsland* getIsland(uint32_t islandID) const;
     
     // Chunk management within islands  
     void addChunkToIsland(uint32_t islandID, const Vec3& localPosition);
     void removeChunkFromIsland(uint32_t islandID, const Vec3& localPosition);
     
     // **ISLAND-CENTRIC VOXEL ACCESS** (Only way to access voxels)
-    uint8_t getVoxelFromIsland(uint32_t islandID, const Vec3& localPosition);
+    uint8_t getVoxelFromIsland(uint32_t islandID, const Vec3& localPosition) const;
     void setVoxelInIsland(uint32_t islandID, const Vec3& localPosition, uint8_t voxelType);
     
     // Physics integration
@@ -75,6 +69,10 @@ public:
     void getAllChunks(std::vector<VoxelChunk*>& outChunks);
     void getVisibleChunks(const Vec3& viewPosition, std::vector<VoxelChunk*>& outChunks);
     void renderAllIslands();  // New: Render all islands with proper positioning
+    
+    // Island queries
+    Vec3 getIslandCenter(uint32_t islandID) const; // Get current physics center of island
+    Vec3 getIslandVelocity(uint32_t islandID) const; // Get current velocity of island
     
 private:
     std::unordered_map<uint32_t, FloatingIsland> m_islands;

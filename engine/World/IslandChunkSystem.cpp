@@ -53,7 +53,12 @@ FloatingIsland* IslandChunkSystem::getIsland(uint32_t islandID) {
     return (it != m_islands.end()) ? &it->second : nullptr;
 }
 
-Vec3 IslandChunkSystem::getIslandCenter(uint32_t islandID) {
+const FloatingIsland* IslandChunkSystem::getIsland(uint32_t islandID) const {
+    auto it = m_islands.find(islandID);
+    return (it != m_islands.end()) ? &it->second : nullptr;
+}
+
+Vec3 IslandChunkSystem::getIslandCenter(uint32_t islandID) const {
     auto it = m_islands.find(islandID);
     if (it != m_islands.end()) {
         return it->second.physicsCenter;
@@ -61,7 +66,7 @@ Vec3 IslandChunkSystem::getIslandCenter(uint32_t islandID) {
     return Vec3(0, 0, 0); // Return zero vector if island not found
 }
 
-Vec3 IslandChunkSystem::getIslandVelocity(uint32_t islandID) {
+Vec3 IslandChunkSystem::getIslandVelocity(uint32_t islandID) const {
     auto it = m_islands.find(islandID);
     if (it != m_islands.end()) {
         return it->second.velocity;
@@ -90,8 +95,8 @@ void IslandChunkSystem::generateFloatingIsland(uint32_t islandID, uint32_t seed,
     island->mainChunk->generateFloatingIsland(seed);
 }
 
-uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& localPosition) {
-    FloatingIsland* island = getIsland(islandID);
+uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& localPosition) const {
+    const FloatingIsland* island = getIsland(islandID);
     if (!island || !island->mainChunk) return 0;
     
     int x = (int)localPosition.x;

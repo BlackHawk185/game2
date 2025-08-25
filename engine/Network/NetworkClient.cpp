@@ -1,0 +1,171 @@
+#include "NetworkClient.h"
+#include <iostream>
+#include <cstring>
+
+NetworkClient::NetworkClient() 
+    : client(nullptr), serverConnection(nullptr), nextSequenceNumber(0) {
+}
+
+NetworkClient::~NetworkClient() {
+    disconnect();
+    
+    if (client) {
+        enet_host_destroy(client);
+    }
+}
+
+bool NetworkClient::connectToServer(const std::string& host, uint16_t port) {
+    if (serverConnection) {
+        std::cout << "Already connected to a server!" << std::endl;
+        return false;
+    }
+    
+    // Create client host
+    if (!client) {
+        client = enet_host_create(nullptr, 1, 2, 0, 0);
+        if (!client) {
+            std::cout << "Failed to create ENet client host!" << std::endl;
+            return false;
+        }
+    }
+    
+    // Set up server address
+    ENetAddress address;
+    enet_address_set_host(&address, host.c_str());
+    address.port = port;
+    
+    // Connect to server
+    serverConnection = enet_host_connect(client, &address, 2, 0);
+    if (!serverConnection) {
+        std::cout << "Failed to create connection to server!" << std::endl;
+        return false;
+    }
+    
+    // Wait for connection to complete (5 second timeout)
+    ENetEvent event;
+    if (enet_host_service(client, &event, 5000) > 0 && 
+        event.type == ENET_EVENT_TYPE_CONNECT) {
+        std::cout << "Connected to server at " << host << ":" << port << std::endl;
+        
+        if (onConnectedToServer) {
+            onConnectedToServer();
+        }
+        
+        return true;
+    } else {
+        std::cout << "Failed to connect to server!" << std::endl;
+        enet_peer_reset(serverConnection);
+        serverConnection = nullptr;
+        return false;
+    }
+}
+
+void NetworkClient::disconnect() {
+    if (serverConnection) {
+        enet_peer_disconnect(serverConnection, 0);
+        
+        // Wait for disconnect to complete
+        ENetEvent event;
+        while (enet_host_service(client, &event, 3000) > 0) {
+            if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+                break;
+            }
+        }
+        
+        enet_peer_reset(serverConnection);
+        serverConnection = nullptr;
+        
+        if (onDisconnectedFromServer) {
+            onDisconnectedFromServer();
+        }
+        
+        std::cout << "Disconnected from server" << std::endl;
+    }
+}
+
+void NetworkClient::update() {
+    if (!client) return;
+    
+    ENetEvent event;
+    
+    // Process all pending events (non-blocking)
+    while (enet_host_service(client, &event, 0) > 0) {
+        handleServerEvent(event);
+    }
+}
+
+void NetworkClient::handleServerEvent(const ENetEvent& event) {
+    switch (event.type) {
+        case ENET_EVENT_TYPE_DISCONNECT: {
+            std::cout << "Server disconnected us" << std::endl;
+            serverConnection = nullptr;
+            
+            if (onDisconnectedFromServer) {
+                onDisconnectedFromServer();
+            }
+            break;
+        }
+        
+        case ENET_EVENT_TYPE_RECEIVE: {
+            processServerMessage(event.packet);
+            enet_packet_destroy(event.packet);
+            break;
+        }
+        
+        default:
+            break;
+    }
+}
+
+void NetworkClient::processServerMessage(ENetPacket* packet) {
+    if (packet->dataLength < sizeof(NetworkMessageType)) return;
+    
+    NetworkMessageType messageType = *(NetworkMessageType*)packet->data;
+    
+    switch (messageType) {
+        case NetworkMessageType::HELLO_WORLD: {
+            if (packet->dataLength >= sizeof(HelloWorldMessage)) {
+                HelloWorldMessage msg = *(HelloWorldMessage*)packet->data;
+                std::cout << "Received from server: " << msg.message << std::endl;
+                
+                if (onHelloWorld) {
+                    onHelloWorld(msg);
+                }
+            }
+            break;
+        }
+        
+        case NetworkMessageType::PLAYER_POSITION_UPDATE: {
+            if (packet->dataLength >= sizeof(PlayerPositionUpdate)) {
+                PlayerPositionUpdate update = *(PlayerPositionUpdate*)packet->data;
+                
+                if (onPlayerPositionUpdate) {
+                    onPlayerPositionUpdate(update);
+                }
+            }
+            break;
+        }
+        
+        default:
+            std::cout << "Unknown message type from server: " << (int)messageType << std::endl;
+            break;
+    }
+}
+
+void NetworkClient::sendMovementRequest(const Vec3& intendedPosition, const Vec3& velocity, float deltaTime) {
+    if (!serverConnection) return;
+    
+    PlayerMovementRequest request;
+    request.intendedPosition = intendedPosition;
+    request.velocity = velocity;
+    request.deltaTime = deltaTime;
+    
+    sendToServer(&request, sizeof(request));
+}
+
+void NetworkClient::sendToServer(const void* data, size_t size) {
+    if (!serverConnection) return;
+    
+    ENetPacket* packet = enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE);
+    enet_peer_send(serverConnection, 0, packet);
+}

@@ -17,11 +17,17 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # Add engine source
 add_subdirectory(engine)
 
-# Create main executable 
+# Create main executable (original monolithic version)
 add_executable(MMORPGEnginePrototype
     engine/Core/main.cpp
 )
 target_link_libraries(MMORPGEnginePrototype PRIVATE engine)
+
+# Create new modular executable (client-server architecture)
+add_executable(MMORPGEngineModular
+    main_new.cpp
+)
+target_link_libraries(MMORPGEngineModular PRIVATE engine)
 
 # Third-party libraries
 add_subdirectory(libs/glfw)

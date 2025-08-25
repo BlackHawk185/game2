@@ -1,17 +1,41 @@
 # Add all engine source files (including new systems)
 add_library(engine STATIC
+    # Core systems (new modular architecture)
+    Core/GameState.cpp
+    Core/GameServer.cpp
+    Core/GameClient.cpp
+    
+    # World systems
     World/VoxelChunk.cpp
-    Player.cpp
-    Rendering/Renderer.cpp
-    Input/Camera.cpp
-    Math/Vec3.cpp
     World/IslandChunkSystem.cpp
-    ECS/ECS.cpp
-    Physics/PhysicsSystem.cpp
-    Rendering/VoxelRenderer.cpp
-    Threading/JobSystem.cpp
-    Culling/FrustumCuller.cpp
     World/VoxelRaycaster.cpp
+    
+    # Game objects
+    Player.cpp
+    
+    # Rendering systems
+    Rendering/Renderer.cpp
+    Rendering/VoxelRenderer.cpp
+    
+    # Input systems
+    Input/Camera.cpp
+    
+    # Math systems
+    Math/Vec3.cpp
+    
+    # ECS systems
+    ECS/ECS.cpp
+    
+    # Physics systems
+    Physics/PhysicsSystem.cpp
+    
+    # Threading systems
+    Threading/JobSystem.cpp
+    
+    # Culling systems
+    Culling/FrustumCuller.cpp
+    
+    # Time systems
     Time/TimeManager.cpp
     Time/TimeEffects.cpp
 )

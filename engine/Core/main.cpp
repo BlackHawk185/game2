@@ -6,6 +6,8 @@
 #include <imgui.h>
 #include <iostream>
 #include <chrono>
+#include <cstring>
+#include <cctype>
 
 #include "../World/VoxelChunk.h"
 #include "../Rendering/Renderer.h"
@@ -21,7 +23,34 @@
 // Global player pointer for callbacks
 Player* g_player = nullptr;
 
-int main() {
+int main(int argc, char* argv[]) {
+    // Parse command line arguments for future networking
+    bool isClientOnly = false;
+    std::string serverAddress = "";
+    uint16_t serverPort = 7777;
+    
+    // Default behavior: Host own server and connect to it (integrated mode)
+    // --client <address> [port]: Connect to remote server only (skip local server)
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--client") == 0 && i + 1 < argc) {
+            isClientOnly = true;
+            serverAddress = argv[i + 1];
+            i++; // Skip next argument since we consumed it
+            
+            // Optional port argument
+            if (i + 1 < argc && isdigit(argv[i + 1][0])) {
+                serverPort = static_cast<uint16_t>(atoi(argv[i + 1]));
+                i++; // Skip port argument
+            }
+        }
+    }
+    
+    std::cout << "🏝️ Dynamic Floating Island Engine" << std::endl;
+    if (isClientOnly) {
+        std::cout << "🌐 Client Mode: Would connect to " << serverAddress << ":" << serverPort << " (networking not implemented yet)" << std::endl;
+    } else {
+        std::cout << "🖥️ Integrated Mode: Would host local server + client (networking not implemented yet)" << std::endl;
+    }
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW!" << std::endl;
         return 1;
@@ -164,7 +193,14 @@ int main() {
     
     player.setPosition(playerSpawnPos);
     
-    std::cout << "Engine initialized. Controls: WASD+mouse to move, SPACE to jump, 1-5/0/T for time effects, ESC to exit." << std::endl;
+    if (isClientOnly) {
+        std::cout << "Engine initialized. Ready to connect to " << serverAddress << ":" << serverPort << " (when networking is implemented)" << std::endl;
+        std::cout << "🎮 Controls: WASD+mouse to move, SPACE to jump, 1-5/0/T for time effects, ESC to exit." << std::endl;
+    } else {
+        std::cout << "Engine initialized. Ready for integrated mode (when networking is implemented)" << std::endl;
+        std::cout << "🎮 Controls: WASD+mouse to move, SPACE to jump, 1-5/0/T for time effects, ESC to exit." << std::endl;
+        std::cout << "💡 Use --client <address> [port] to connect to remote servers instead" << std::endl;
+    }
     
     // Timing
     auto lastTime = std::chrono::high_resolution_clock::now();

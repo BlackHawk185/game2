@@ -1,0 +1,43 @@
+#pragma once
+#include <enet/enet.h>
+#include "NetworkMessages.h"
+#include <functional>
+#include <string>
+#include <cstdint>
+
+/**
+ * @brief Simple client component for connecting to remote servers
+ * Always present, but only used when joining someone else's game
+ */
+class NetworkClient {
+private:
+    ENetHost* client;
+    ENetPeer* serverConnection;
+    uint32_t nextSequenceNumber;
+    
+public:
+    NetworkClient();
+    ~NetworkClient();
+    
+    // Connection management
+    bool connectToServer(const std::string& host, uint16_t port = 7777);
+    void disconnect();
+    bool isConnected() const { return serverConnection != nullptr; }
+    
+    // Called each frame to handle networking
+    void update();
+    
+    // Send messages to server
+    void sendMovementRequest(const Vec3& intendedPosition, const Vec3& velocity, float deltaTime);
+    void sendToServer(const void* data, size_t size);
+    
+    // Callbacks for server messages
+    std::function<void()> onConnectedToServer;
+    std::function<void()> onDisconnectedFromServer;
+    std::function<void(const PlayerPositionUpdate&)> onPlayerPositionUpdate;
+    std::function<void(const HelloWorldMessage&)> onHelloWorld;
+    
+private:
+    void handleServerEvent(const ENetEvent& event);
+    void processServerMessage(ENetPacket* packet);
+};
