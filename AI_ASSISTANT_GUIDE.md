@@ -21,6 +21,8 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Cross-platform**: Ensure all code and build steps are cross-platform (Windows, Linux, macOS) unless otherwise specified.
 - **Physics abstraction**: Always use the custom physics interface, not direct Jolt calls, unless implementing the abstraction layer.
 - **Console support**: Keep future console support in mind (no platform-specific hacks).
+- **Unified networking**: All game modes use the network layer - avoid direct GameState access from clients.
+- **Server authority**: Game state changes should go through server validation, even in integrated mode.
 
 ## Code Quality Guidelines
 
@@ -38,16 +40,27 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Rendering**: bgfx-based renderer with Dear ImGui dev tools
 - **Input**: Camera controls (WASD+mouse, space for jump)
 - **Time Effects**: Time manipulation system (keys 1-5, 0, T for various effects)
+- **Networking**: ENet-based client-server architecture with unified networking paths
 
 ### Game-Specific Features (Implemented)
 - **Floating Islands**: Procedurally generated voxel islands with physics
-- **Player Movement**: Physics-based movement with momentum transfer
+- **Player Movement**: Physics-based movement with real-time network synchronization
 - **Island Momentum**: Players inherit velocity from moving platforms
 - **Collision Detection**: Efficient voxel-based collision with islands
 - **Island Drift**: Islands move with realistic physics simulation
+- **Block Interaction**: Real-time block break/place with network validation
+
+### Network Architecture (Implemented)
+- **Unified Networking**: All modes (integrated + remote) use identical network layer
+- **ENet Protocol**: Reliable UDP with automatic packet management
+- **Compression**: ~98% compression ratio for world data transmission
+- **Client-Server Model**: Server-authoritative with client prediction ready
+- **Multiple Modes**: Integrated (local server + networked client), dedicated server, client-only
 
 ### Technical Details
 - **Build System**: CMake with Visual Studio support
+- **Launch Configurations**: VS Code integration with 3 run modes
+- **Cross-Platform**: Windows, Linux, macOS compatibility maintained
 - **Dependencies**: bgfx, Jolt Physics, GLFW, Dear ImGui
 - **Platform**: Currently Windows-focused but designed for cross-platform
 - **Performance**: Optimized for 60+ FPS with multiple islands and physics

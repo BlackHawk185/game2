@@ -22,6 +22,35 @@ This workspace is set up for a modular C++17 MMORPG engine prototype using CMake
    ```
 4. Run the engine from `build/bin/`.
 
+## Run Modes
+
+### Default (Integrated Mode)
+```sh
+MMORPGEngine.exe
+```
+- Local server + client with unified networking
+- Best for development and single-player testing
+
+### Dedicated Server
+```sh  
+MMORPGEngine.exe --server
+```
+- Headless server accepting connections on port 12345
+- For multiplayer testing and dedicated hosting
+
+### Client-Only  
+```sh
+MMORPGEngine.exe --client <server_address>
+```
+- Connect to remote server
+- For multiplayer testing
+
+## VS Code Integration
+Three launch configurations available in VS Code:
+1. **Default**: Integrated mode (recommended)
+2. **Connect to Server**: Client connecting to localhost:12345
+3. **Dedicated Server**: Headless server mode
+
 ## Extensions Recommended
 - C/C++ (ms-vscode.cpptools)
 - CMake Tools (ms-vscode.cmake-tools)
