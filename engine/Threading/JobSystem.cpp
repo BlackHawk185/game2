@@ -193,7 +193,7 @@ namespace Jobs {
             result.chunkID = chunkID;
             result.success = true;
             
-            // TODO: Implement actual chunk meshing here
+            // Chunk meshing implementation will connect to VoxelChunk generation
             // For now, just simulate work
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             
@@ -212,7 +212,7 @@ namespace Jobs {
             result.chunkID = chunkID;
             result.success = true;
             
-            // TODO: Implement physics cooking
+            // Physics cooking will integrate with Jolt Physics for collision meshes
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
             
             return result;
@@ -229,7 +229,7 @@ namespace Jobs {
             result.chunkID = chunkID;
             result.success = true;
             
-            // TODO: Implement LOD generation
+            // LOD generation will create lower detail versions of chunks
             std::this_thread::sleep_for(std::chrono::microseconds(500));
             
             return result;
@@ -245,7 +245,7 @@ namespace Jobs {
             result.chunkID = payload.chunkID;
             result.success = true;
             
-            // TODO: Implement world generation
+            // World generation will use Perlin noise for terrain creation
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             
             return result;

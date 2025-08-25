@@ -97,7 +97,7 @@ bool GameClient::connectToRemoteServer(const std::string& serverAddress, uint16_
     
     m_isRemoteClient = true;
     
-    // TODO: Wait for initial world state from server
+    // Initial world state will be received from server after handshake protocol
     // For now, create a minimal local state for rendering
     // This will be replaced by data received from server
     
@@ -285,11 +285,6 @@ void GameClient::processKeyboard(float deltaTime) {
     
     // Apply movement
     m_camera.position = m_camera.position + movement;
-    
-    // Send movement to server if remote client (temporarily disabled)
-    // if (m_isRemoteClient && m_networkManager) {
-    //     m_networkManager->sendPlayerMovement(m_camera.position, movement, deltaTime);
-    // }
     
     // Update player position in game state if local
     if (m_gameState && m_gameState->getPrimaryPlayer()) {

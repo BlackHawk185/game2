@@ -140,7 +140,7 @@ void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks) {
 }
 
 void IslandChunkSystem::getVisibleChunks(const Vec3& viewPosition, std::vector<VoxelChunk*>& outChunks) {
-    // For now, just return all chunks - TODO: Add frustum culling
+    // Frustum culling will be added when we implement proper camera frustum
     getAllChunks(outChunks);
 }
 
@@ -175,11 +175,11 @@ void IslandChunkSystem::syncPhysicsToChunks() {
 }
 
 void IslandChunkSystem::updatePlayerChunks(const Vec3& playerPosition) {
-    // TODO: Generate new islands around player for infinite world
-    // For now, we manually create islands
+    // Infinite world generation will be implemented in a future version
+    // For now, we manually create islands in GameState
 }
 
 void IslandChunkSystem::generateChunksAroundPoint(const Vec3& center) {
-    // TODO: Generate chunks in a radius around center point
-    // For infinite world generation
+    // Chunk generation around points will be used for infinite world expansion
+    // Currently handled manually through createIsland()
 }

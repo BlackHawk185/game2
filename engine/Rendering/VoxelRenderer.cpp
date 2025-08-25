@@ -61,8 +61,7 @@ void VoxelRenderer::renderChunks(const std::vector<VoxelChunk*>& chunks, const C
 }
 
 void VoxelRenderer::renderChunk(const VoxelChunk& chunk, const Camera& camera) {
-    // For now, let's just render the chunk using its existing render method
-    // TODO: Implement optimized rendering here
+    // Optimized rendering will be implemented when we add proper materials and lighting
     const_cast<VoxelChunk&>(chunk).render();
     m_stats.facesRendered += 36; // Estimate for stats
     m_stats.facesConsidered += 36;
@@ -158,28 +157,17 @@ void VoxelRenderer::renderVoxelFaces(const VoxelChunk& chunk, int x, int y, int 
 }
 
 bool VoxelRenderer::distanceCullChunk(const VoxelChunk& chunk, const Camera& camera) {
-    // TODO: Get actual world position from chunk - for now assume Vec3(0,0,0)
-    Vec3 chunkWorldPos(0, 0, 0); // Placeholder
-    float distance = (camera.position - chunkWorldPos).length();
-    return distance > m_renderDistance;
+    // NOTE: This function is deprecated - chunk culling should be done at the 
+    // IslandChunkSystem level which has the actual world positions
+    // For now, disable distance culling since we don't have chunk positions here
+    return false; // Don't cull any chunks
 }
 
 bool VoxelRenderer::frustumCullChunk(const VoxelChunk& chunk, const Camera& camera, float aspect) {
-    // TODO: Get actual world position from chunk - for now assume Vec3(0,0,0) 
-    Vec3 chunkWorldPos(0, 0, 0); // Placeholder
-    Vec3 chunkCenter = chunkWorldPos + Vec3(16.0f, 16.0f, 16.0f);
-    float chunkRadius = 27.7f; // sqrt(16²+16²+16²) for 32³ chunk
-    
-    // Very basic frustum test - distance from camera
-    Vec3 toChunk = chunkCenter - camera.position;
-    float distance = toChunk.length();
-    
-    // Simple field-of-view test
-    Vec3 forward = camera.front.normalized();
-    float dot = toChunk.normalized().dot(forward);
-    
-    // If chunk is behind camera or too far to the side, cull it
-    return dot < -0.2f; // Rough 120° FOV
+    // NOTE: This function is deprecated - frustum culling should be done at the 
+    // IslandChunkSystem level which has the actual world positions  
+    // For now, disable frustum culling since we don't have chunk positions here
+    return false; // Don't cull any chunks
 }
 
 int VoxelRenderer::selectLOD(float distance) {

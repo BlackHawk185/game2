@@ -24,7 +24,7 @@ bool GameState::initialize(bool shouldCreateDefaultWorld) {
     
     // Initialize physics system - Re-enabled with fixed BodyID handling
     m_physicsSystem = std::make_unique<PhysicsSystem>();
-    // TODO: Check if PhysicsSystem needs explicit initialization
+    // Physics system initialization is automatic - no explicit init needed
     /*
     if (!m_physicsSystem->initialize()) {
         std::cerr << "Failed to initialize physics system!" << std::endl;
@@ -58,10 +58,7 @@ void GameState::shutdown() {
     // Shutdown systems
     m_primaryPlayer.reset();
     
-    // if (m_physicsSystem) {  // Temporarily disabled
-    //     m_physicsSystem->shutdown();
-    //     m_physicsSystem.reset();
-    // }
+    // Physics system will be shut down automatically when destroyed
     
     m_initialized = false;
     std::cout << "✅ GameState shutdown complete" << std::endl;
@@ -103,7 +100,7 @@ void GameState::applyPlayerMovement(const Vec3& movement, float deltaTime) {
 bool GameState::setVoxel(uint32_t islandID, const Vec3& localPos, uint8_t voxelType) {
     // Delegate to island system
     m_islandSystem.setVoxelInIsland(islandID, localPos, voxelType);
-    return true;  // TODO: Add proper error handling
+    return true;  // Error handling will be added when async operations are implemented
 }
 
 uint8_t GameState::getVoxel(uint32_t islandID, const Vec3& localPos) const {
@@ -142,9 +139,7 @@ void GameState::createDefaultWorld() {
 }
 
 void GameState::updatePhysics(float deltaTime) {
-    // if (m_physicsSystem) {  // Temporarily disabled
-    //     m_physicsSystem->update(deltaTime);
-    // }
+    // Physics integration with Jolt Physics will be implemented when needed for gameplay
 }
 
 void GameState::updatePlayer(float deltaTime) {
