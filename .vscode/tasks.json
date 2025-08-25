@@ -24,7 +24,7 @@
         {
             "label": "Run Engine",
             "type": "shell",
-            "command": "build/bin/Debug/MMORPGEngineModular.exe",
+            "command": "build/bin/Debug/MMORPGEngine.exe",
             "args": [],
             "group": "test",
             "problemMatcher": [],
@@ -33,8 +33,8 @@
         {
             "label": "Run Server Only",
             "type": "shell",
-            "command": "build/bin/Debug/MMORPGEngineModular.exe",
-            "args": ["SERVER_ONLY"],
+            "command": "build/bin/Debug/MMORPGEngine.exe",
+            "args": ["--server"],
             "group": "test",
             "problemMatcher": [],
             "detail": "Run headless server for remote clients."
@@ -42,11 +42,20 @@
         {
             "label": "Run Client Only",
             "type": "shell",
-            "command": "build/bin/Debug/MMORPGEngineModular.exe",
-            "args": ["CLIENT_ONLY"],
+            "command": "build/bin/Debug/MMORPGEngine.exe",
+            "args": ["--client", "localhost"],
             "group": "test",
             "problemMatcher": [],
-            "detail": "Connect to remote server as client."
+            "detail": "Connect to remote server as client (experimental - has physics issues)."
+        },
+        {
+            "label": "Run Engine with Networking",
+            "type": "shell",
+            "command": "build/bin/Debug/MMORPGEngine.exe",
+            "args": ["--enable-networking"],
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "Run integrated mode + allow external client connections."
         }
     ]
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(MMORPGEnginePrototype LANGUAGES CXX)
+project(MMORPGEngineModular LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,17 +17,11 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # Add engine source
 add_subdirectory(engine)
 
-# Create main executable (original monolithic version)
-add_executable(MMORPGEnginePrototype
-    engine/Core/main.cpp
+# Create main executable
+add_executable(MMORPGEngine
+    main.cpp
 )
-target_link_libraries(MMORPGEnginePrototype PRIVATE engine)
-
-# Create new modular executable (client-server architecture)
-add_executable(MMORPGEngineModular
-    main_new.cpp
-)
-target_link_libraries(MMORPGEngineModular PRIVATE engine)
+target_link_libraries(MMORPGEngine PRIVATE engine)
 
 # Third-party libraries
 add_subdirectory(libs)

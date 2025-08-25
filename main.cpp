@@ -9,6 +9,17 @@
 #include <cstring>
 #include <cctype>
 
+void printHelp() {
+    std::cout << "🎮 MMORPG Engine Prototype - Usage:" << std::endl;
+    std::cout << "  Default (no args):     Integrated mode - local game with physics" << std::endl;
+    std::cout << "  --enable-networking:   Integrated mode + allow external connections" << std::endl;
+    std::cout << "  --server:              Server-only mode (headless)" << std::endl;
+    std::cout << "  --client <address>:    Connect to remote server (experimental)" << std::endl;
+    std::cout << "  --help:                Show this help" << std::endl;
+    std::cout << std::endl;
+    std::cout << "💡 Recommended: Use default mode or --enable-networking for multiplayer" << std::endl;
+}
+
 #include "engine/Core/GameServer.h"
 #include "engine/Core/GameClient.h"
 #include "engine/Threading/JobSystem.h"
@@ -21,20 +32,31 @@ extern TimeManager* g_timeManager;
 extern TimeEffects* g_timeEffects;
 
 enum class RunMode {
-    INTEGRATED,    // Run both server and client in same process (default)
-    SERVER_ONLY,   // Run headless server only
-    CLIENT_ONLY    // Connect to remote server (not implemented yet)
+    INTEGRATED,    // Run both server and client in same process (default, recommended)
+    SERVER_ONLY,   // Run headless server only (for dedicated servers)
+    CLIENT_ONLY    // Connect to remote server (experimental, has physics/camera issues)
 };
 
 int main(int argc, char* argv[]) {
+    // Check for help first (before any initialization)
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            printHelp();
+            return 0;
+        }
+    }
+    
     // Parse command line arguments
-    RunMode runMode = RunMode::INTEGRATED;
+    RunMode runMode = RunMode::INTEGRATED;  // Default to working integrated mode
     std::string serverAddress = "localhost";
     uint16_t serverPort = 12345;  // Changed from 7777 to a higher port number
+    bool enableNetworking = false;  // Allow external connections in integrated mode
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--server") == 0 || strcmp(argv[i], "SERVER_ONLY") == 0) {
             runMode = RunMode::SERVER_ONLY;
+        } else if (strcmp(argv[i], "--enable-networking") == 0) {
+            enableNetworking = true;  // Allow external connections to integrated mode
         } else if (strcmp(argv[i], "--client") == 0 && i + 1 < argc) {
             runMode = RunMode::CLIENT_ONLY;
             serverAddress = argv[i + 1];
@@ -65,11 +87,16 @@ int main(int argc, char* argv[]) {
     
     switch (runMode) {
         case RunMode::INTEGRATED: {
-            std::cout << "🔗 Running in INTEGRATED mode (local server + client)" << std::endl;
+            if (enableNetworking) {
+                std::cout << "🎮 Running in INTEGRATED mode (client + networked local server)" << std::endl;
+                std::cout << "🌐 Server accepting external connections on port " << serverPort << std::endl;
+            } else {
+                std::cout << "🔗 Running in INTEGRATED mode (local server + client)" << std::endl;
+            }
             
-            // Create and initialize server (without networking for integrated mode)
+            // Create and initialize server (with networking if enabled)
             GameServer server;
-            if (!server.initialize(60.0f, false)) {  // No networking in integrated mode
+            if (!server.initialize(60.0f, enableNetworking, serverPort)) {  // Use networking flag
                 std::cerr << "Failed to initialize game server!" << std::endl;
                 return 1;
             }
@@ -148,7 +175,9 @@ int main(int argc, char* argv[]) {
         }
         
         case RunMode::CLIENT_ONLY: {
-            std::cout << "🖼️  Running in CLIENT-ONLY mode" << std::endl;
+            std::cout << "🖼️  Running in CLIENT-ONLY mode (experimental)" << std::endl;
+            std::cout << "⚠️  WARNING: This mode has physics/camera issues!" << std::endl;
+            std::cout << "💡 Recommended: Use default integrated mode instead" << std::endl;
             std::cout << "🔗 Target server: " << serverAddress << ":" << serverPort << std::endl;
             
             // Create and initialize client
