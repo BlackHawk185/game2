@@ -3,6 +3,7 @@
 #include "GameState.h"
 #include "../Rendering/Renderer.h"
 #include "../Time/TimeEffects.h"
+#include "../Network/NetworkMessages.h"
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
 #include <imgui.h>
@@ -13,6 +14,14 @@ extern TimeEffects* g_timeEffects;
 
 GameClient::GameClient() {
     // Constructor
+    m_networkManager = std::make_unique<NetworkManager>();  // Re-enabled with ENet
+    
+    // Set up network callbacks
+    if (auto client = m_networkManager->getClient()) {
+        client->onWorldStateReceived = [this](const WorldStateMessage& worldState) {
+            this->handleWorldStateReceived(worldState);
+        };
+    }
 }
 
 GameClient::~GameClient() {
@@ -48,6 +57,7 @@ bool GameClient::connectToGameState(GameState* gameState) {
     }
     
     m_gameState = gameState;
+    m_isRemoteClient = false;  // Local connection
     
     // Set up camera position based on game state
     if (m_gameState->getPrimaryPlayer()) {
@@ -55,12 +65,42 @@ bool GameClient::connectToGameState(GameState* gameState) {
         m_camera.position = playerPos;
     }
     
-    std::cout << "🔗 GameClient connected to game state" << std::endl;
+    std::cout << "🔗 GameClient connected to local game state" << std::endl;
+    return true;
+}
+
+bool GameClient::connectToRemoteServer(const std::string& serverAddress, uint16_t serverPort) {
+    if (!m_networkManager) {
+        std::cerr << "Network manager not initialized!" << std::endl;
+        return false;
+    }
+    
+    // Initialize networking
+    if (!m_networkManager->initializeNetworking()) {
+        std::cerr << "Failed to initialize networking!" << std::endl;
+        return false;
+    }
+    
+    std::cout << "🌐 Connecting to remote server: " << serverAddress << ":" << serverPort << std::endl;
+    
+    // Connect to remote server
+    if (!m_networkManager->joinServer(serverAddress, serverPort)) {
+        std::cerr << "Failed to connect to remote server!" << std::endl;
+        return false;
+    }
+    
+    m_isRemoteClient = true;
+    
+    // TODO: Wait for initial world state from server
+    // For now, create a minimal local state for rendering
+    // This will be replaced by data received from server
+    
+    std::cout << "✅ Connected to remote server successfully" << std::endl;
     return true;
 }
 
 bool GameClient::update(float deltaTime) {
-    if (!m_initialized || !m_gameState) {
+    if (!m_initialized) {
         return false;
     }
     
@@ -70,6 +110,11 @@ bool GameClient::update(float deltaTime) {
     // Check if window should close
     if (shouldClose()) {
         return false;
+    }
+    
+    // Update networking if remote client
+    if (m_isRemoteClient && m_networkManager) {
+        m_networkManager->update();
     }
     
     // Process input
@@ -111,20 +156,20 @@ bool GameClient::shouldClose() const {
 }
 
 void GameClient::processInput(float deltaTime) {
-    if (!m_window || !m_gameState) {
+    if (!m_window) {
         return;
     }
     
     processKeyboard(deltaTime);
     processMouse(deltaTime);
-    processBlockInteraction(deltaTime);
+    
+    // Only process block interaction if we have a local game state
+    if (m_gameState) {
+        processBlockInteraction(deltaTime);
+    }
 }
 
 void GameClient::render() {
-    if (!m_gameState) {
-        return;
-    }
-    
     // Clear screen
     Renderer::clear();
     
@@ -154,8 +199,13 @@ void GameClient::render() {
     // Update frustum culling
     m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);
     
-    // Render world
-    renderWorld();
+    // Render world (only if we have local game state)
+    if (m_gameState) {
+        renderWorld();
+    } else if (m_isRemoteClient) {
+        // Render waiting screen for remote clients
+        renderWaitingScreen();
+    }
     
     // Render UI
     renderUI();
@@ -230,8 +280,13 @@ void GameClient::processKeyboard(float deltaTime) {
     // Apply movement
     m_camera.position = m_camera.position + movement;
     
-    // Update player position in game state
-    if (m_gameState->getPrimaryPlayer()) {
+    // Send movement to server if remote client (temporarily disabled)
+    // if (m_isRemoteClient && m_networkManager) {
+    //     m_networkManager->sendPlayerMovement(m_camera.position, movement, deltaTime);
+    // }
+    
+    // Update player position in game state if local
+    if (m_gameState && m_gameState->getPrimaryPlayer()) {
         m_gameState->setPrimaryPlayerPosition(m_camera.position);
     }
     
@@ -387,15 +442,54 @@ void GameClient::renderWorld() {
     }
 }
 
+void GameClient::renderWaitingScreen() {
+    // Simple text rendering for waiting screen
+    // TODO: Replace with proper ImGui or text rendering system
+    glColor3f(1.0f, 1.0f, 1.0f);
+    // For now, just clear to a different color to show we're in remote mode
+    glClearColor(0.1f, 0.1f, 0.3f, 1.0f);  // Dark blue background
+}
+
 void GameClient::renderUI() {
     // TODO: Implement ImGui UI rendering
     // This will show server connection status, performance metrics, etc.
+    if (m_isRemoteClient) {
+        // Show connection status for remote clients
+        // TODO: Add proper UI text rendering
+    }
 }
 
 void GameClient::onWindowResize(int width, int height) {
     m_windowWidth = width;
     m_windowHeight = height;
     glViewport(0, 0, width, height);
+}
+
+void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState) {
+    std::cout << "🌍 Creating local game world from server data..." << std::endl;
+    std::cout << "   Islands: " << worldState.numIslands << std::endl;
+    std::cout << "   Spawn position: (" << worldState.playerSpawnPosition.x << ", " 
+              << worldState.playerSpawnPosition.y << ", " << worldState.playerSpawnPosition.z << ")" << std::endl;
+    
+    // Create a new GameState for the client based on server data
+    m_gameState = new GameState();  // Note: This creates a raw pointer, we might want to use unique_ptr later
+    
+    if (!m_gameState->initialize(false)) {  // Don't create default world, we'll use server data
+        std::cerr << "Failed to initialize client game state!" << std::endl;
+        delete m_gameState;
+        m_gameState = nullptr;
+        return;
+    }
+    
+    // TODO: Apply the world state data to our local game state
+    // For now, the game state has already created the default world
+    // In a full implementation, we'd populate the chunks based on worldState.islandPositions
+    
+    // Set camera position to the spawn location
+    m_camera.position = worldState.playerSpawnPosition;
+    m_camera.position.y += 2.0f;  // Position camera slightly above spawn point
+    
+    std::cout << "✅ Client world state initialized successfully!" << std::endl;
 }
 
 void GameClient::windowResizeCallback(GLFWwindow* window, int width, int height) {

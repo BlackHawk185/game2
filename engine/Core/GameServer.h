@@ -4,6 +4,8 @@
 
 #include "GameState.h"
 #include "../Time/TimeManager.h"
+#include "../Network/NetworkManager.h"  // Re-enabled with ENet integration
+#include "../Network/NetworkMessages.h"  // For WorldStateMessage
 #include <memory>
 #include <atomic>
 #include <thread>
@@ -30,8 +32,10 @@ public:
     /**
      * Initialize the game server
      * @param targetTickRate - Server simulation frequency (default: 60 Hz)
+     * @param enableNetworking - Whether to start network server (default: false)
+     * @param networkPort - Port for network server (default: 7777)
      */
-    bool initialize(float targetTickRate = 60.0f);
+    bool initialize(float targetTickRate = 60.0f, bool enableNetworking = false, uint16_t networkPort = 7777);
     
     /**
      * Start the server simulation loop
@@ -95,9 +99,22 @@ public:
     void queuePlayerMovement(const Vec3& movement);
     
 private:
+    // ================================
+    // NETWORKING HELPERS
+    // ================================
+    
+    /**
+     * Send world state to a newly connected client
+     */
+    void sendWorldStateToClient(ENetPeer* peer);
+    
     // Core systems
     std::unique_ptr<GameState> m_gameState;
     std::unique_ptr<TimeManager> m_timeManager;
+    std::unique_ptr<NetworkManager> m_networkManager;  // Re-enabled with ENet integration
+    
+    // Networking
+    bool m_networkingEnabled = false;
     
     // Threading
     std::atomic<bool> m_running{false};

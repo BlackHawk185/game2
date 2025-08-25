@@ -24,10 +24,29 @@
         {
             "label": "Run Engine",
             "type": "shell",
-            "command": "build/bin/Debug/MMORPGEnginePrototype.exe",
+            "command": "build/bin/Debug/MMORPGEngineModular.exe",
+            "args": [],
             "group": "test",
             "problemMatcher": [],
-            "detail": "Run the built engine executable."
+            "detail": "Run the modular engine in integrated mode (local server + client)."
+        },
+        {
+            "label": "Run Server Only",
+            "type": "shell",
+            "command": "build/bin/Debug/MMORPGEngineModular.exe",
+            "args": ["SERVER_ONLY"],
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "Run headless server for remote clients."
+        },
+        {
+            "label": "Run Client Only",
+            "type": "shell",
+            "command": "build/bin/Debug/MMORPGEngineModular.exe",
+            "args": ["CLIENT_ONLY"],
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "Connect to remote server as client."
         }
     ]
 }

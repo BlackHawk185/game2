@@ -36,6 +36,7 @@ public:
     std::function<void()> onDisconnectedFromServer;
     std::function<void(const PlayerPositionUpdate&)> onPlayerPositionUpdate;
     std::function<void(const HelloWorldMessage&)> onHelloWorld;
+    std::function<void(const WorldStateMessage&)> onWorldStateReceived;
     
 private:
     void handleServerEvent(const ENetEvent& event);

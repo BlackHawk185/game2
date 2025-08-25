@@ -17,14 +17,20 @@ bool IntegratedServer::startServer(uint16_t port) {
         return false;
     }
     
+    std::cout << "Creating ENet server on port " << port << "..." << std::endl;
+    
     ENetAddress address;
-    address.host = ENET_HOST_ANY;
+    // Explicitly bind to localhost instead of ENET_HOST_ANY
+    enet_address_set_host(&address, "127.0.0.1");
     address.port = port;
+    
+    std::cout << "ENet address configured: host=127.0.0.1, port=" << port << std::endl;
     
     // Create server host (allow up to 32 clients)
     host = enet_host_create(&address, 32, 2, 0, 0);
     if (!host) {
         std::cout << "Failed to create ENet server host!" << std::endl;
+        std::cout << "This might be a permissions issue or port conflict" << std::endl;
         return false;
     }
     
@@ -133,6 +139,11 @@ void IntegratedServer::broadcastPlayerPosition(uint32_t playerId, const Vec3& po
     update.velocity = velocity;
     
     broadcastToAllClients(&update, sizeof(update));
+}
+
+void IntegratedServer::sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState) {
+    std::cout << "Sending world state to client..." << std::endl;
+    sendToClient(client, &worldState, sizeof(worldState));
 }
 
 void IntegratedServer::sendToClient(ENetPeer* client, const void* data, size_t size) {

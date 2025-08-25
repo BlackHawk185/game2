@@ -30,6 +30,7 @@ public:
     // Send messages to clients
     void broadcastHelloWorld();
     void broadcastPlayerPosition(uint32_t playerId, const Vec3& position, const Vec3& velocity);
+    void sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState);
     void sendToClient(ENetPeer* client, const void* data, size_t size);
     void broadcastToAllClients(const void* data, size_t size);
     

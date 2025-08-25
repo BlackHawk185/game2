@@ -6,11 +6,14 @@
 #include "../Input/Camera.h"
 #include "../Culling/FrustumCuller.h"
 #include "../World/VoxelRaycaster.h"
+#include "../Network/NetworkManager.h"  // Re-enabled with ENet integration working
 #include <memory>
+#include <string>
 
 // Forward declarations
 class GameState;
 struct GLFWwindow;
+struct WorldStateMessage;
 
 /**
  * GameClient handles the presentation layer of the game.
@@ -40,6 +43,13 @@ public:
      * @param gameState - The game state to render (can be local server)
      */
     bool connectToGameState(GameState* gameState);
+    
+    /**
+     * Connect to a remote server
+     * @param serverAddress - The server address to connect to
+     * @param serverPort - The server port to connect to
+     */
+    bool connectToRemoteServer(const std::string& serverAddress, uint16_t serverPort);
     
     /**
      * Main client loop - handles input, rendering, and presentation
@@ -91,6 +101,10 @@ private:
     // Game state connection
     GameState* m_gameState = nullptr;  // Not owned by client
     
+    // Networking - Re-enabled with ENet integration
+    std::unique_ptr<NetworkManager> m_networkManager;
+    bool m_isRemoteClient = false;
+    
     // Rendering systems
     Camera m_camera;
     FrustumCuller m_frustumCuller;
@@ -131,6 +145,16 @@ private:
      * Render the 3D world
      */
     void renderWorld();
+    
+    /**
+     * Handle received world state from server
+     */
+    void handleWorldStateReceived(const WorldStateMessage& worldState);
+    
+    /**
+     * Render waiting screen for remote clients
+     */
+    void renderWaitingScreen();
     
     /**
      * Render UI and debug info

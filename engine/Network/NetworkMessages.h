@@ -16,7 +16,8 @@ enum NetworkMessageType : uint8_t {
     HELLO_WORLD = 1,
     PLAYER_MOVEMENT_REQUEST = 2,
     PLAYER_POSITION_UPDATE = 3,
-    CHAT_MESSAGE = 4
+    CHAT_MESSAGE = 4,
+    WORLD_STATE = 5
 };
 
 // Simple hello world message
@@ -47,6 +48,15 @@ struct PACKED PlayerPositionUpdate {
 struct PACKED ChatMessage {
     uint8_t type = CHAT_MESSAGE;
     char message[256];
+};
+
+// Basic world state - simplified for initial implementation
+struct PACKED WorldStateMessage {
+    uint8_t type = WORLD_STATE;
+    uint32_t numIslands;
+    // For simplicity, include positions of first 3 islands
+    Vec3 islandPositions[3];
+    Vec3 playerSpawnPosition;
 };
 
 // Restore packing

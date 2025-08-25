@@ -4,7 +4,7 @@
 
 #include "../Math/Vec3.h"
 #include "../World/IslandChunkSystem.h"
-// #include "../Physics/PhysicsSystem.h"  // Temporarily disabled to resolve BodyID conflicts
+#include "../Physics/PhysicsSystem.h"  // Re-enabled with fixed BodyID handling
 #include "../Player.h"
 #include <memory>
 #include <vector>
@@ -83,8 +83,8 @@ public:
     /**
      * Get physics system
      */
-    // PhysicsSystem* getPhysicsSystem() { return m_physicsSystem.get(); }
-    // const PhysicsSystem* getPhysicsSystem() const { return m_physicsSystem.get(); }
+    PhysicsSystem* getPhysicsSystem() { return m_physicsSystem.get(); }
+    const PhysicsSystem* getPhysicsSystem() const { return m_physicsSystem.get(); }
     
     // ================================
     // WORLD MODIFICATION
@@ -117,7 +117,7 @@ public:
 private:
     // Core systems
     IslandChunkSystem m_islandSystem;
-    // std::unique_ptr<PhysicsSystem> m_physicsSystem;  // Temporarily disabled
+    std::unique_ptr<PhysicsSystem> m_physicsSystem;  // Re-enabled with fixed BodyID handling
     
     // Player management
     std::unique_ptr<Player> m_primaryPlayer;

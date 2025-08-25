@@ -22,8 +22,8 @@ bool GameState::initialize(bool shouldCreateDefaultWorld) {
     
     std::cout << "🌍 Initializing GameState..." << std::endl;
     
-    // Initialize physics system
-    // m_physicsSystem = std::make_unique<PhysicsSystem>();  // Temporarily disabled
+    // Initialize physics system - Re-enabled with fixed BodyID handling
+    m_physicsSystem = std::make_unique<PhysicsSystem>();
     // TODO: Check if PhysicsSystem needs explicit initialization
     /*
     if (!m_physicsSystem->initialize()) {

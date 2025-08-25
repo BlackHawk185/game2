@@ -30,7 +30,7 @@ add_executable(MMORPGEngineModular
 target_link_libraries(MMORPGEngineModular PRIVATE engine)
 
 # Third-party libraries
-add_subdirectory(libs/glfw)
+add_subdirectory(libs)
  # bgfx, JoltPhysics, and imgui are not CMake projects, so do not use add_subdirectory. Link manually in engine/CMakeLists.txt.
 # Manual linking: see engine/CMakeLists.txt for instructions.
 

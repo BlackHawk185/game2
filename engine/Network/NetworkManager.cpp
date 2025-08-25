@@ -1,26 +1,33 @@
 #include "NetworkManager.h"
+#include "NetworkMessages.h"
 #include <enet/enet.h>
 #include <iostream>
 
-N        client->onConnectedToServer = [this]() {
-            std::cout << "Connected to game server" << std::endl;
-        };
-        
-        client->onDisconnectedFromServer = [this]() {
-            std::cout << "Disconnected from the game" << std::endl;
-        };
-        
-        client->onHelloWorld = [this](const HelloWorldMessage& msg) {
-            std::cout << "Server says: " << msg.message << std::endl;
-        };
-        
-        client->onPlayerPositionUpdate = [this](const PlayerPositionUpdate& update) {
-            std::cout << "Player " << update.playerId << " moved to: " 
-                      << update.position.x << ", " 
-                      << update.position.y << ", " 
-                      << update.position.z << std::endl;
-        };workManager() 
+NetworkManager::NetworkManager() 
     : isNetworkingEnabled(false) {
+    // Create integrated server and client
+    server = std::make_unique<IntegratedServer>();
+    client = std::make_unique<NetworkClient>();
+    
+    // Set up client event handlers
+    client->onConnectedToServer = [this]() {
+        std::cout << "Connected to game server" << std::endl;
+    };
+    
+    client->onDisconnectedFromServer = [this]() {
+        std::cout << "Disconnected from the game" << std::endl;
+    };
+    
+    client->onHelloWorld = [this](const HelloWorldMessage& msg) {
+        std::cout << "Server says: " << msg.message << std::endl;
+    };
+    
+    client->onPlayerPositionUpdate = [this](const PlayerPositionUpdate& update) {
+        std::cout << "Player " << update.playerId << " moved to: " 
+                  << update.position.x << ", " 
+                  << update.position.y << ", " 
+                  << update.position.z << std::endl;
+    };
 }
 
 NetworkManager::~NetworkManager() {

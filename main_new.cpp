@@ -30,10 +30,10 @@ int main(int argc, char* argv[]) {
     // Parse command line arguments
     RunMode runMode = RunMode::INTEGRATED;
     std::string serverAddress = "localhost";
-    uint16_t serverPort = 7777;
+    uint16_t serverPort = 12345;  // Changed from 7777 to a higher port number
     
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--server") == 0) {
+        if (strcmp(argv[i], "--server") == 0 || strcmp(argv[i], "SERVER_ONLY") == 0) {
             runMode = RunMode::SERVER_ONLY;
         } else if (strcmp(argv[i], "--client") == 0 && i + 1 < argc) {
             runMode = RunMode::CLIENT_ONLY;
@@ -45,6 +45,9 @@ int main(int argc, char* argv[]) {
                 serverPort = static_cast<uint16_t>(atoi(argv[i + 1]));
                 i++;
             }
+        } else if (strcmp(argv[i], "CLIENT_ONLY") == 0) {
+            runMode = RunMode::CLIENT_ONLY;
+            // Use default localhost
         }
     }
     
@@ -64,9 +67,9 @@ int main(int argc, char* argv[]) {
         case RunMode::INTEGRATED: {
             std::cout << "🔗 Running in INTEGRATED mode (local server + client)" << std::endl;
             
-            // Create and initialize server
+            // Create and initialize server (without networking for integrated mode)
             GameServer server;
-            if (!server.initialize(60.0f)) {
+            if (!server.initialize(60.0f, false)) {  // No networking in integrated mode
                 std::cerr << "Failed to initialize game server!" << std::endl;
                 return 1;
             }
@@ -127,9 +130,9 @@ int main(int argc, char* argv[]) {
         case RunMode::SERVER_ONLY: {
             std::cout << "🖥️  Running in SERVER-ONLY mode (headless)" << std::endl;
             
-            // Create and initialize server
+            // Create and initialize server with networking enabled
             GameServer server;
-            if (!server.initialize(60.0f)) {
+            if (!server.initialize(60.0f, true, serverPort)) {  // Enable networking
                 std::cerr << "Failed to initialize game server!" << std::endl;
                 return 1;
             }
@@ -148,10 +151,49 @@ int main(int argc, char* argv[]) {
             std::cout << "🖼️  Running in CLIENT-ONLY mode" << std::endl;
             std::cout << "🔗 Target server: " << serverAddress << ":" << serverPort << std::endl;
             
-            // TODO: Implement remote server connection
-            std::cerr << "❌ Remote server connection not implemented yet!" << std::endl;
-            std::cerr << "   Use integrated mode for now: run without --client flag" << std::endl;
-            return 1;
+            // Create and initialize client
+            GameClient client;
+            if (!client.initialize()) {
+                std::cerr << "Failed to initialize game client!" << std::endl;
+                return 1;
+            }
+            
+            // Connect to remote server
+            if (!client.connectToRemoteServer(serverAddress, serverPort)) {
+                std::cerr << "Failed to connect to remote server!" << std::endl;
+                return 1;
+            }
+            
+            std::cout << "✅ Client-only mode initialized successfully" << std::endl;
+            std::cout << "🎮 Controls: WASD+mouse to move, ESC to exit" << std::endl;
+            std::cout << "📡 Connected to remote server - waiting for world data..." << std::endl;
+            
+            // Main client loop
+            auto lastTime = std::chrono::high_resolution_clock::now();
+            while (true) {
+                auto currentTime = std::chrono::high_resolution_clock::now();
+                float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
+                lastTime = currentTime;
+                
+                // Clamp delta time
+                if (deltaTime > 0.05f) deltaTime = 0.05f;
+                
+                // Update client
+                if (!client.update(deltaTime)) {
+                    break; // Client wants to exit
+                }
+                
+                // Update time effects
+                if (g_timeEffects) {
+                    g_timeEffects->update(deltaTime);
+                }
+            }
+            
+            // Shutdown
+            std::cout << "🔄 Shutting down client..." << std::endl;
+            client.shutdown();
+            
+            break;
         }
     }
     

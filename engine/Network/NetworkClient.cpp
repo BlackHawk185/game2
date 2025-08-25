@@ -146,6 +146,18 @@ void NetworkClient::processServerMessage(ENetPacket* packet) {
             break;
         }
         
+        case NetworkMessageType::WORLD_STATE: {
+            if (packet->dataLength >= sizeof(WorldStateMessage)) {
+                WorldStateMessage worldState = *(WorldStateMessage*)packet->data;
+                std::cout << "Received world state: " << worldState.numIslands << " islands" << std::endl;
+                
+                if (onWorldStateReceived) {
+                    onWorldStateReceived(worldState);
+                }
+            }
+            break;
+        }
+        
         default:
             std::cout << "Unknown message type from server: " << (int)messageType << std::endl;
             break;

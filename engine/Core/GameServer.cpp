@@ -1,22 +1,25 @@
 // GameServer.cpp - Headless game server implementation
 #include "GameServer.h"
+#include "../Network/NetworkMessages.h"
 #include <iostream>
 #include <chrono>
 #include <thread>
 
 GameServer::GameServer() {
     // Constructor
+    m_networkManager = std::make_unique<NetworkManager>();  // Re-enabled with ENet
 }
 
 GameServer::~GameServer() {
     shutdown();
 }
 
-bool GameServer::initialize(float targetTickRate) {
+bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_t networkPort) {
     std::cout << "🖥️  Initializing GameServer (headless mode)..." << std::endl;
     
     m_targetTickRate = targetTickRate;
     m_fixedDeltaTime = 1.0f / targetTickRate;
+    m_networkingEnabled = enableNetworking;
     
     // Initialize time manager
     m_timeManager = std::make_unique<TimeManager>();
@@ -28,9 +31,33 @@ bool GameServer::initialize(float targetTickRate) {
         return false;
     }
     
+    // Initialize networking if requested
+    if (m_networkingEnabled) {
+        if (!m_networkManager->initializeNetworking()) {
+            std::cerr << "Failed to initialize networking!" << std::endl;
+            return false;
+        }
+        
+        if (!m_networkManager->startHosting(networkPort)) {
+            std::cerr << "Failed to start network server on port " << networkPort << std::endl;
+            return false;
+        }
+        
+        // Set up callback to send world state to new clients
+        if (auto server = m_networkManager->getServer()) {
+            server->onClientConnected = [this](ENetPeer* peer) {
+                std::cout << "New player joined the game!" << std::endl;
+                sendWorldStateToClient(peer);
+            };
+        }
+        
+        std::cout << "✅ Network server started on port " << networkPort << std::endl;
+    }
+    
     std::cout << "✅ GameServer initialized successfully" << std::endl;
     std::cout << "   Target tick rate: " << targetTickRate << " Hz" << std::endl;
     std::cout << "   Fixed delta time: " << m_fixedDeltaTime << " seconds" << std::endl;
+    std::cout << "   Networking: " << (m_networkingEnabled ? "ENABLED" : "DISABLED") << std::endl;
     
     return true;
 }
@@ -154,6 +181,11 @@ void GameServer::processTick(float deltaTime) {
     // Process queued commands first
     processQueuedCommands();
     
+    // Update networking
+    if (m_networkingEnabled && m_networkManager) {
+        m_networkManager->update();
+    }
+    
     // Update time manager
     if (m_timeManager) {
         m_timeManager->update(deltaTime);
@@ -201,5 +233,31 @@ void GameServer::updateTickRateStats(float actualDeltaTime) {
             tickRateAccumulator = 0.0f;
             tickRateSamples = 0;
         }
+    }
+}
+
+void GameServer::sendWorldStateToClient(ENetPeer* peer) {
+    if (!m_gameState || !m_networkManager) {
+        std::cerr << "Cannot send world state: missing game state or network manager" << std::endl;
+        return;
+    }
+    
+    // Create world state message from current game state
+    WorldStateMessage worldState;
+    worldState.numIslands = 3;  // We know we have 3 islands from createDefaultWorld
+    
+    // Get island positions (for now, use hardcoded positions from createDefaultWorld)
+    worldState.islandPositions[0] = Vec3(0, 0, 0);     // Main island
+    worldState.islandPositions[1] = Vec3(50, 10, 30);  // Second island  
+    worldState.islandPositions[2] = Vec3(-30, 5, 40);  // Third island
+    
+    // Set player spawn position (center of main island)
+    worldState.playerSpawnPosition = Vec3(8, 10, 8);
+    
+    std::cout << "Sending world state to client: " << worldState.numIslands << " islands" << std::endl;
+    
+    // Send through network manager
+    if (auto server = m_networkManager->getServer()) {
+        server->sendWorldStateToClient(peer, worldState);
     }
 }

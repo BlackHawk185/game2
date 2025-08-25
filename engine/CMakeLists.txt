@@ -38,6 +38,11 @@ add_library(engine STATIC
     # Time systems
     Time/TimeManager.cpp
     Time/TimeEffects.cpp
+    
+    # Network systems - Re-enabled with proper ENet integration
+    Network/NetworkManager.cpp
+    Network/IntegratedServer.cpp
+    Network/NetworkClient.cpp
 )
 
 # === Third-party sources: Jolt Physics ==Move-Item "c:\Users\steve-17\Desktop\game2\engine\Renderer.h" "c:\Users\steve-17\Desktop\game2\engine\Rendering\Renderer.h"=
@@ -63,6 +68,12 @@ target_include_directories(engine PUBLIC
 
 target_compile_features(engine PUBLIC cxx_std_17)
 
+# Set include directories for third-party libraries
+target_include_directories(engine PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}  # For internal includes
+    ${CMAKE_SOURCE_DIR}/libs/enet/include  # For ENet headers
+)
+
 # MSVC compatibility
 if(MSVC)
     target_compile_options(engine PRIVATE /Zc:__cplusplus)
@@ -74,5 +85,6 @@ find_package(OpenGL REQUIRED)
 target_link_libraries(engine PUBLIC
     glfw
     Jolt
+    enet
     OpenGL::GL
 )
