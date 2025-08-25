@@ -50,6 +50,10 @@ bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_
                 std::cout << "New player joined the game!" << std::endl;
                 sendWorldStateToClient(peer);
             };
+            
+            server->onVoxelChangeRequest = [this](ENetPeer* peer, const VoxelChangeRequest& request) {
+                this->handleVoxelChangeRequest(peer, request);
+            };
         }
         
         std::cout << "✅ Network server started on port " << networkPort << std::endl;
@@ -285,5 +289,24 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer) {
             std::cout << "Sending compressed island " << islandIDs[i] << " data (" << voxelDataSize << " bytes)" << std::endl;
             server->sendCompressedIslandToClient(peer, islandIDs[i], worldState.islandPositions[i], voxelData, voxelDataSize);
         }
+    }
+}
+
+void GameServer::handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeRequest& request) {
+    std::cout << "Server handling voxel change: Island " << request.islandID 
+              << " at (" << request.localPos.x << "," << request.localPos.y 
+              << "," << request.localPos.z << ") = " << (int)request.voxelType << std::endl;
+    
+    if (!m_gameState) {
+        std::cerr << "Cannot handle voxel change: no game state!" << std::endl;
+        return;
+    }
+    
+    // Apply the voxel change to the server's authoritative game state
+    m_gameState->setVoxel(request.islandID, request.localPos, request.voxelType);
+    
+    // Broadcast the change to all connected clients (including the sender for confirmation)
+    if (auto server = m_networkManager->getServer()) {
+        server->broadcastVoxelChange(request.islandID, request.localPos, request.voxelType, 0);
     }
 }

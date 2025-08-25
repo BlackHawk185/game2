@@ -4,6 +4,7 @@
 #include "../Rendering/Renderer.h"
 #include "../Time/TimeEffects.h"
 #include "../Network/NetworkMessages.h"
+#include "../Network/NetworkManager.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data
 #include <GLFW/glfw3.h>
 #include <GL/gl.h>
@@ -26,6 +27,10 @@ GameClient::GameClient() {
         
         client->onCompressedIslandReceived = [this](uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize) {
             this->handleCompressedIslandReceived(islandID, position, voxelData, dataSize);
+        };
+        
+        client->onVoxelChangeReceived = [this](const VoxelChangeUpdate& update) {
+            this->handleVoxelChangeReceived(update);
         };
     }
 }
@@ -378,6 +383,13 @@ void GameClient::processBlockInteraction(float deltaTime) {
         m_inputState.leftMousePressed = true;
         
         if (m_inputState.cachedTargetBlock.hit) {
+            // Send network request for block break
+            if (m_networkManager && m_networkManager->getClient() && m_networkManager->getClient()->isConnected()) {
+                m_networkManager->getClient()->sendVoxelChangeRequest(m_inputState.cachedTargetBlock.islandID, 
+                                                                     m_inputState.cachedTargetBlock.localBlockPos, 0);
+            }
+            
+            // Apply optimistically for immediate visual feedback
             m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, 
                                   m_inputState.cachedTargetBlock.localBlockPos, 0);
         }
@@ -394,6 +406,13 @@ void GameClient::processBlockInteraction(float deltaTime) {
             uint8_t existingVoxel = m_gameState->getVoxel(m_inputState.cachedTargetBlock.islandID, placePos);
             
             if (existingVoxel == 0) {
+                // Send network request for block place
+                if (m_networkManager && m_networkManager->getClient() && m_networkManager->getClient()->isConnected()) {
+                    m_networkManager->getClient()->sendVoxelChangeRequest(m_inputState.cachedTargetBlock.islandID, 
+                                                                         placePos, 1);
+                }
+                
+                // Apply optimistically for immediate visual feedback
                 m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, 1);
             }
         }
@@ -544,6 +563,23 @@ void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& p
     } else {
         std::cerr << "Failed to retrieve island with local ID: " << localIslandID << std::endl;
     }
+}
+
+void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update) {
+    if (!m_gameState) {
+        std::cerr << "Cannot apply voxel change: no game state!" << std::endl;
+        return;
+    }
+    
+    std::cout << "Applying authoritative voxel change: Island " << update.islandID 
+              << " at (" << update.localPos.x << "," << update.localPos.y 
+              << "," << update.localPos.z << ") = " << (int)update.voxelType 
+              << " by player " << update.authorPlayerId << std::endl;
+    
+    // Apply the authoritative voxel change from server
+    m_gameState->setVoxel(update.islandID, update.localPos, update.voxelType);
+    
+    // The setVoxel call should automatically trigger mesh regeneration in GameState
 }
 
 void GameClient::windowResizeCallback(GLFWwindow* window, int width, int height) {

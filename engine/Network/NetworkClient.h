@@ -29,6 +29,7 @@ public:
     
     // Send messages to server
     void sendMovementRequest(const Vec3& intendedPosition, const Vec3& velocity, float deltaTime);
+    void sendVoxelChangeRequest(uint32_t islandID, const Vec3& localPos, uint8_t voxelType);
     void sendToServer(const void* data, size_t size);
     
     // Callbacks for server messages
@@ -38,6 +39,7 @@ public:
     std::function<void(const HelloWorldMessage&)> onHelloWorld;
     std::function<void(const WorldStateMessage&)> onWorldStateReceived;
     std::function<void(uint32_t, const Vec3&, const uint8_t*, uint32_t)> onCompressedIslandReceived;
+    std::function<void(const VoxelChangeUpdate&)> onVoxelChangeReceived;
     
 private:
     void handleServerEvent(const ENetEvent& event);

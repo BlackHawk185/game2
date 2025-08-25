@@ -120,6 +120,17 @@ void IntegratedServer::processClientMessage(ENetPeer* client, ENetPacket* packet
             break;
         }
         
+        case NetworkMessageType::VOXEL_CHANGE_REQUEST: {
+            if (packet->dataLength >= sizeof(VoxelChangeRequest)) {
+                VoxelChangeRequest request = *(VoxelChangeRequest*)packet->data;
+                
+                if (onVoxelChangeRequest) {
+                    onVoxelChangeRequest(client, request);
+                }
+            }
+            break;
+        }
+        
         default:
             std::cout << "Unknown message type from client: " << (int)messageType << std::endl;
             break;
@@ -198,4 +209,15 @@ void IntegratedServer::broadcastToAllClients(const void* data, size_t size) {
     for (ENetPeer* client : connectedClients) {
         enet_peer_send(client, 0, packet);
     }
+}
+
+void IntegratedServer::broadcastVoxelChange(uint32_t islandID, const Vec3& localPos, uint8_t voxelType, uint32_t authorPlayerId) {
+    VoxelChangeUpdate update;
+    update.sequenceNumber = nextSequenceNumber++;
+    update.islandID = islandID;
+    update.localPos = localPos;
+    update.voxelType = voxelType;
+    update.authorPlayerId = authorPlayerId;
+    
+    broadcastToAllClients(&update, sizeof(update));
 }

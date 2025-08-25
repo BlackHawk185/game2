@@ -20,7 +20,8 @@ enum NetworkMessageType : uint8_t {
     WORLD_STATE = 5,
     COMPRESSED_ISLAND_DATA = 6,
     VOXEL_CHANGE_REQUEST = 7,
-    VOXEL_CHANGE_UPDATE = 8
+    VOXEL_CHANGE_UPDATE = 8,
+    ENTITY_STATE_UPDATE = 9
 };
 
 // Simple hello world message
@@ -74,6 +75,38 @@ struct PACKED CompressedIslandHeader {
 
 // Maximum size for compressed data (conservative estimate)
 constexpr uint32_t MAX_COMPRESSED_ISLAND_SIZE = 16384; // 16KB max compressed size
+
+// Voxel change request from client to server
+struct PACKED VoxelChangeRequest {
+    uint8_t type = VOXEL_CHANGE_REQUEST;
+    uint32_t sequenceNumber;
+    uint32_t islandID;
+    Vec3 localPos;
+    uint8_t voxelType; // 0 = air (break), 1+ = place block
+};
+
+// Voxel change update from server to all clients
+struct PACKED VoxelChangeUpdate {
+    uint8_t type = VOXEL_CHANGE_UPDATE;
+    uint32_t sequenceNumber;
+    uint32_t islandID;
+    Vec3 localPos;
+    uint8_t voxelType;
+    uint32_t authorPlayerId; // Player who made the change
+};
+
+// Unified entity state update (works for players, islands, NPCs, etc.)
+struct PACKED EntityStateUpdate {
+    uint8_t type = ENTITY_STATE_UPDATE;
+    uint32_t sequenceNumber;
+    uint32_t entityID;           // Unique entity identifier
+    uint8_t entityType;          // 0=Player, 1=Island, 2=NPC, etc.
+    Vec3 position;               // Current position
+    Vec3 velocity;               // Current velocity
+    Vec3 acceleration;           // For smooth prediction/interpolation
+    uint32_t serverTimestamp;    // Server time for lag compensation
+    uint8_t flags;               // Bit flags (isGrounded, needsCorrection, etc.)
+};
 
 // Restore packing
 #ifdef _MSC_VER

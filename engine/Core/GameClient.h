@@ -13,6 +13,7 @@
 // Forward declarations
 class GameState;
 struct GLFWwindow;
+struct VoxelChangeUpdate;
 struct WorldStateMessage;
 
 /**
@@ -155,6 +156,11 @@ private:
      * Handle received compressed island data from server
      */
     void handleCompressedIslandReceived(uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize);
+    
+    /**
+     * Handle received voxel change updates from server
+     */
+    void handleVoxelChangeReceived(const VoxelChangeUpdate& update);
     
     /**
      * Render waiting screen for remote clients

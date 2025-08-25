@@ -108,6 +108,11 @@ private:
      */
     void sendWorldStateToClient(ENetPeer* peer);
     
+    /**
+     * Handle voxel change requests from clients
+     */
+    void handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeRequest& request);
+    
     // Core systems
     std::unique_ptr<GameState> m_gameState;
     std::unique_ptr<TimeManager> m_timeManager;

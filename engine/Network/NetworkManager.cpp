@@ -79,6 +79,8 @@ bool NetworkManager::startHosting(uint16_t port) {
             // Movement validation will be added in Phase 2
             this->broadcastPlayerPosition(0, request.intendedPosition, request.velocity);
         };
+        
+        // Voxel changes are now handled by GameServer directly via its own callback
     }
     
     return success;

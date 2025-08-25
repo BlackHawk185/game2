@@ -195,6 +195,20 @@ void NetworkClient::processServerMessage(ENetPacket* packet) {
             break;
         }
         
+        case NetworkMessageType::VOXEL_CHANGE_UPDATE: {
+            if (packet->dataLength >= sizeof(VoxelChangeUpdate)) {
+                VoxelChangeUpdate update = *(VoxelChangeUpdate*)packet->data;
+                std::cout << "Received voxel change: Island " << update.islandID 
+                          << " at (" << update.localPos.x << "," << update.localPos.y 
+                          << "," << update.localPos.z << ") = " << (int)update.voxelType << std::endl;
+                
+                if (onVoxelChangeReceived) {
+                    onVoxelChangeReceived(update);
+                }
+            }
+            break;
+        }
+        
         default:
             std::cout << "Unknown message type from server: " << (int)messageType << std::endl;
             break;
@@ -208,6 +222,18 @@ void NetworkClient::sendMovementRequest(const Vec3& intendedPosition, const Vec3
     request.intendedPosition = intendedPosition;
     request.velocity = velocity;
     request.deltaTime = deltaTime;
+    
+    sendToServer(&request, sizeof(request));
+}
+
+void NetworkClient::sendVoxelChangeRequest(uint32_t islandID, const Vec3& localPos, uint8_t voxelType) {
+    if (!serverConnection) return;
+    
+    VoxelChangeRequest request;
+    request.sequenceNumber = nextSequenceNumber++;
+    request.islandID = islandID;
+    request.localPos = localPos;
+    request.voxelType = voxelType;
     
     sendToServer(&request, sizeof(request));
 }

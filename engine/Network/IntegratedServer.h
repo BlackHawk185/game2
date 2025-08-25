@@ -32,6 +32,7 @@ public:
     void broadcastPlayerPosition(uint32_t playerId, const Vec3& position, const Vec3& velocity);
     void sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState);
     void sendCompressedIslandToClient(ENetPeer* client, uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t voxelDataSize);
+    void broadcastVoxelChange(uint32_t islandID, const Vec3& localPos, uint8_t voxelType, uint32_t authorPlayerId);
     void sendToClient(ENetPeer* client, const void* data, size_t size);
     void broadcastToAllClients(const void* data, size_t size);
     
@@ -39,6 +40,7 @@ public:
     std::function<void(ENetPeer*)> onClientConnected;
     std::function<void(ENetPeer*)> onClientDisconnected;
     std::function<void(ENetPeer*, const PlayerMovementRequest&)> onPlayerMovementRequest;
+    std::function<void(ENetPeer*, const VoxelChangeRequest&)> onVoxelChangeRequest;
     
 private:
     void handleClientEvent(const ENetEvent& event);
