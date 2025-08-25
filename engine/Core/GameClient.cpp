@@ -347,7 +347,10 @@ void GameClient::processMouse(float deltaTime) {
     if (m_camera.pitch > 89.0f) m_camera.pitch = 89.0f;
     if (m_camera.pitch < -89.0f) m_camera.pitch = -89.0f;
     
-    // Camera vectors are updated internally by the Camera class
+    // Update camera vectors after changing yaw/pitch - this was missing!
+    m_camera.updateCameraVectors();
+    // We need to manually call this since we're directly modifying yaw/pitch
+    // TODO: Refactor to use Camera's processInput() method instead of duplicating logic
     // m_camera.updateCameraVectors();
 }
 

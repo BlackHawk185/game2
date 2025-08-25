@@ -26,8 +26,10 @@ public:
     float speed = 15.0f;  // Faster movement to explore the sphere
     float sensitivity = 0.1f; // Mouse sensitivity
     
-private:
+    // Public method to update camera vectors when yaw/pitch are modified externally
     void updateCameraVectors();
+
+private:
     bool firstMouse = true;
     float lastX = 640.0f, lastY = 360.0f;
 };
