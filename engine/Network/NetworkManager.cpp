@@ -23,10 +23,11 @@ NetworkManager::NetworkManager()
     };
     
     client->onPlayerPositionUpdate = [this](const PlayerPositionUpdate& update) {
-        std::cout << "Player " << update.playerId << " moved to: " 
-                  << update.position.x << ", " 
-                  << update.position.y << ", " 
-                  << update.position.z << std::endl;
+        // Debug: Uncomment for position update debugging
+        // std::cout << "Player " << update.playerId << " moved to: " 
+        //           << update.position.x << ", " 
+        //           << update.position.y << ", " 
+        //           << update.position.z << std::endl;
     };
 }
 
@@ -68,13 +69,14 @@ bool NetworkManager::startHosting(uint16_t port) {
         };
         
         server->onPlayerMovementRequest = [this](ENetPeer* peer, const PlayerMovementRequest& request) {
-            std::cout << "Player wants to move to: " 
-                      << request.intendedPosition.x << ", " 
-                      << request.intendedPosition.y << ", " 
-                      << request.intendedPosition.z << std::endl;
+            // Debug: Uncomment for movement debugging
+            // std::cout << "Player wants to move to: " 
+            //           << request.intendedPosition.x << ", " 
+            //           << request.intendedPosition.y << ", " 
+            //           << request.intendedPosition.z << std::endl;
             
             // For now, just accept all movement requests
-            // TODO: Add validation in Phase 2
+            // Movement validation will be added in Phase 2
             this->broadcastPlayerPosition(0, request.intendedPosition, request.velocity);
         };
     }
@@ -112,10 +114,11 @@ bool NetworkManager::joinServer(const std::string& host, uint16_t port) {
         };
         
         client->onPlayerPositionUpdate = [](const PlayerPositionUpdate& update) {
-            std::cout << "Player " << update.playerId << " moved to: " 
-                      << update.position.x << ", " 
-                      << update.position.y << ", " 
-                      << update.position.z << std::endl;
+            // Debug: Uncomment for position update debugging  
+            // std::cout << "Player " << update.playerId << " moved to: " 
+            //           << update.position.x << ", " 
+            //           << update.position.y << ", " 
+            //           << update.position.z << std::endl;
         };
     }
     

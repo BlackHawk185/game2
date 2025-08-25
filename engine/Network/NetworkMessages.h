@@ -18,7 +18,9 @@ enum NetworkMessageType : uint8_t {
     PLAYER_POSITION_UPDATE = 3,
     CHAT_MESSAGE = 4,
     WORLD_STATE = 5,
-    COMPRESSED_ISLAND_DATA = 6
+    COMPRESSED_ISLAND_DATA = 6,
+    VOXEL_CHANGE_REQUEST = 7,
+    VOXEL_CHANGE_UPDATE = 8
 };
 
 // Simple hello world message

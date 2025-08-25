@@ -1,8 +1,8 @@
-// main_new.cpp - Modular MMORPG Engine with Client-Server Architecture
-// This demonstrates the new separated architecture where:
+// main.cpp - Modular MMORPG Engine with Unified Networking Architecture
+// This demonstrates the unified networking architecture where:
 // - GameServer runs the authoritative simulation (can be headless)
-// - GameClient handles rendering and input
-// - Both can run in the same process (integrated mode) or separately
+// - GameClient ALWAYS connects via network layer (even for local games)
+// - Single networking code path for consistent debugging and development
 #include <iostream>
 #include <chrono>
 #include <thread>
@@ -11,13 +11,13 @@
 
 void printHelp() {
     std::cout << "🎮 MMORPG Engine Prototype - Usage:" << std::endl;
-    std::cout << "  Default (no args):     Integrated mode - local game with physics" << std::endl;
+    std::cout << "  Default (no args):     Integrated mode - local server + networked client" << std::endl;
     std::cout << "  --enable-networking:   Integrated mode + allow external connections" << std::endl;
     std::cout << "  --server:              Server-only mode (headless)" << std::endl;
-    std::cout << "  --client <address>:    Connect to remote server (experimental)" << std::endl;
+    std::cout << "  --client <address>:    Connect to remote server" << std::endl;
     std::cout << "  --help:                Show this help" << std::endl;
     std::cout << std::endl;
-    std::cout << "💡 Recommended: Use default mode or --enable-networking for multiplayer" << std::endl;
+    std::cout << "💡 All modes now use unified networking for consistent debugging" << std::endl;
 }
 
 #include "engine/Core/GameServer.h"
@@ -32,9 +32,9 @@ extern TimeManager* g_timeManager;
 extern TimeEffects* g_timeEffects;
 
 enum class RunMode {
-    INTEGRATED,    // Run both server and client in same process (default, recommended)
+    INTEGRATED,    // Run both server and client in same process (unified networking)
     SERVER_ONLY,   // Run headless server only (for dedicated servers)
-    CLIENT_ONLY    // Connect to remote server (experimental, has physics/camera issues)
+    CLIENT_ONLY    // Connect to remote server
 };
 
 int main(int argc, char* argv[]) {
@@ -87,16 +87,16 @@ int main(int argc, char* argv[]) {
     
     switch (runMode) {
         case RunMode::INTEGRATED: {
+            std::cout << "🎮 Running in INTEGRATED mode (unified networking)" << std::endl;
             if (enableNetworking) {
-                std::cout << "🎮 Running in INTEGRATED mode (client + networked local server)" << std::endl;
                 std::cout << "🌐 Server accepting external connections on port " << serverPort << std::endl;
             } else {
-                std::cout << "🔗 Running in INTEGRATED mode (local server + client)" << std::endl;
+                std::cout << "🔗 Local server with network-based client connection" << std::endl;
             }
             
-            // Create and initialize server (with networking if enabled)
+            // Create and initialize server (ALWAYS with networking enabled for unified architecture)
             GameServer server;
-            if (!server.initialize(60.0f, enableNetworking, serverPort)) {  // Use networking flag
+            if (!server.initialize(60.0f, true, serverPort)) {  // Force networking ON
                 std::cerr << "Failed to initialize game server!" << std::endl;
                 return 1;
             }
@@ -115,14 +115,15 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
             
-            // Connect client to server's game state
-            if (!client.connectToGameState(server.getGameState())) {
-                std::cerr << "Failed to connect client to server!" << std::endl;
+            // Connect client to server via NETWORK (unified path)
+            if (!client.connectToRemoteServer("127.0.0.1", serverPort)) {
+                std::cerr << "Failed to connect client to local server!" << std::endl;
                 server.stop();
                 return 1;
             }
             
-            std::cout << "✅ Integrated mode initialized successfully" << std::endl;
+            std::cout << "✅ Integrated mode initialized successfully (unified networking)" << std::endl;
+            std::cout << "🌐 Client connected to local server via network layer" << std::endl;
             std::cout << "🎮 Controls: WASD+mouse to move, SPACE to jump, 1-5/0/T for time effects, ESC to exit" << std::endl;
             
             // Main client loop
@@ -175,9 +176,7 @@ int main(int argc, char* argv[]) {
         }
         
         case RunMode::CLIENT_ONLY: {
-            std::cout << "🖼️  Running in CLIENT-ONLY mode (experimental)" << std::endl;
-            std::cout << "⚠️  WARNING: This mode has physics/camera issues!" << std::endl;
-            std::cout << "💡 Recommended: Use default integrated mode instead" << std::endl;
+            std::cout << "🖼️  Running in CLIENT-ONLY mode" << std::endl;
             std::cout << "🔗 Target server: " << serverAddress << ":" << serverPort << std::endl;
             
             // Create and initialize client

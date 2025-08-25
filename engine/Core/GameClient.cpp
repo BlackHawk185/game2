@@ -291,6 +291,12 @@ void GameClient::processKeyboard(float deltaTime) {
         m_gameState->setPrimaryPlayerPosition(m_camera.position);
     }
     
+    // Send movement to server if we're a remote client
+    if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f) {
+        Vec3 velocity = movement / deltaTime; // Calculate velocity
+        m_networkManager->sendPlayerMovement(m_camera.position, velocity, deltaTime);
+    }
+    
     // Time effects (temporary, will be refactored)
     if (g_timeEffects) {
         // TODO: Implement proper time effect methods
