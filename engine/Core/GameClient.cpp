@@ -32,6 +32,10 @@ GameClient::GameClient() {
         client->onVoxelChangeReceived = [this](const VoxelChangeUpdate& update) {
             this->handleVoxelChangeReceived(update);
         };
+        
+        client->onEntityStateUpdate = [this](const EntityStateUpdate& update) {
+            this->handleEntityStateUpdate(update);
+        };
     }
 }
 
@@ -126,6 +130,16 @@ bool GameClient::update(float deltaTime) {
     // Update networking if remote client
     if (m_isRemoteClient && m_networkManager) {
         m_networkManager->update();
+    }
+    
+    // Update client-side physics for smooth island movement
+    if (m_gameState) {
+        auto* islandSystem = m_gameState->getIslandSystem();
+        if (islandSystem) {
+            // Run client-side island physics between server updates
+            // This provides smooth movement using server-provided velocities
+            islandSystem->updateIslandPhysics(deltaTime);
+        }
     }
     
     // Process input
@@ -580,6 +594,64 @@ void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update) {
     m_gameState->setVoxel(update.islandID, update.localPos, update.voxelType);
     
     // The setVoxel call should automatically trigger mesh regeneration in GameState
+}
+
+void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update) {
+    if (!m_gameState) {
+        return;
+    }
+    
+    // Handle different entity types
+    switch (update.entityType) {
+        case 1: { // Island
+            std::cout << "Received island " << update.entityID << " state: pos(" 
+                      << update.position.x << "," << update.position.y << "," << update.position.z 
+                      << ") vel(" << update.velocity.x << "," << update.velocity.y << "," << update.velocity.z << ")" << std::endl;
+            
+            auto* islandSystem = m_gameState->getIslandSystem();
+            if (islandSystem) {
+                FloatingIsland* island = islandSystem->getIsland(update.entityID);
+                if (island) {
+                    // Apply server-authoritative velocity for client-side physics simulation
+                    // This allows smooth movement while maintaining server authority
+                    
+                    Vec3 currentPos = island->physicsCenter;
+                    Vec3 serverPos = update.position;
+                    Vec3 positionError = serverPos - currentPos;
+                    
+                    // Calculate position error magnitude
+                    float errorMagnitude = sqrtf(positionError.x * positionError.x + 
+                                                positionError.y * positionError.y + 
+                                                positionError.z * positionError.z);
+                    
+                    // Set velocity from server for physics simulation
+                    island->velocity = update.velocity;
+                    island->acceleration = update.acceleration;
+                    
+                    // Apply position correction based on error magnitude
+                    if (errorMagnitude > 2.0f) {
+                        // Large error: snap to server position (teleport/respawn case)
+                        island->physicsCenter = serverPos;
+                    } else if (errorMagnitude > 0.1f) {
+                        // Small to medium error: apply gradual correction
+                        // Add a correction velocity component to smoothly move toward server position
+                        Vec3 correctionVelocity = positionError * 0.8f; // Correction strength
+                        island->velocity = island->velocity + correctionVelocity;
+                    }
+                    // If error is very small (< 0.1f), just use server velocity as-is
+                    
+                    // Mark for physics update synchronization
+                    island->needsPhysicsUpdate = true;
+                }
+            }
+            break;
+        }
+        case 0: // Player (future implementation)
+        case 2: // NPC (future implementation)
+        default:
+            // Handle other entity types in the future
+            break;
+    }
 }
 
 void GameClient::windowResizeCallback(GLFWwindow* window, int width, int height) {

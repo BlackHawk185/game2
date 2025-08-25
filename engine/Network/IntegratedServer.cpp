@@ -221,3 +221,7 @@ void IntegratedServer::broadcastVoxelChange(uint32_t islandID, const Vec3& local
     
     broadcastToAllClients(&update, sizeof(update));
 }
+
+void IntegratedServer::broadcastEntityState(const EntityStateUpdate& entityState) {
+    broadcastToAllClients(&entityState, sizeof(entityState));
+}

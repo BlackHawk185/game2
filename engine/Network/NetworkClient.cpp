@@ -209,6 +209,17 @@ void NetworkClient::processServerMessage(ENetPacket* packet) {
             break;
         }
         
+        case NetworkMessageType::ENTITY_STATE_UPDATE: {
+            if (packet->dataLength >= sizeof(EntityStateUpdate)) {
+                EntityStateUpdate update = *(EntityStateUpdate*)packet->data;
+                
+                if (onEntityStateUpdate) {
+                    onEntityStateUpdate(update);
+                }
+            }
+            break;
+        }
+        
         default:
             std::cout << "Unknown message type from server: " << (int)messageType << std::endl;
             break;

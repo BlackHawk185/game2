@@ -201,8 +201,10 @@ void GameServer::processTick(float deltaTime) {
         m_gameState->updateSimulation(deltaTime);
     }
     
-    // TODO: Here we would broadcast state updates to clients
-    // TODO: Here we would handle network message processing
+    // Broadcast island state updates to clients
+    if (m_networkingEnabled && m_networkManager) {
+        broadcastIslandStates();
+    }
 }
 
 void GameServer::processQueuedCommands() {
@@ -308,5 +310,64 @@ void GameServer::handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeReque
     // Broadcast the change to all connected clients (including the sender for confirmation)
     if (auto server = m_networkManager->getServer()) {
         server->broadcastVoxelChange(request.islandID, request.localPos, request.voxelType, 0);
+    }
+}
+
+void GameServer::broadcastIslandStates() {
+    if (!m_gameState || !m_networkManager) {
+        return;
+    }
+    
+    auto server = m_networkManager->getServer();
+    if (!server) {
+        return;
+    }
+    
+    auto* islandSystem = m_gameState->getIslandSystem();
+    if (!islandSystem) {
+        return;
+    }
+    
+    // Broadcast state for all islands at a reasonable frequency (e.g., 10Hz for smooth movement)
+    static float lastBroadcastTime = 0.0f;
+    static int broadcastCount = 0;
+    float currentTime = m_timeManager ? m_timeManager->getRealTime() : 0.0f;
+    
+    if (currentTime - lastBroadcastTime < 0.1f) { // 10Hz update rate
+        return;
+    }
+    lastBroadcastTime = currentTime;
+    broadcastCount++;
+    
+    // Get all island IDs and broadcast their current states
+    const std::vector<uint32_t>& islandIDs = m_gameState->getAllIslandIDs();
+    uint32_t serverTimestamp = static_cast<uint32_t>(currentTime * 1000.0f); // Convert to milliseconds
+    
+    // Debug: Print broadcast info every 30 broadcasts (3 seconds at 10Hz)
+    if (broadcastCount % 30 == 1) {
+        std::cout << "Broadcasting island states (broadcast #" << broadcastCount << ") - " << islandIDs.size() << " islands" << std::endl;
+    }
+    
+    for (uint32_t islandID : islandIDs) {
+        const FloatingIsland* island = islandSystem->getIsland(islandID);
+        if (!island) continue;
+        
+        // Create EntityStateUpdate for this island
+        EntityStateUpdate update;
+        update.sequenceNumber = m_totalTicks; // Use tick count as sequence
+        update.entityID = islandID;
+        update.entityType = 1; // 1 = Island (as defined in NetworkMessages.h)
+        update.position = island->physicsCenter;
+        update.velocity = island->velocity;
+        update.acceleration = island->acceleration;
+        update.serverTimestamp = serverTimestamp;
+        update.flags = 0; // No special flags for islands
+        
+        std::cout << "Broadcasting island " << islandID << " state: pos(" 
+                  << island->physicsCenter.x << "," << island->physicsCenter.y << "," << island->physicsCenter.z 
+                  << ") vel(" << island->velocity.x << "," << island->velocity.y << "," << island->velocity.z << ")" << std::endl;
+        
+        // Broadcast to all connected clients
+        server->broadcastEntityState(update);
     }
 }

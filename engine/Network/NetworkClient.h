@@ -40,6 +40,7 @@ public:
     std::function<void(const WorldStateMessage&)> onWorldStateReceived;
     std::function<void(uint32_t, const Vec3&, const uint8_t*, uint32_t)> onCompressedIslandReceived;
     std::function<void(const VoxelChangeUpdate&)> onVoxelChangeReceived;
+    std::function<void(const EntityStateUpdate&)> onEntityStateUpdate;
     
 private:
     void handleServerEvent(const ENetEvent& event);

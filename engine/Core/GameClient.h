@@ -163,6 +163,11 @@ private:
     void handleVoxelChangeReceived(const VoxelChangeUpdate& update);
     
     /**
+     * Handle received entity state updates from server
+     */
+    void handleEntityStateUpdate(const EntityStateUpdate& update);
+    
+    /**
      * Render waiting screen for remote clients
      */
     void renderWaitingScreen();

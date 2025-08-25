@@ -113,6 +113,11 @@ private:
      */
     void handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeRequest& request);
     
+    /**
+     * Broadcast island state updates to all connected clients
+     */
+    void broadcastIslandStates();
+    
     // Core systems
     std::unique_ptr<GameState> m_gameState;
     std::unique_ptr<TimeManager> m_timeManager;

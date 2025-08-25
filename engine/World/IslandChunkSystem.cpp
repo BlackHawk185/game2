@@ -31,7 +31,7 @@ uint32_t IslandChunkSystem::createIsland(const Vec3& physicsCenter) {
     float randomX = (std::rand() % 201 - 100) / 100.0f;
     float randomY = (std::rand() % 201 - 100) / 100.0f;
     float randomZ = (std::rand() % 201 - 100) / 100.0f;
-    // Set velocity to ±0.4f for all axes (4x faster drift)
+    // Set velocity to ±0.4f for all axes (original drift speed)
     island.velocity = Vec3(
         randomX * 0.4f,
         randomY * 0.4f,
