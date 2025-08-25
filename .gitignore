@@ -46,8 +46,8 @@ Makefile
 
 # IDE files
 .vscode/settings.json
-.vscode/launch.json
 .vscode/c_cpp_properties.json
+# Note: .vscode/launch.json and .vscode/tasks.json are included for project setup
 
 # OS files
 .DS_Store
