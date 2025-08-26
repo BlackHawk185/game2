@@ -60,6 +60,9 @@ target_sources(engine PRIVATE
     ${IMGUI_SRC}
 )
 
+# Enable precompiled headers (PCH)
+target_precompile_headers(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/pch.h")
+
 # Engine includes
 target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -77,7 +80,11 @@ target_include_directories(engine PUBLIC
 
 # MSVC compatibility
 if(MSVC)
+    # Ensure correct __cplusplus value
     target_compile_options(engine PRIVATE /Zc:__cplusplus)
+    # Allow parallel compilation and avoid PDB write conflicts by enabling /MP and /FS
+    # /MP enables multi-processor compilation; /FS serializes access to PDB to avoid races
+    target_compile_options(engine PRIVATE /MP /FS)
 endif()
 
 find_package(OpenGL REQUIRED)

@@ -1,0 +1,144 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 15,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "windows-base",
+            "hidden": true,
+            "generator": "Visual Studio 17 2022",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "17",
+                "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+                "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
+                "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "review",
+            "displayName": "Review Build (Fast compile for code review)",
+            "description": "Optimized for fast compilation and basic error checking",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_FLAGS": "/W3 /Od /Zi /MDd /FS /EHsc",
+                "CMAKE_C_FLAGS": "/W3 /Od /Zi /MDd /FS",
+                "BUILD_TESTING": "OFF"
+            }
+        },
+        {
+            "name": "debug",
+            "displayName": "Debug Build (Standard development)",
+            "description": "Standard debug build with full debugging information",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_FLAGS": "/W4 /Od /Zi /MDd /FS /DDEBUG_BUILD",
+                "CMAKE_C_FLAGS": "/W4 /Od /Zi /MDd /FS /DDEBUG_BUILD",
+                "BUILD_TESTING": "ON"
+            }
+        },
+        {
+            "name": "sanitized",
+            "displayName": "Sanitized Build (Memory/Thread safety validation)",
+            "description": "Debug build with AddressSanitizer and other safety checks",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_FLAGS": "/W4 /Od /Zi /MDd /fsanitize=address /DDEBUG_BUILD /DSANITIZER_BUILD",
+                "CMAKE_EXE_LINKER_FLAGS": "/fsanitize=address",
+                "BUILD_TESTING": "ON"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release Build (Performance optimized)",
+            "description": "Optimized release build for performance testing",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_FLAGS": "/W3 /O2 /DNDEBUG",
+                "BUILD_TESTING": "OFF"
+            }
+        },
+        {
+            "name": "profile",
+            "displayName": "Profile Build (Performance analysis ready)",
+            "description": "Release build with profiling symbols for Tracy/RenderDoc",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_CXX_FLAGS": "/W3 /O2 /Zi /DNDEBUG /DTRACY_ENABLE /DPROFILE_BUILD",
+                "BUILD_TESTING": "OFF"
+            }
+        },
+        {
+            "name": "clang-tidy",
+            "displayName": "Clang-Tidy Integration",
+            "description": "Run clang-tidy as part of the configure/build (Visual Studio integration)",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_CXX_CLANG_TIDY": "clang-tidy;-checks=modernize-*,bugprone-*,performance-*;--header-filter=.*"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "review",
+            "configurePreset": "review",
+            "displayName": "Build Review",
+            "description": "Fast build for code review workflow"
+        },
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "displayName": "Build Debug",
+            "description": "Standard debug build"
+        },
+        {
+            "name": "sanitized",
+            "configurePreset": "sanitized",
+            "displayName": "Build Sanitized",
+            "description": "Build with memory safety validation"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "displayName": "Build Release",
+            "description": "Optimized release build"
+        },
+        {
+            "name": "profile",
+            "configurePreset": "profile",
+            "displayName": "Build Profile",
+            "description": "Build for performance analysis"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "debug-tests",
+            "configurePreset": "debug",
+            "displayName": "Run Debug Tests",
+            "description": "Run unit tests in debug mode"
+        },
+        {
+            "name": "sanitized-tests",
+            "configurePreset": "sanitized",
+            "displayName": "Run Sanitized Tests",
+            "description": "Run tests with memory safety validation"
+        }
+    ]
+}

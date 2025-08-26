@@ -4,58 +4,140 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "CMake Build",
+            "label": "CMake Configure (Review)",
             "type": "shell",
             "command": "cmake",
-            "args": ["--build", "build"],
-            "group": "build",
-            "problemMatcher": ["$gcc", "$msCompile"],
-            "detail": "Build the C++ project using CMake."
-        },
-        {
-            "label": "CMake Configure",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["-S", ".", "-B", "build"],
+            "args": ["--preset", "review"],
             "group": "build",
             "problemMatcher": [],
-            "detail": "Configure the CMake project."
+            "detail": "Configure project for fast code review workflow."
         },
         {
-            "label": "Run Engine",
+            "label": "CMake Configure (Debug)",
             "type": "shell",
-            "command": "build/bin/Debug/MMORPGEngine.exe",
+            "command": "cmake",
+            "args": ["--preset", "debug"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "Configure project for standard debugging."
+        },
+        {
+            "label": "CMake Configure (Sanitized)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--preset", "sanitized"],
+            "group": "build",
+            "problemMatcher": [],
+            "detail": "Configure project with memory safety validation."
+        },
+        {
+            "label": "CMake Build (Review)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build/review"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc", "$msCompile"],
+            "detail": "Fast build for code review workflow.",
+            "dependsOn": "CMake Configure (Review)"
+        },
+        {
+            "label": "CMake Build (Debug)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build/debug"],
+            "group": "build",
+            "problemMatcher": ["$gcc", "$msCompile"],
+            "detail": "Standard debug build.",
+            "dependsOn": "CMake Configure (Debug)"
+        },
+        {
+            "label": "CMake Build (Sanitized)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build/sanitized"],
+            "group": "build",
+            "problemMatcher": ["$gcc", "$msCompile"],
+            "detail": "Build with memory safety validation.",
+            "dependsOn": "CMake Configure (Sanitized)"
+        },
+        {
+            "label": "Run Engine (Review)",
+            "type": "shell",
+            "command": "build/review/bin/Debug/MMORPGEngine.exe",
             "args": [],
             "group": "test",
             "problemMatcher": [],
-            "detail": "Run the modular engine in integrated mode (local server + client)."
+            "detail": "Run engine from review build (fast iteration).",
+            "dependsOn": "CMake Build (Review)"
         },
         {
-            "label": "Run Server Only",
+            "label": "Run Engine (Debug)",
             "type": "shell",
-            "command": "build/bin/Debug/MMORPGEngine.exe",
+            "command": "build/debug/bin/Debug/MMORPGEngine.exe",
+            "args": [],
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "Run engine from debug build (full debugging).",
+            "dependsOn": "CMake Build (Debug)"
+        },
+        {
+            "label": "Run Engine (Sanitized)",
+            "type": "shell",
+            "command": "build/sanitized/bin/Debug/MMORPGEngine.exe",
+            "args": [],
+            "group": "test",
+            "problemMatcher": [],
+            "detail": "Run engine with memory safety validation.",
+            "dependsOn": "CMake Build (Sanitized)"
+        },
+        {
+            "label": "Run Server Only (Review)",
+            "type": "shell",
+            "command": "build/review/bin/Debug/MMORPGEngine.exe",
             "args": ["--server"],
             "group": "test",
             "problemMatcher": [],
-            "detail": "Run headless server for remote clients."
+            "detail": "Run headless server from review build."
+            },
+            {
+                "label": "Run Client Only (Review)",
+                "type": "shell",
+                "command": "build/review/bin/Debug/MMORPGEngine.exe",
+                "args": ["--client", "localhost", "12345"],
+                "group": "test",
+                "problemMatcher": [],
+                "detail": "Run client-only mode from review build."
+            },
+            {
+                "label": "Run Engine with Networking (Review)",
+                "type": "shell",
+                "command": "build/review/bin/Debug/MMORPGEngine.exe",
+                "args": ["--enable-networking"],
+                "group": "test",
+                "problemMatcher": [],
+                "detail": "Run integrated mode with networking enabled from review build."
+            }
+            ]
         },
         {
-            "label": "Run Client Only",
+            "label": "Run Client Only (Review)",
             "type": "shell",
-            "command": "build/bin/Debug/MMORPGEngine.exe",
-            "args": ["--client", "localhost"],
+            "command": "build/review/bin/Debug/MMORPGEngine.exe",
+            "args": ["--client", "localhost", "12345"],
             "group": "test",
             "problemMatcher": [],
-            "detail": "Connect to remote server as client (experimental - has physics issues)."
+            "detail": "Run client-only mode from review build."
         },
         {
-            "label": "Run Engine with Networking",
+            "label": "Run Engine with Networking (Review)",
             "type": "shell",
-            "command": "build/bin/Debug/MMORPGEngine.exe",
+            "command": "build/review/bin/Debug/MMORPGEngine.exe",
             "args": ["--enable-networking"],
             "group": "test",
             "problemMatcher": [],
-            "detail": "Run integrated mode + allow external client connections."
+            "detail": "Run integrated mode with networking enabled from review build."
         }
     ]
-}

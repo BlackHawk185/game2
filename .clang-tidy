@@ -1,0 +1,16 @@
+# Minimal clang-tidy configuration for MMORPG Engine
+# Start with a small, supported set of checks and expand later.
+
+InheritParentConfig: false
+
+Checks: >
+  -*,
+  bugprone-*,
+  performance-*,
+  modernize-*,
+  cppcoreguidelines-*
+
+HeaderFilterRegex: '^.*\/(engine|libs)\/.*\.(h|hpp|cpp|cxx|cc)$'
+
+CheckOptions: {}
+

@@ -1,0 +1,60 @@
+---
+# clang-format configuration for MMORPG Engine
+# Optimized for AI-generated code review workflow
+
+BasedOnStyle: Google
+Language: Cpp
+
+# Basic formatting
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+
+# Braces and spacing
+BreakBeforeBraces: Allman
+SpaceBeforeParens: ControlStatements
+SpaceAfterCStyleCast: true
+SpaceBeforeAssignmentOperators: true
+
+# Function and class formatting
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakAfterReturnType: None
+
+# Include sorting (important for modular engine)
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  # System headers first
+  - Regex: '^<.*\.h>'
+    Priority: 1
+  # C++ standard library
+  - Regex: '^<.*>'
+    Priority: 2
+  # Third-party libraries (bgfx, Jolt, etc.)
+  - Regex: '^"(bgfx|bx|Jolt|imgui|enet|glfw)/'
+    Priority: 3
+  # Engine headers
+  - Regex: '^"[A-Z].*\.h"'
+    Priority: 4
+  # Local headers
+  - Regex: '^".*\.h"'
+    Priority: 5
+
+# Pointer and reference alignment
+PointerAlignment: Left
+ReferenceAlignment: Left
+
+# Comments and documentation
+ReflowComments: true
+SpacesBeforeTrailingComments: 2
+
+# Template and namespace formatting
+AlwaysBreakTemplateDeclarations: Yes
+NamespaceIndentation: None
+
+# Modern C++ features
+Cpp11BracedListStyle: true
+Standard: c++17
