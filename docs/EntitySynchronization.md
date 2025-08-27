@@ -54,20 +54,20 @@ struct VoxelChangeUpdate {
 ### Server Side - Broadcasting Island Movement
 
 ```cpp
-// In your physics update loop for islands
+// In your physics update loop for islands (when physics engine is integrated)
 void updateIslandPhysics(FloatingIsland& island, float deltaTime) {
-    // Update island physics
-    island.velocity.y -= 9.81f * deltaTime; // Gravity
-    island.position += island.velocity * deltaTime;
+    // Update island physics (currently stub implementation)
+    // island.velocity.y -= 9.81f * deltaTime; // Gravity
+    // island.position += island.velocity * deltaTime;
     
-    // Broadcast state to all clients
+    // Broadcast state to all clients (when physics is active)
     if (integratedServer && integratedServer->isRunning()) {
         integratedServer->broadcastEntityStateUpdate(
             island.islandID,           // entityID
             1,                         // entityType (Island)
             island.physicsCenter,      // position
-            island.velocity,           // velocity
-            island.acceleration,       // acceleration
+            island.velocity,           // velocity (when physics active)
+            island.acceleration,       // acceleration (when physics active)
             0                          // flags
         );
     }
@@ -77,19 +77,19 @@ void updateIslandPhysics(FloatingIsland& island, float deltaTime) {
 ### Server Side - Broadcasting Player Movement
 
 ```cpp
-// In your player update loop
+// In your player update loop (when physics engine is integrated)
 void updatePlayerMovement(Player& player, float deltaTime) {
-    // Update player physics
-    player.position += player.velocity * deltaTime;
+    // Update player physics (currently stub implementation)
+    // player.position += player.velocity * deltaTime;
     
-    // Broadcast state to all clients
+    // Broadcast state to all clients (when physics is active)
     if (integratedServer && integratedServer->isRunning()) {
         integratedServer->broadcastEntityStateUpdate(
             player.playerID,           // entityID
             0,                         // entityType (Player)
             player.position,           // position
-            player.velocity,           // velocity
-            player.acceleration,       // acceleration
+            player.velocity,           // velocity (when physics active)
+            player.acceleration,       // acceleration (when physics active)
             player.isGrounded ? 1 : 0  // flags
         );
     }
@@ -116,13 +116,13 @@ networkClient->onEntityStateReceived = [this](const EntityStateUpdate& update) {
         case 1: { // Island
             auto* island = findIslandByID(update.entityID);
             if (island) {
-                // Update island physics state
+                // Update island physics state (when physics engine is integrated)
                 island->physicsCenter = update.position;
-                island->velocity = update.velocity;
-                island->acceleration = update.acceleration;
+                // island->velocity = update.velocity;      // When physics active
+                // island->acceleration = update.acceleration; // When physics active
                 
-                // Update all players on this island
-                updatePlayersOnIsland(island);
+                // Update all players on this island (when physics active)
+                // updatePlayersOnIsland(island);
             }
             break;
         }
@@ -185,16 +185,22 @@ networkClient->onVoxelChangeReceived = [this](const VoxelChangeUpdate& update) {
 ### Island-Player Relationship
 When islands move, all players on them need to move with them. The relationship is handled as follows:
 
-1. Server updates island position/velocity
+1. Server updates island position/velocity (when physics engine is integrated)
 2. Server broadcasts island entity update
 3. Clients receive island update and move all players on that island
 4. Players maintain their LOCAL position relative to the island
+
+### Current Physics Status
+- **Physics System**: Currently implemented as a stub (no-op) system
+- **Ready for Integration**: Architecture supports future physics engine integration
+- **Network Synchronization**: Entity synchronization system ready for physics data
+- **Performance**: SoA data layout optimized for physics calculations
 
 ### Lag Compensation
 The system includes server timestamps for proper lag compensation:
 
 ```cpp
-// Client-side position interpolation
+// Client-side position interpolation (when physics is active)
 void interpolateEntityPosition(Entity& entity, float currentTime) {
     float timeSinceUpdate = currentTime - entity.lastUpdateTime;
     Vec3 predictedPos = entity.networkPosition + 
@@ -206,8 +212,8 @@ void interpolateEntityPosition(Entity& entity, float currentTime) {
 ```
 
 ### Message Frequency
-- **Islands**: Update every physics tick (~60Hz) when moving
-- **Players**: Update every movement tick (~60Hz) when moving  
+- **Islands**: Update every physics tick (~60Hz) when moving (when physics active)
+- **Players**: Update every movement tick (~60Hz) when moving (when physics active)
 - **Voxels**: Only on change events (event-driven)
 
 ## Architecture Benefits
@@ -217,5 +223,22 @@ void interpolateEntityPosition(Entity& entity, float currentTime) {
 3. **Scalability**: Easy to add new entity types
 4. **Maintainability**: Less code duplication and complexity
 5. **Performance**: Unified batching and compression opportunities
+6. **Future-Ready**: Designed to work seamlessly with future physics engine integration
+
+## Physics Integration Status
+
+The unified entity synchronization system is **fully ready** for physics engine integration:
+
+- ✅ **Network Messages**: EntityStateUpdate supports velocity, acceleration, and physics flags
+- ✅ **Server Architecture**: GameServer has physics update loops and broadcasting
+- ✅ **Client Architecture**: GameClient has interpolation and prediction systems
+- ✅ **Data Layout**: SoA optimization ready for physics calculations
+- ⏳ **Physics Engine**: Currently stub implementation, ready for future integration
+
+When a physics engine is integrated:
+1. Uncomment physics calculations in server update loops
+2. Enable velocity/acceleration broadcasting  
+3. Activate client-side interpolation and prediction
+4. Enable island-player momentum relationships
 
 This unified system provides a solid foundation for the MMORPG's networking needs while remaining simple and extensible.

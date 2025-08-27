@@ -146,7 +146,8 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& localPos
     }
 
     island->mainChunk->setVoxel(x, y, z, voxelType);
-    island->mainChunk->generateMesh();  // Update visual
+    island->mainChunk->generateMesh();  // Update visual mesh
+    // Collision mesh is now generated in generateMesh()
 }
 
 void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks)

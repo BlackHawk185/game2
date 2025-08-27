@@ -81,6 +81,7 @@ class IslandChunkSystem
     // Island queries
     Vec3 getIslandCenter(uint32_t islandID) const;    // Get current physics center of island
     Vec3 getIslandVelocity(uint32_t islandID) const;  // Get current velocity of island
+    const std::unordered_map<uint32_t, FloatingIsland>& getIslands() const { return m_islands; }
 
    private:
     std::unordered_map<uint32_t, FloatingIsland> m_islands;

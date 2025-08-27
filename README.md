@@ -3,11 +3,23 @@
 This workspace is set up for a modular C++17 MMORPG engine prototype using CMake. It is designed for cross-platform development (Windows, Linux, macOS) and integrates:
 - **bgfx** for rendering
 - **Dear ImGui** for dev tools
+- **ENet** for networking
+- **GLFW** for window/input management
+
+## Architecture Overview
+
+The engine uses a **modular client-server architecture** with:
+- **GameServer**: Authoritative simulation (physics, world state, player management)
+- **GameClient**: Rendering and input handling
+- **Stub Physics System**: No-op physics implementation (ready for future physics engine integration)
+- **Unified Networking**: All modes use ENet networking (even integrated mode)
+- **SoA Data Layout**: Structure of Arrays for performance-critical systems
 
 ## Structure
-- `/engine` — Core engine code
-- `/libs` — Third-party libraries (bgfx, etc.)
-- `/assets` — Placeholder and real assets
+- `/engine` — Core engine code with modular systems
+- `/libs` — Third-party libraries (bgfx, ENet, GLFW, Dear ImGui)
+- `/docs` — Architecture documentation
+- `/tests` — Unit tests (planned)
 
 ## Getting Started
 1. Install CMake (>=3.15) and a C++17 compiler.
@@ -29,20 +41,40 @@ MMORPGEngine.exe
 ```
 - Local server + client with unified networking
 - Best for development and single-player testing
+- Server runs on `127.0.0.1:12345`
 
 ### Dedicated Server
-```sh  
+```sh
 MMORPGEngine.exe --server
 ```
 - Headless server accepting connections on port 12345
 - For multiplayer testing and dedicated hosting
 
-### Client-Only  
+### Client-Only
 ```sh
 MMORPGEngine.exe --client <server_address>
 ```
 - Connect to remote server
 - For multiplayer testing
+
+## Current Features
+
+### ✅ Implemented Systems
+- **Client-Server Architecture**: Separated GameServer/GameClient with ENet networking
+- **Unified Networking**: All modes use network layer (no direct local calls)
+- **World Generation**: Procedural floating islands with voxel terrain
+- **Player Movement**: Physics-based movement with network synchronization
+- **Block Interaction**: Real-time block break/place with server validation
+- **Time Effects**: Time manipulation system (keys 1-5, 0, T)
+- **Rendering**: bgfx-based renderer with Dear ImGui dev tools
+- **Input System**: WASD+mouse camera controls, space for jump
+
+### 🔧 Technical Features
+- **Cross-Platform**: Windows, Linux, macOS support
+- **CMake Build System**: Multiple presets (review, debug, sanitized, release)
+- **Code Quality Tools**: clang-format, clang-tidy integration
+- **Modular Design**: Clean separation between systems
+- **SoA Optimization**: Structure of Arrays for performance-critical code
 
 ## VS Code Integration
 Three launch configurations available in VS Code:

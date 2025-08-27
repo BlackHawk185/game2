@@ -19,7 +19,7 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Modular design**: Keep code modular and organized per the project structure in the prompt.
 - **Iterative approach**: After each step, check with the user before proceeding to the next major system or feature.
 - **Cross-platform**: Ensure all code and build steps are cross-platform (Windows, Linux, macOS) unless otherwise specified.
-- **Physics abstraction**: Always use the custom physics interface, not direct Jolt calls, unless implementing the abstraction layer.
+- **Physics abstraction**: Always use the custom physics interface, not direct physics engine calls, unless implementing the abstraction layer.
 - **Console support**: Keep future console support in mind (no platform-specific hacks).
 - **Unified networking**: All game modes use the network layer - avoid direct GameState access from clients.
 - **Server authority**: Game state changes should go through server validation, even in integrated mode.
@@ -36,18 +36,18 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 ### Core Systems (Implemented)
 - **ECS Framework**: Entity-Component-System for game objects
 - **JobSystem**: Multi-threaded task processing with worker threads
-- **Physics**: Jolt Physics integration with custom abstraction layer
+- **Physics**: Stub physics system (no-op implementation ready for future physics engine integration)
 - **Rendering**: bgfx-based renderer with Dear ImGui dev tools
 - **Input**: Camera controls (WASD+mouse, space for jump)
 - **Time Effects**: Time manipulation system (keys 1-5, 0, T for various effects)
 - **Networking**: ENet-based client-server architecture with unified networking paths
 
 ### Game-Specific Features (Implemented)
-- **Floating Islands**: Procedurally generated voxel islands with physics
+- **Floating Islands**: Procedurally generated voxel islands (physics simulation ready)
 - **Player Movement**: Physics-based movement with real-time network synchronization
-- **Island Momentum**: Players inherit velocity from moving platforms
+- **Island Momentum**: Players inherit velocity from moving platforms (when physics engine is integrated)
 - **Collision Detection**: Efficient voxel-based collision with islands
-- **Island Drift**: Islands move with realistic physics simulation
+- **Island Drift**: Islands move with realistic physics simulation (when physics engine is integrated)
 - **Block Interaction**: Real-time block break/place with network validation
 
 ### Network Architecture (Implemented)
@@ -61,9 +61,10 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Build System**: CMake with Visual Studio support
 - **Launch Configurations**: VS Code integration with 3 run modes
 - **Cross-Platform**: Windows, Linux, macOS compatibility maintained
-- **Dependencies**: bgfx, Jolt Physics, GLFW, Dear ImGui
+- **Dependencies**: bgfx, ENet, GLFW, Dear ImGui
 - **Platform**: Currently Windows-focused but designed for cross-platform
-- **Performance**: Optimized for 60+ FPS with multiple islands and physics
+- **Performance**: Optimized for 60+ FPS with multiple islands (physics-ready)
+- **Physics Status**: Stub implementation ready for future physics engine integration
 
 ---
 

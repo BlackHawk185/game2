@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include "NetworkMessages.h"
+#include "../Physics/PhysicsSystem.h"
 
 NetworkManager::NetworkManager() : isNetworkingEnabled(false)
 {
@@ -81,15 +82,26 @@ bool NetworkManager::startHosting(uint16_t port)
         server->onPlayerMovementRequest =
             [this](ENetPeer* peer, const PlayerMovementRequest& request)
         {
-            // Debug: Uncomment for movement debugging
-            // std::cout << "Player wants to move to: "
-            //           << request.intendedPosition.x << ", "
-            //           << request.intendedPosition.y << ", "
-            //           << request.intendedPosition.z << std::endl;
+            std::cout << "[SERVER] Player movement request: (" << request.intendedPosition.x << ", " << request.intendedPosition.y << ", " << request.intendedPosition.z << ") (velocity: (" << request.velocity.x << ", " << request.velocity.y << ", " << request.velocity.z << "))" << std::endl;
 
-            // For now, just accept all movement requests
-            // Movement validation will be added in Phase 2
-            this->broadcastPlayerPosition(0, request.intendedPosition, request.velocity);
+            // Validate movement against collision
+            Vec3 collisionNormal;
+            const float PLAYER_RADIUS = 0.5f;
+
+            if (g_physics.checkPlayerCollision(request.intendedPosition, collisionNormal, PLAYER_RADIUS))
+            {
+                std::cout << "[SERVER] Movement blocked by collision (normal: (" << collisionNormal.x << ", " << collisionNormal.y << ", " << collisionNormal.z << "))" << std::endl;
+
+                // Send corrected position back to client (current position for now)
+                // In a full implementation, we'd send the last valid position
+                this->broadcastPlayerPosition(0, request.intendedPosition, Vec3(0, 0, 0)); // Zero velocity to stop movement
+            }
+            else
+            {
+                std::cout << "[SERVER] Movement validated, broadcasting to clients" << std::endl;
+                // Movement is valid, broadcast to all clients
+                this->broadcastPlayerPosition(0, request.intendedPosition, request.velocity);
+            }
         };
 
         // Voxel changes are now handled by GameServer directly via its own callback

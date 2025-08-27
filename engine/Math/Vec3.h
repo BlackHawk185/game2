@@ -1,6 +1,7 @@
 // Vec3.h - Lightweight 3D vector math for voxel engine
 #pragma once
 #include <cmath>
+#include <algorithm>
 
 struct Vec3
 {
@@ -90,22 +91,14 @@ struct Vec3
         return x * x + y * y + z * z;
     }
 
-    // Array access for OpenGL compatibility
-    float& operator[](int i)
+    // Component-wise min/max
+    static Vec3 min(const Vec3& a, const Vec3& b)
     {
-        return (&x)[i];
+        return {std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
     }
-    const float& operator[](int i) const
+    static Vec3 max(const Vec3& a, const Vec3& b)
     {
-        return (&x)[i];
-    }
-    float* data()
-    {
-        return &x;
-    }
-    const float* data() const
-    {
-        return &x;
+        return {std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
     }
 };
 

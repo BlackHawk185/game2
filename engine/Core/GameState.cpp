@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include "../Threading/JobSystem.h"
+#include "../World/VoxelChunk.h"
 
 // External job system (we'll refactor this later)
 extern JobSystem g_jobSystem;
@@ -151,7 +152,29 @@ void GameState::createDefaultWorld()
     m_islandSystem.generateFloatingIsland(island2ID, 54321, 32.0f);
     m_islandSystem.generateFloatingIsland(island3ID, 98765, 32.0f);
 
-    // Position primary player on the center island
+    // Log collision mesh generation for each island
+    for (uint32_t islandID : m_islandIDs) {
+        const FloatingIsland* island = m_islandSystem.getIsland(islandID);
+        if (island && island->mainChunk) {
+            // Count solid voxels before mesh generation
+            int solidVoxels = 0;
+            for (int x = 0; x < 32; x++) {
+                for (int y = 0; y < 32; y++) {
+                    for (int z = 0; z < 32; z++) {
+                        if (island->mainChunk->getVoxel(x, y, z) > 0) solidVoxels++;
+                    }
+                }
+            }
+            std::cout << "[SERVER] Island " << islandID << " has " << solidVoxels << " solid voxels" << std::endl;
+
+            // Generate mesh and build collision mesh before logging
+            const_cast<VoxelChunk*>(island->mainChunk.get())->generateMesh();
+            const_cast<VoxelChunk*>(island->mainChunk.get())->buildCollisionMesh();
+            std::cout << "[SERVER] Generated island " << islandID
+                      << " with collision mesh (" << island->mainChunk->getCollisionMesh().faces.size()
+                      << " faces)" << std::endl;
+        }
+    }
     Vec3 islandCenter = m_islandSystem.getIslandCenter(island1ID);
     Vec3 playerSpawnPos = Vec3(16.0f, 16.0f, 16.0f);  // Relative to island center
     m_primaryPlayer->setPosition(playerSpawnPos);

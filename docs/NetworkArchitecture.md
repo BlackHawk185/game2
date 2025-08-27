@@ -14,7 +14,7 @@
 ```cpp
 class GameServer {
     GameState world;                // Authoritative world state  
-    Physics physics;                // Server-side physics simulation
+    PhysicsSystem physics;          // Stub physics system (ready for future integration)
     NetworkManager network;         // ENet-based client connections
     PlayerManager players;          // Manage connected players
     IslandChunkSystem chunks;       // Floating island management
@@ -71,7 +71,7 @@ class NetworkedJobSystem : public JobSystem {
     // Existing job types
     enum JobType { 
         CHUNK_MESHING, 
-        PHYSICS_COOKING,
+        PHYSICS_UPDATE,          // Physics simulation (when physics engine integrated)
         
         // New network job types
         NETWORK_SEND,           // Serialize and send data

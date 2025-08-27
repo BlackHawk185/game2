@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
     // Parse command line arguments
     RunMode runMode = RunMode::INTEGRATED;  // Default to working integrated mode
     std::string serverAddress = "localhost";
-    uint16_t serverPort = 12345;    // Changed from 7777 to a higher port number
+    uint16_t serverPort = 12346;    // Changed from 7777 to a higher port number
     bool enableNetworking = false;  // Allow external connections in integrated mode
 
     for (int i = 1; i < argc; i++)

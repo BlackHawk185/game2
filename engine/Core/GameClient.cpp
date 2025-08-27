@@ -84,6 +84,12 @@ bool GameClient::connectToGameState(GameState* gameState)
     m_gameState = gameState;
     m_isRemoteClient = false;  // Local connection
 
+    // **NEW: Connect physics system to island system for collision detection**
+    if (gameState && gameState->getIslandSystem())
+    {
+        g_physics.setIslandSystem(gameState->getIslandSystem());
+    }
+
     // Set up camera position based on game state
     if (m_gameState->getPrimaryPlayer())
     {
@@ -348,8 +354,48 @@ void GameClient::processKeyboard(float deltaTime)
         movement = movement - m_camera.up * moveSpeed * deltaTime;
     }
 
-    // Apply movement
-    m_camera.position = m_camera.position + movement;
+    // **NEW: Collision Detection**
+    Vec3 intendedPosition = m_camera.position + movement;
+    const float PLAYER_RADIUS = 0.5f;  // Player collision radius
+
+    std::cout << "[CLIENT] Movement input: (" << movement.x << ", " << movement.y << ", " << movement.z << "), intended pos: (" << intendedPosition.x << ", " << intendedPosition.y << ", " << intendedPosition.z << ")" << std::endl;
+
+    // Check for collision with islands
+    Vec3 collisionNormal;
+    bool hasCollision = false;
+
+    if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
+    {
+        std::cout << "[CLIENT] Initial collision detected, attempting slide collision" << std::endl;
+        // Collision detected - implement simple sliding collision
+        // Project movement onto the collision plane
+        float dotProduct = movement.dot(collisionNormal);
+        Vec3 slideMovement = movement - collisionNormal * dotProduct;
+
+        // Apply sliding movement instead
+        intendedPosition = m_camera.position + slideMovement;
+
+        // Check if sliding movement also collides
+        if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
+        {
+            std::cout << "[CLIENT] Slide collision also detected, blocking movement" << std::endl;
+            // If sliding also collides, don't move
+            intendedPosition = m_camera.position;
+        }
+        else
+        {
+            std::cout << "[CLIENT] Slide movement successful: (" << slideMovement.x << ", " << slideMovement.y << ", " << slideMovement.z << ")" << std::endl;
+        }
+
+        hasCollision = true;
+    }
+    else
+    {
+        std::cout << "[CLIENT] No collision detected, movement allowed" << std::endl;
+    }
+    
+    // Apply movement (with collision response)
+    m_camera.position = intendedPosition;
 
     // Update player position in game state if local
     if (m_gameState && m_gameState->getPrimaryPlayer())
@@ -665,8 +711,10 @@ void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& p
             // Apply the voxel data directly - this replaces any procedural generation
             island->mainChunk->setRawVoxelData(voxelData, dataSize);
             island->mainChunk->generateMesh();  // Regenerate the mesh with the new data
+            island->mainChunk->buildCollisionMesh();  // Build collision faces from vertices
 
-            // Removed verbose debug output
+            std::cout << "[CLIENT] Received and built collision mesh for island " << islandID
+                      << " (" << island->mainChunk->getCollisionMesh().faces.size() << " faces)" << std::endl;
         }
         else
         {

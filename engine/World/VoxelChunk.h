@@ -21,6 +21,18 @@ struct VoxelMesh
     bool needsUpdate = true;
 };
 
+struct CollisionFace
+{
+    Vec3 position;  // Center position of the face
+    Vec3 normal;    // Normal vector of the face
+};
+
+struct CollisionMesh
+{
+    std::vector<CollisionFace> faces;
+    bool needsUpdate = true;
+};
+
 class VoxelChunk
 {
    public:
@@ -68,12 +80,19 @@ class VoxelChunk
         return physicsBodyID;
     }
 
+    // Collision detection methods
+    const CollisionMesh& getCollisionMesh() const { return collisionMesh; }
+    void buildCollisionMesh();
+    bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
+                          Vec3& hitPoint, Vec3& hitNormal) const;
+
     // Island generation (for floating terrain)
     void generateFloatingIsland(int seed);
 
    private:
     std::array<uint8_t, VOLUME> voxels;
     VoxelMesh mesh;
+    CollisionMesh collisionMesh;
     bool meshDirty = true;
     uint32_t physicsBodyID = 0;  // Physics body ID
 
@@ -83,5 +102,8 @@ class VoxelChunk
     // Mesh generation helpers
     void addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, float x, float y,
                  float z, int face, uint8_t blockType);
+    void addCollisionQuad(float x, float y, float z, int face);
     bool isVoxelSolid(int x, int y, int z) const;
+    std::vector<Vec3>
+        collisionMeshVertices;  // Collision mesh: stores positions of exposed faces for physics
 };

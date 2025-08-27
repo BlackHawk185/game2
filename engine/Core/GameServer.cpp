@@ -36,6 +36,10 @@ bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_
         return false;
     }
 
+    // Connect physics system to island system for server-side collision detection
+    g_physics.setIslandSystem(m_gameState->getIslandSystem());
+    std::cout << "[SERVER] Physics system connected to island system" << std::endl;
+
     // Initialize networking if requested
     if (m_networkingEnabled)
     {
@@ -329,7 +333,10 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
             const uint8_t* voxelData = island->mainChunk->getRawVoxelData();
             uint32_t voxelDataSize = island->mainChunk->getVoxelDataSize();
 
-            // Removed verbose debug output
+            std::cout << "[SERVER] Sending island " << islandIDs[i] << " to client ("
+                      << voxelDataSize << " bytes, "
+                      << island->mainChunk->getCollisionMesh().faces.size() << " collision faces)" << std::endl;
+
             server->sendCompressedIslandToClient(peer, islandIDs[i], worldState.islandPositions[i],
                                                  voxelData, voxelDataSize);
         }
