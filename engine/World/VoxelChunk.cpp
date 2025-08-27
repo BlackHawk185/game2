@@ -381,15 +381,62 @@ bool VoxelChunk::shouldRender(const Vec3& cameraPos, float maxDistance) const
     return dist <= maxDistance;
 }
 
-void VoxelChunk::generateFloatingIsland(int seed)
+// Simple hash-based value noise in [-1,1] for (x,z)
+static inline float vc_hashToUnit(int xi, int zi, uint32_t seed)
 {
-    // Generate a floating island using simple noise
+    uint32_t h = static_cast<uint32_t>(xi) * 374761393u ^ static_cast<uint32_t>(zi) * 668265263u ^ (seed * 0x9E3779B9u);
+    h ^= h >> 13; h *= 1274126177u; h ^= h >> 16;
+    float u = (h & 0x00FFFFFFu) / 16777215.0f; // [0,1]
+    return u * 2.0f - 1.0f; // [-1,1]
+}
+
+void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
+{
+    // Generate a floating island using simple noise (optional)
 
     // Simple spherical island parameters
     float centerX = SIZE * 0.5f;
     float centerY = SIZE * 0.3f;
     float centerZ = SIZE * 0.5f;
-    float radius = SIZE * 0.15f;  // Reduced from 0.25f to make islands smaller
+    // Base radius: allow runtime tuning when noise is enabled
+    float baseScale = 0.15f;
+    if (useNoise)
+    {
+        if (const char* env = std::getenv("ISLAND_BASE"))
+        {
+            try
+            {
+                baseScale = std::max(0.10f, std::min(0.24f, static_cast<float>(std::atof(env))));
+            }
+            catch (...)
+            {
+                baseScale = 0.15f;
+            }
+        }
+    }
+    float radius = SIZE * baseScale;
+
+    // Optional vertical flatten (noise only)
+    float flatten = 1.0f;
+    if (useNoise)
+    {
+        flatten = 0.90f;
+        if (const char* env = std::getenv("ISLAND_FLATTEN"))
+        {
+            try
+            {
+                float f = static_cast<float>(std::atof(env));
+                // Clamp for safety
+                flatten = std::max(0.70f, std::min(1.0f, f));
+            }
+            catch (...) {}
+        }
+    }
+
+    // One-time debug for this generation (per chunk)
+    std::cout << "[GEN] useNoise=" << (useNoise ? 1 : 0)
+              << ", baseScale=" << baseScale << ", baseRadius=" << radius
+              << (useNoise ? ", flatten=" : ", flatten=") << flatten << std::endl;
 
     // If job system is available, use multithreading
     if (g_jobSystem.isInitialized())
@@ -409,7 +456,7 @@ void VoxelChunk::generateFloatingIsland(int seed)
             payload.chunkID = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this));
 
             auto work = [this, startY, endY, centerX, centerY, centerZ, radius,
-                         payload]() -> JobResult
+                         payload, seed, useNoise, flatten]() -> JobResult
             {
                 // Generate voxels for this Y-slice
                 for (int x = 0; x < SIZE; x++)
@@ -421,13 +468,24 @@ void VoxelChunk::generateFloatingIsland(int seed)
                             float dx = x - centerX;
                             float dy = y - centerY;
                             float dz = z - centerZ;
-                            float distance =
-                                static_cast<float>(std::sqrt(dx * dx + dy * dy + dz * dz));
+                            float dyUse = useNoise ? (dy * flatten) : dy;
+                            float distance = static_cast<float>(std::sqrt(dx * dx + dyUse * dyUse + dz * dz));
 
-                            if (distance < radius)
+                            float rLocal = radius;
+                            if (useNoise)
                             {
-                                setVoxel(x, y, z, 1);  // Simple solid block
+                                const float freq = 1.0f / 12.0f; // gentle variation
+                                int xi = static_cast<int>(std::floor(x * freq));
+                                int zi = static_cast<int>(std::floor(z * freq));
+                                float n = vc_hashToUnit(xi, zi, static_cast<uint32_t>(seed));
+                                float noiseAmp = radius * 0.30f;
+                                rLocal = std::max(2.0f, std::min(radius + n * noiseAmp, radius * 1.6f));
                             }
+
+                            if (distance < rLocal)
+                                {
+                                    setVoxel(x, y, z, 1);  // Simple solid block
+                                }
                         }
                     }
                 }
@@ -474,12 +532,24 @@ void VoxelChunk::generateFloatingIsland(int seed)
                     float dx = x - centerX;
                     float dy = y - centerY;
                     float dz = z - centerZ;
-                    float distance = static_cast<float>(std::sqrt(dx * dx + dy * dy + dz * dz));
+                    float dyUse = useNoise ? (dy * flatten) : dy;
+                    float distance = static_cast<float>(std::sqrt(dx * dx + dyUse * dyUse + dz * dz));
 
-                    if (distance < radius)
+                    float rLocal = radius;
+                    if (useNoise)
                     {
-                        setVoxel(x, y, z, 1);  // Simple solid block
+                        const float freq = 1.0f / 12.0f;
+                        int xi = static_cast<int>(std::floor(x * freq));
+                        int zi = static_cast<int>(std::floor(z * freq));
+                        float n = vc_hashToUnit(xi, zi, static_cast<uint32_t>(seed));
+                        float noiseAmp = radius * 0.30f;
+                        rLocal = std::max(2.0f, std::min(radius + n * noiseAmp, radius * 1.6f));
                     }
+
+                    if (distance < rLocal)
+                        {
+                            setVoxel(x, y, z, 1);  // Simple solid block
+                        }
                 }
             }
         }
@@ -488,3 +558,4 @@ void VoxelChunk::generateFloatingIsland(int seed)
     meshDirty = true;
     collisionMesh.needsUpdate = true;
 }
+

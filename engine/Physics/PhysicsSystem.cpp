@@ -38,8 +38,7 @@ bool PhysicsSystem::checkPlayerCollision(const Vec3& playerPos, Vec3& outNormal,
     if (!m_islandSystem)
         return false;
 
-    std::cout << "[PHYSICS] Checking player collision at (" << playerPos.x << ", " << playerPos.y
-              << ", " << playerPos.z << ") (radius: " << playerRadius << ")" << std::endl;
+    // Verbose per-frame logging disabled
 
     // Check collision with all active islands
     const auto& islands = m_islandSystem->getIslands();
@@ -52,10 +51,7 @@ bool PhysicsSystem::checkPlayerCollision(const Vec3& playerPos, Vec3& outNormal,
         // Convert player position to island-local coordinates
         Vec3 localPlayerPos = playerPos - island->physicsCenter;
 
-        std::cout << "[PHYSICS] Checking island " << islandPair.first << " at ("
-                  << island->physicsCenter.x << ", " << island->physicsCenter.y << ", "
-                  << island->physicsCenter.z << ") (local pos: (" << localPlayerPos.x << ", "
-                  << localPlayerPos.y << ", " << localPlayerPos.z << "))" << std::endl;
+        // Verbose per-island logging disabled
 
         // Check collision with this island's chunk
         Vec3 collisionNormal;
@@ -63,14 +59,11 @@ bool PhysicsSystem::checkPlayerCollision(const Vec3& playerPos, Vec3& outNormal,
                                 collisionNormal, playerRadius))
         {
             outNormal = collisionNormal;
-            std::cout << "[PHYSICS] COLLISION DETECTED with island " << islandPair.first
-                      << " (normal: " << collisionNormal.x << ", " << collisionNormal.y << ", "
-                      << collisionNormal.z << ")" << std::endl;
+            // Collision detected; keep logs minimal
             return true;
         }
     }
 
-    std::cout << "[PHYSICS] No collision detected" << std::endl;
     return false;
 }
 
@@ -110,23 +103,16 @@ bool PhysicsSystem::checkChunkCollision(const VoxelChunk* chunk, const Vec3& pla
                                         const Vec3& chunkWorldPos, Vec3& outNormal,
                                         float playerRadius)
 {
-    std::cout << "[PHYSICS] Checking chunk collision at world pos (" << chunkWorldPos.x << ", "
-              << chunkWorldPos.y << ", " << chunkWorldPos.z << ") (local player pos: ("
-              << playerPos.x << ", " << playerPos.y << ", " << playerPos.z << "))" << std::endl;
+    // Verbose per-chunk collision logging disabled
 
     // Check if collision mesh needs updating
     const CollisionMesh& collisionMesh = chunk->getCollisionMesh();
-    std::cout << "[PHYSICS] Collision mesh has " << collisionMesh.faces.size()
-              << " faces (needsUpdate: " << (collisionMesh.needsUpdate ? "true" : "false") << ")"
-              << std::endl;
+    // Mesh size logs disabled
 
     if (collisionMesh.needsUpdate)
     {
-        std::cout << "[PHYSICS] Building collision mesh..." << std::endl;
         // Rebuild collision mesh (const_cast is necessary here since we need to modify the chunk)
         const_cast<VoxelChunk*>(chunk)->buildCollisionMesh();
-        std::cout << "[PHYSICS] Collision mesh built with "
-                  << chunk->getCollisionMesh().faces.size() << " faces" << std::endl;
     }
 
     // Check if player sphere intersects with any collision faces

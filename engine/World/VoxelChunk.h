@@ -89,8 +89,8 @@ class VoxelChunk
     bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
                            Vec3& hitPoint, Vec3& hitNormal) const;
 
-    // Island generation (for floating terrain)
-    void generateFloatingIsland(int seed);
+    // Island generation (for floating terrain) - noise-based islands by default
+    void generateFloatingIsland(int seed, bool useNoise = false);
 
    private:
     std::array<uint8_t, VOLUME> voxels;
@@ -110,3 +110,5 @@ class VoxelChunk
     std::vector<Vec3>
         collisionMeshVertices;  // Collision mesh: stores positions of exposed faces for physics
 };
+
+

@@ -36,6 +36,14 @@ bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_
         return false;
     }
 
+    // Log island generation mode once (noise is now default)
+    static bool s_loggedNoiseFlag = false;
+    if (!s_loggedNoiseFlag)
+    {
+        std::cout << "[SERVER] Island generation mode: NOISE" << std::endl;
+        s_loggedNoiseFlag = true;
+    }
+
     // Connect physics system to island system for server-side collision detection
     g_physics.setIslandSystem(m_gameState->getIslandSystem());
     std::cout << "[SERVER] Physics system connected to island system" << std::endl;
@@ -430,3 +438,4 @@ void GameServer::broadcastIslandStates()
         server->broadcastEntityState(update);
     }
 }
+

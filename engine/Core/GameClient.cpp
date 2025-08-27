@@ -358,9 +358,7 @@ void GameClient::processKeyboard(float deltaTime)
     Vec3 intendedPosition = m_camera.position + movement;
     const float PLAYER_RADIUS = 0.5f;  // Player collision radius
 
-    std::cout << "[CLIENT] Movement input: (" << movement.x << ", " << movement.y << ", "
-              << movement.z << "), intended pos: (" << intendedPosition.x << ", "
-              << intendedPosition.y << ", " << intendedPosition.z << ")" << std::endl;
+    // Verbose per-frame movement logging disabled
 
     // Check for collision with islands
     Vec3 collisionNormal;
@@ -368,9 +366,7 @@ void GameClient::processKeyboard(float deltaTime)
 
     if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
     {
-        std::cout
-            << "[CLIENT] Initial collision detected, applying friction-based sliding collision"
-            << std::endl;
+        // Initial collision detected; suppress verbose log
         // Collision detected - implement friction-based sliding collision
         const float FRICTION_COEFFICIENT =
             0.3f;  // Friction factor (0 = no friction, 1 = full stop)
@@ -388,8 +384,7 @@ void GameClient::processKeyboard(float deltaTime)
         // Check if sliding movement also collides
         if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
         {
-            std::cout << "[CLIENT] Slide collision also detected, applying stronger friction"
-                      << std::endl;
+            // Sliding also collides; suppress verbose log
             // If sliding also collides, apply stronger friction instead of blocking completely
             const float STRONG_FRICTION = 0.7f;
             Vec3 strongFrictionMovement = movement * (1.0f - STRONG_FRICTION);
@@ -397,15 +392,14 @@ void GameClient::processKeyboard(float deltaTime)
         }
         else
         {
-            std::cout << "[CLIENT] Friction-based slide movement successful: (" << slideMovement.x
-                      << ", " << slideMovement.y << ", " << slideMovement.z << ")" << std::endl;
+            // Slide movement succeeded; suppress verbose log
         }
 
         hasCollision = true;
     }
     else
     {
-        std::cout << "[CLIENT] No collision detected, movement allowed" << std::endl;
+        // No collision; suppress verbose log
     }
 
     // Apply movement (with collision response)

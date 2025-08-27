@@ -94,3 +94,4 @@ class IslandChunkSystem
 
 // Global island system
 extern IslandChunkSystem g_islandSystem;
+

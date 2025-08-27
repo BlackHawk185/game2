@@ -106,7 +106,11 @@ void IslandChunkSystem::generateFloatingIsland(uint32_t islandID, uint32_t seed,
 
     // Create the main chunk for this island
     island->mainChunk = std::make_unique<VoxelChunk>();
-    island->mainChunk->generateFloatingIsland(seed);
+    {
+        const char* noiseEnv = std::getenv("ISLAND_NOISE");
+        bool useNoise = (noiseEnv && (noiseEnv[0]=='1' || noiseEnv[0]=='T' || noiseEnv[0]=='t' || noiseEnv[0]=='Y' || noiseEnv[0]=='y'));
+        island->mainChunk->generateFloatingIsland(seed, useNoise);
+    }
 }
 
 uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& localPosition) const
@@ -219,3 +223,5 @@ void IslandChunkSystem::generateChunksAroundPoint(const Vec3& center)
     // Chunk generation around points will be used for infinite world expansion
     // Currently handled manually through createIsland()
 }
+
+

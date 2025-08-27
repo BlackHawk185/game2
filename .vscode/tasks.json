@@ -1,143 +1,15 @@
 {
-    // See https://go.microsoft.com/fwlink/?LinkId=733558
-    // for the documentation about the tasks.json format
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "CMake Configure (Review)",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["--preset", "review"],
-            "group": "build",
-            "problemMatcher": [],
-            "detail": "Configure project for fast code review workflow."
-        },
-        {
-            "label": "CMake Configure (Debug)",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["--preset", "debug"],
-            "group": "build",
-            "problemMatcher": [],
-            "detail": "Configure project for standard debugging."
-        },
-        {
-            "label": "CMake Configure (Sanitized)",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["--preset", "sanitized"],
-            "group": "build",
-            "problemMatcher": [],
-            "detail": "Configure project with memory safety validation."
-        },
-        {
-            "label": "CMake Build (Review)",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["--build", "build/review"],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "problemMatcher": ["$gcc", "$msCompile"],
-            "detail": "Fast build for code review workflow.",
-            "dependsOn": "CMake Configure (Review)"
-        },
-        {
-            "label": "CMake Build (Debug)",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["--build", "build/debug"],
-            "group": "build",
-            "problemMatcher": ["$gcc", "$msCompile"],
-            "detail": "Standard debug build.",
-            "dependsOn": "CMake Configure (Debug)"
-        },
-        {
-            "label": "CMake Build (Sanitized)",
-            "type": "shell",
-            "command": "cmake",
-            "args": ["--build", "build/sanitized"],
-            "group": "build",
-            "problemMatcher": ["$gcc", "$msCompile"],
-            "detail": "Build with memory safety validation.",
-            "dependsOn": "CMake Configure (Sanitized)"
-        },
-        {
-            "label": "Run Engine (Review)",
-            "type": "shell",
-            "command": "build/review/bin/Debug/MMORPGEngine.exe",
-            "args": [],
-            "group": "test",
-            "problemMatcher": [],
-            "detail": "Run engine from review build (fast iteration).",
-            "dependsOn": "CMake Build (Review)"
-        },
-        {
-            "label": "Run Engine (Debug)",
-            "type": "shell",
-            "command": "build/debug/bin/Debug/MMORPGEngine.exe",
-            "args": [],
-            "group": "test",
-            "problemMatcher": [],
-            "detail": "Run engine from debug build (full debugging).",
-            "dependsOn": "CMake Build (Debug)"
-        },
-        {
-            "label": "Run Engine (Sanitized)",
-            "type": "shell",
-            "command": "build/sanitized/bin/Debug/MMORPGEngine.exe",
-            "args": [],
-            "group": "test",
-            "problemMatcher": [],
-            "detail": "Run engine with memory safety validation.",
-            "dependsOn": "CMake Build (Sanitized)"
-        },
-        {
-            "label": "Run Server Only (Review)",
-            "type": "shell",
-            "command": "build/review/bin/Debug/MMORPGEngine.exe",
-            "args": ["--server"],
-            "group": "test",
-            "problemMatcher": [],
-            "detail": "Run headless server from review build."
-            },
-            {
-                "label": "Run Client Only (Review)",
-                "type": "shell",
-                "command": "build/review/bin/Debug/MMORPGEngine.exe",
-                "args": ["--client", "localhost", "12345"],
-                "group": "test",
-                "problemMatcher": [],
-                "detail": "Run client-only mode from review build."
-            },
-            {
-                "label": "Run Engine with Networking (Review)",
-                "type": "shell",
-                "command": "build/review/bin/Debug/MMORPGEngine.exe",
-                "args": ["--enable-networking"],
-                "group": "test",
-                "problemMatcher": [],
-                "detail": "Run integrated mode with networking enabled from review build."
-            }
-            ]
-        },
-        {
-            "label": "Run Client Only (Review)",
-            "type": "shell",
-            "command": "build/review/bin/Debug/MMORPGEngine.exe",
-            "args": ["--client", "localhost", "12345"],
-            "group": "test",
-            "problemMatcher": [],
-            "detail": "Run client-only mode from review build."
-        },
-        {
-            "label": "Run Engine with Networking (Review)",
-            "type": "shell",
-            "command": "build/review/bin/Debug/MMORPGEngine.exe",
-            "args": ["--enable-networking"],
-            "group": "test",
-            "problemMatcher": [],
-            "detail": "Run integrated mode with networking enabled from review build."
-        }
-    ]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build Debug (review)",
+      "type": "shell",
+      "command": "cmake --build build/review --config Debug -- -j 10",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$msCompile"]
+    }
+  ]
+}
