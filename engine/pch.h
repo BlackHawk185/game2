@@ -33,10 +33,6 @@
 // #include <bgfx/bgfx.h>
 // #include <bgfx/platform.h>
 
-// Jolt Physics
-// #include <Jolt/Jolt.h>
-// #include <Jolt/Physics/PhysicsSystem.h>
-
 // Engine-wide macros and config
 // Project headers should be included in individual source files after pch.h
 // to avoid circular dependencies. Add only stable, external headers here.

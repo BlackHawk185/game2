@@ -19,7 +19,7 @@ GameServer::~GameServer()
 
 bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_t networkPort)
 {
-    std::cout << "🖥️  Initializing GameServer (headless mode)..." << std::endl;
+    // Removed verbose debug output
 
     m_targetTickRate = targetTickRate;
     m_fixedDeltaTime = 1.0f / targetTickRate;
@@ -56,7 +56,7 @@ bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_
         {
             server->onClientConnected = [this](ENetPeer* peer)
             {
-                std::cout << "New player joined the game!" << std::endl;
+                // Removed verbose debug output
                 sendWorldStateToClient(peer);
             };
 
@@ -64,13 +64,10 @@ bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_
             { this->handleVoxelChangeRequest(peer, request); };
         }
 
-        std::cout << "✅ Network server started on port " << networkPort << std::endl;
+        // Removed verbose debug output
     }
 
-    std::cout << "✅ GameServer initialized successfully" << std::endl;
-    std::cout << "   Target tick rate: " << targetTickRate << " Hz" << std::endl;
-    std::cout << "   Fixed delta time: " << m_fixedDeltaTime << " seconds" << std::endl;
-    std::cout << "   Networking: " << (m_networkingEnabled ? "ENABLED" : "DISABLED") << std::endl;
+    // Removed verbose debug output
 
     return true;
 }
@@ -83,7 +80,7 @@ void GameServer::run()
         return;
     }
 
-    std::cout << "🚀 Starting GameServer simulation loop..." << std::endl;
+    // Removed verbose debug output
     m_running.store(true);
 
     serverLoop();
@@ -97,7 +94,7 @@ void GameServer::runAsync()
         return;
     }
 
-    std::cout << "🚀 Starting GameServer simulation loop (async)..." << std::endl;
+    // Removed verbose debug output
     m_running.store(true);
 
     m_serverThread = std::make_unique<std::thread>(&GameServer::serverLoop, this);
@@ -170,7 +167,7 @@ void GameServer::serverLoop()
     auto lastTime = std::chrono::high_resolution_clock::now();
     float accumulator = 0.0f;
 
-    std::cout << "🔄 Server simulation loop started" << std::endl;
+    // Removed verbose debug output
 
     while (m_running.load())
     {
@@ -202,7 +199,7 @@ void GameServer::serverLoop()
         std::this_thread::sleep_for(std::chrono::microseconds(1000));  // 1ms
     }
 
-    std::cout << "🔄 Server simulation loop ended" << std::endl;
+    // Removed verbose debug output
 }
 
 void GameServer::processTick(float deltaTime)
@@ -318,8 +315,7 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
     worldState.playerSpawnPosition =
         Vec3(16.0f, 16.0f, 16.0f);  // Updated to match island generation
 
-    std::cout << "Sending world state to client: " << worldState.numIslands << " islands"
-              << std::endl;
+    // Removed verbose debug output
 
     // Send basic world state first
     server->sendWorldStateToClient(peer, worldState);
@@ -333,8 +329,7 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
             const uint8_t* voxelData = island->mainChunk->getRawVoxelData();
             uint32_t voxelDataSize = island->mainChunk->getVoxelDataSize();
 
-            std::cout << "Sending compressed island " << islandIDs[i] << " data (" << voxelDataSize
-                      << " bytes)" << std::endl;
+            // Removed verbose debug output
             server->sendCompressedIslandToClient(peer, islandIDs[i], worldState.islandPositions[i],
                                                  voxelData, voxelDataSize);
         }
@@ -343,9 +338,7 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
 
 void GameServer::handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeRequest& request)
 {
-    std::cout << "Server handling voxel change: Island " << request.islandID << " at ("
-              << request.localPos.x << "," << request.localPos.y << "," << request.localPos.z
-              << ") = " << (int) request.voxelType << std::endl;
+    // Removed verbose debug output
 
     if (!m_gameState)
     {
@@ -402,8 +395,7 @@ void GameServer::broadcastIslandStates()
     // Debug: Print broadcast info every 30 broadcasts (3 seconds at 10Hz)
     if (broadcastCount % 30 == 1)
     {
-        std::cout << "Broadcasting island states (broadcast #" << broadcastCount << ") - "
-                  << islandIDs.size() << " islands" << std::endl;
+        // Removed verbose debug output
     }
 
     for (uint32_t islandID : islandIDs)
@@ -424,10 +416,7 @@ void GameServer::broadcastIslandStates()
         update.serverTimestamp = serverTimestamp;
         update.flags = 0;  // No special flags for islands
 
-        std::cout << "Broadcasting island " << islandID << " state: pos(" << island->physicsCenter.x
-                  << "," << island->physicsCenter.y << "," << island->physicsCenter.z << ") vel("
-                  << island->velocity.x << "," << island->velocity.y << "," << island->velocity.z
-                  << ")" << std::endl;
+        // Removed verbose debug output for individual island broadcasts
 
         // Broadcast to all connected clients
         server->broadcastEntityState(update);

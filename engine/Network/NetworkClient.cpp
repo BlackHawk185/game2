@@ -187,8 +187,7 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
             if (packet->dataLength >= sizeof(WorldStateMessage))
             {
                 WorldStateMessage worldState = *(WorldStateMessage*) packet->data;
-                std::cout << "Received world state: " << worldState.numIslands << " islands"
-                          << std::endl;
+                // Removed verbose debug output
 
                 if (onWorldStateReceived)
                 {
@@ -204,9 +203,7 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
             {
                 CompressedIslandHeader header = *(CompressedIslandHeader*) packet->data;
 
-                std::cout << "Received compressed island " << header.islandID
-                          << " (compressed: " << header.compressedSize
-                          << " bytes, original: " << header.originalSize << " bytes)" << std::endl;
+                // Removed verbose debug output
 
                 // The compressed data starts after the header
                 const uint8_t* compressedData =
@@ -223,8 +220,7 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
                                                         decompressedData.data(),
                                                         header.originalSize))
                     {
-                        std::cout << "Successfully decompressed island " << header.islandID
-                                  << std::endl;
+                        // Removed verbose debug output
 
                         if (onCompressedIslandReceived)
                         {

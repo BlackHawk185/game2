@@ -27,7 +27,7 @@ bool IntegratedServer::startServer(uint16_t port)
     enet_address_set_host(&address, "127.0.0.1");
     address.port = port;
 
-    std::cout << "ENet address configured: host=127.0.0.1, port=" << port << std::endl;
+    // Removed verbose debug output
 
     // Create server host (allow up to 32 clients)
     host = enet_host_create(&address, 32, 2, 0, 0);
@@ -38,7 +38,7 @@ bool IntegratedServer::startServer(uint16_t port)
         return false;
     }
 
-    std::cout << "Server started on port " << port << std::endl;
+    // Removed verbose debug output
     return true;
 }
 
@@ -73,11 +73,7 @@ void IntegratedServer::handleClientEvent(const ENetEvent& event)
     {
         case ENET_EVENT_TYPE_CONNECT:
         {
-            std::cout << "Client connected from " << (event.peer->address.host & 0xFF) << "."
-                      << ((event.peer->address.host >> 8) & 0xFF) << "."
-                      << ((event.peer->address.host >> 16) & 0xFF) << "."
-                      << ((event.peer->address.host >> 24) & 0xFF) << ":"
-                      << event.peer->address.port << std::endl;
+            // Removed verbose debug output
 
             connectedClients.push_back(event.peer);
 
@@ -184,7 +180,7 @@ void IntegratedServer::broadcastPlayerPosition(uint32_t playerId, const Vec3& po
 
 void IntegratedServer::sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState)
 {
-    std::cout << "Sending world state to client..." << std::endl;
+    // Removed verbose debug output
     sendToClient(client, &worldState, sizeof(worldState));
 }
 

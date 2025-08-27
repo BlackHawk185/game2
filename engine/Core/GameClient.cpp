@@ -1,323 +1,372 @@
 // GameClient.cpp - Client-side rendering and input implementation
 #include "GameClient.h"
-#include "GameState.h"
-#include "../Rendering/Renderer.h"
-#include "../Time/TimeEffects.h"
-#include "../Network/NetworkMessages.h"
-#include "../Network/NetworkManager.h"
-#include "../World/VoxelChunk.h"  // For accessing voxel data
-#include <GLFW/glfw3.h>
+
 #include <GL/gl.h>
+#include <GLFW/glfw3.h>
 #include <imgui.h>
+
 #include <iostream>
 #include <memory>
+
+#include "GameState.h"
+
+#include "../Network/NetworkManager.h"
+#include "../Network/NetworkMessages.h"
+#include "../Rendering/Renderer.h"
+#include "../Time/TimeEffects.h"
+#include "../World/VoxelChunk.h"  // For accessing voxel data
 
 // External systems that we'll refactor later
 extern TimeEffects* g_timeEffects;
 
-GameClient::GameClient() {
+GameClient::GameClient()
+{
     // Constructor
     m_networkManager = std::make_unique<NetworkManager>();  // Re-enabled with ENet
-    
+
     // Set up network callbacks
-    if (auto client = m_networkManager->getClient()) {
-        client->onWorldStateReceived = [this](const WorldStateMessage& worldState) {
-            this->handleWorldStateReceived(worldState);
-        };
-        
-        client->onCompressedIslandReceived = [this](uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize) {
-            this->handleCompressedIslandReceived(islandID, position, voxelData, dataSize);
-        };
-        
-        client->onVoxelChangeReceived = [this](const VoxelChangeUpdate& update) {
-            this->handleVoxelChangeReceived(update);
-        };
-        
-        client->onEntityStateUpdate = [this](const EntityStateUpdate& update) {
-            this->handleEntityStateUpdate(update);
-        };
+    if (auto client = m_networkManager->getClient())
+    {
+        client->onWorldStateReceived = [this](const WorldStateMessage& worldState)
+        { this->handleWorldStateReceived(worldState); };
+
+        client->onCompressedIslandReceived = [this](uint32_t islandID, const Vec3& position,
+                                                    const uint8_t* voxelData, uint32_t dataSize)
+        { this->handleCompressedIslandReceived(islandID, position, voxelData, dataSize); };
+
+        client->onVoxelChangeReceived = [this](const VoxelChangeUpdate& update)
+        { this->handleVoxelChangeReceived(update); };
+
+        client->onEntityStateUpdate = [this](const EntityStateUpdate& update)
+        { this->handleEntityStateUpdate(update); };
     }
 }
 
-GameClient::~GameClient() {
+GameClient::~GameClient()
+{
     shutdown();
 }
 
-bool GameClient::initialize() {
-    if (m_initialized) {
+bool GameClient::initialize()
+{
+    if (m_initialized)
+    {
         std::cerr << "GameClient already initialized!" << std::endl;
         return false;
     }
-    
-    std::cout << "🖼️  Initializing GameClient..." << std::endl;
-    
+
+    // Removed verbose debug output
+
     // Initialize window and graphics
-    if (!initializeWindow()) {
+    if (!initializeWindow())
+    {
         return false;
     }
-    
-    if (!initializeGraphics()) {
+
+    if (!initializeGraphics())
+    {
         return false;
     }
-    
+
     m_initialized = true;
-    std::cout << "✅ GameClient initialized successfully" << std::endl;
+    // Removed verbose debug output
     return true;
 }
 
-bool GameClient::connectToGameState(GameState* gameState) {
-    if (!gameState) {
+bool GameClient::connectToGameState(GameState* gameState)
+{
+    if (!gameState)
+    {
         std::cerr << "Cannot connect to null game state!" << std::endl;
         return false;
     }
-    
+
     m_gameState = gameState;
     m_isRemoteClient = false;  // Local connection
-    
+
     // Set up camera position based on game state
-    if (m_gameState->getPrimaryPlayer()) {
+    if (m_gameState->getPrimaryPlayer())
+    {
         Vec3 playerPos = m_gameState->getPrimaryPlayer()->getPosition();
         m_camera.position = playerPos;
     }
-    
-    std::cout << "🔗 GameClient connected to local game state" << std::endl;
+
+    // Removed verbose debug output
     return true;
 }
 
-bool GameClient::connectToRemoteServer(const std::string& serverAddress, uint16_t serverPort) {
-    if (!m_networkManager) {
+bool GameClient::connectToRemoteServer(const std::string& serverAddress, uint16_t serverPort)
+{
+    if (!m_networkManager)
+    {
         std::cerr << "Network manager not initialized!" << std::endl;
         return false;
     }
-    
+
     // Initialize networking
-    if (!m_networkManager->initializeNetworking()) {
+    if (!m_networkManager->initializeNetworking())
+    {
         std::cerr << "Failed to initialize networking!" << std::endl;
         return false;
     }
-    
-    std::cout << "🌐 Connecting to remote server: " << serverAddress << ":" << serverPort << std::endl;
-    
+
+    // Removed verbose debug output
+
     // Connect to remote server
-    if (!m_networkManager->joinServer(serverAddress, serverPort)) {
+    if (!m_networkManager->joinServer(serverAddress, serverPort))
+    {
         std::cerr << "Failed to connect to remote server!" << std::endl;
         return false;
     }
-    
+
     m_isRemoteClient = true;
-    
+
     // Initial world state will be received from server after handshake protocol
     // For now, create a minimal local state for rendering
     // This will be replaced by data received from server
-    
-    std::cout << "✅ Connected to remote server successfully" << std::endl;
+
+    // Removed verbose debug output
     return true;
 }
 
-bool GameClient::update(float deltaTime) {
-    if (!m_initialized) {
+bool GameClient::update(float deltaTime)
+{
+    if (!m_initialized)
+    {
         return false;
     }
-    
+
     // Poll window events
     glfwPollEvents();
-    
+
     // Check if window should close
-    if (shouldClose()) {
+    if (shouldClose())
+    {
         return false;
     }
-    
+
     // Update networking if remote client
-    if (m_isRemoteClient && m_networkManager) {
+    if (m_isRemoteClient && m_networkManager)
+    {
         m_networkManager->update();
     }
-    
+
     // Update client-side physics for smooth island movement
-    if (m_gameState) {
+    if (m_gameState)
+    {
         auto* islandSystem = m_gameState->getIslandSystem();
-        if (islandSystem) {
+        if (islandSystem)
+        {
             // Run client-side island physics between server updates
             // This provides smooth movement using server-provided velocities
             islandSystem->updateIslandPhysics(deltaTime);
         }
     }
-    
+
     // Process input
     processInput(deltaTime);
-    
+
     // Render frame
     render();
-    
+
     // Swap buffers
     glfwSwapBuffers(m_window);
-    
+
     return true;
 }
 
-void GameClient::shutdown() {
-    if (!m_initialized) {
+void GameClient::shutdown()
+{
+    if (!m_initialized)
+    {
         return;
     }
-    
-    std::cout << "🔄 Shutting down GameClient..." << std::endl;
-    
+
+    // Removed verbose debug output
+
     // Disconnect from game state
     m_gameState = nullptr;
-    
+
     // Cleanup graphics
-    if (m_window) {
+    if (m_window)
+    {
         glfwDestroyWindow(m_window);
         m_window = nullptr;
     }
-    
+
     glfwTerminate();
-    
+
     m_initialized = false;
-    std::cout << "✅ GameClient shutdown complete" << std::endl;
+    // Removed verbose debug output
 }
 
-bool GameClient::shouldClose() const {
+bool GameClient::shouldClose() const
+{
     return m_window && glfwWindowShouldClose(m_window);
 }
 
-void GameClient::processInput(float deltaTime) {
-    if (!m_window) {
+void GameClient::processInput(float deltaTime)
+{
+    if (!m_window)
+    {
         return;
     }
-    
+
     processKeyboard(deltaTime);
     processMouse(deltaTime);
-    
+
     // Only process block interaction if we have a local game state
-    if (m_gameState) {
+    if (m_gameState)
+    {
         processBlockInteraction(deltaTime);
     }
 }
 
-void GameClient::render() {
+void GameClient::render()
+{
     // Clear screen
     Renderer::clear();
-    
+
     // Set up 3D projection
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    
-    float aspect = (float)m_windowWidth / (float)m_windowHeight;
+
+    float aspect = (float) m_windowWidth / (float) m_windowHeight;
     float fov = 45.0f;
     float nearPlane = 0.1f;
     float farPlane = 1000.0f;
-    
+
     // Manual perspective setup
     float top = nearPlane * tan(fov * 3.14159f / 360.0f);
     float bottom = -top;
     float right = top * aspect;
     float left = -right;
     glFrustum(left, right, bottom, top, nearPlane, farPlane);
-    
+
     // Set up view matrix
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
-    
+
     Mat4 viewMatrix = m_camera.getViewMatrix();
     glMultMatrixf(viewMatrix.data());
-    
+
     // Update frustum culling
     m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);
-    
+
     // Render world (only if we have local game state)
-    if (m_gameState) {
+    if (m_gameState)
+    {
         renderWorld();
-    } else if (m_isRemoteClient) {
+    }
+    else if (m_isRemoteClient)
+    {
         // Render waiting screen for remote clients
         renderWaitingScreen();
     }
-    
+
     // Render UI
     renderUI();
 }
 
-bool GameClient::initializeWindow() {
-    if (!glfwInit()) {
+bool GameClient::initializeWindow()
+{
+    if (!glfwInit())
+    {
         std::cerr << "Failed to initialize GLFW!" << std::endl;
         return false;
     }
-    
+
     // Create window
-    m_window = glfwCreateWindow(m_windowWidth, m_windowHeight, "MMORPG Engine - Client", nullptr, nullptr);
-    if (!m_window) {
+    m_window =
+        glfwCreateWindow(m_windowWidth, m_windowHeight, "MMORPG Engine - Client", nullptr, nullptr);
+    if (!m_window)
+    {
         std::cerr << "Failed to create GLFW window!" << std::endl;
         glfwTerminate();
         return false;
     }
-    
+
     glfwMakeContextCurrent(m_window);
-    
+
     // Set callbacks
     glfwSetWindowUserPointer(m_window, this);
     glfwSetWindowSizeCallback(m_window, windowResizeCallback);
-    
+
     // Set up mouse capture
     glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-    
+
     return true;
 }
 
-bool GameClient::initializeGraphics() {
+bool GameClient::initializeGraphics()
+{
     // Initialize renderer
-    if (!Renderer::initialize()) {
+    if (!Renderer::initialize())
+    {
         std::cerr << "Failed to initialize renderer!" << std::endl;
         return false;
     }
-    
+
     // Initialize ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    ImGuiIO& io = ImGui::GetIO();
+    (void) io;
     ImGui::StyleColorsDark();
-    
+
     return true;
 }
 
-void GameClient::processKeyboard(float deltaTime) {
+void GameClient::processKeyboard(float deltaTime)
+{
     // Camera movement
     float moveSpeed = 10.0f;
     Vec3 movement(0, 0, 0);
-    
-    if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS) {
+
+    if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
+    {
         movement = movement + m_camera.front * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS) {
+    if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
+    {
         movement = movement - m_camera.front * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS) {
+    if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS)
+    {
         movement = movement - m_camera.right * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS) {
+    if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS)
+    {
         movement = movement + m_camera.right * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+    if (glfwGetKey(m_window, GLFW_KEY_SPACE) == GLFW_PRESS)
+    {
         movement = movement + m_camera.up * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+    if (glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+    {
         movement = movement - m_camera.up * moveSpeed * deltaTime;
     }
-    
+
     // Apply movement
     m_camera.position = m_camera.position + movement;
-    
+
     // Update player position in game state if local
-    if (m_gameState && m_gameState->getPrimaryPlayer()) {
+    if (m_gameState && m_gameState->getPrimaryPlayer())
+    {
         m_gameState->setPrimaryPlayerPosition(m_camera.position);
     }
-    
+
     // Send movement to server if we're a remote client
-    if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f) {
-        Vec3 velocity = movement / deltaTime; // Calculate velocity
+    if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f)
+    {
+        Vec3 velocity = movement / deltaTime;  // Calculate velocity
         m_networkManager->sendPlayerMovement(m_camera.position, velocity, deltaTime);
     }
-    
+
     // Time effects (temporary, will be refactored)
-    if (g_timeEffects) {
+    if (g_timeEffects)
+    {
         // TODO: Implement proper time effect methods
         // The actual method names need to be checked in TimeEffects.h
         /*
@@ -330,43 +379,48 @@ void GameClient::processKeyboard(float deltaTime) {
         if (glfwGetKey(m_window, GLFW_KEY_T) == GLFW_PRESS) g_timeEffects->toggleTimePulse();
         */
     }
-    
+
     // Exit
-    if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+    if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    {
         glfwSetWindowShouldClose(m_window, GLFW_TRUE);
     }
 }
 
-void GameClient::processMouse(float deltaTime) {
+void GameClient::processMouse(float deltaTime)
+{
     static double lastX = m_windowWidth / 2.0;
     static double lastY = m_windowHeight / 2.0;
     static bool firstMouse = true;
-    
+
     double xpos, ypos;
     glfwGetCursorPos(m_window, &xpos, &ypos);
-    
-    if (firstMouse) {
+
+    if (firstMouse)
+    {
         lastX = xpos;
         lastY = ypos;
         firstMouse = false;
     }
-    
-    float xoffset = (float)(xpos - lastX);
-    float yoffset = (float)(lastY - ypos);  // Reversed since y-coordinates go from bottom to top
+
+    float xoffset = (float) (xpos - lastX);
+    float yoffset = (float) (lastY - ypos);  // Reversed since y-coordinates go from bottom to top
     lastX = xpos;
     lastY = ypos;
-    
+
     float sensitivity = 0.1f;
     xoffset *= sensitivity;
     yoffset *= sensitivity;
-    
+
     m_camera.yaw += xoffset;
     m_camera.pitch += yoffset;
-    
+
     // Constrain pitch
-    if (m_camera.pitch > 89.0f) m_camera.pitch = 89.0f;
-    if (m_camera.pitch < -89.0f) m_camera.pitch = -89.0f;
-    
+    if (m_camera.pitch > 89.0f)
+        m_camera.pitch = 89.0f;
+    if (m_camera.pitch < -89.0f)
+        m_camera.pitch = -89.0f;
+
     // Update camera vectors after changing yaw/pitch - this was missing!
     m_camera.updateCameraVectors();
     // We need to manually call this since we're directly modifying yaw/pitch
@@ -374,118 +428,152 @@ void GameClient::processMouse(float deltaTime) {
     // m_camera.updateCameraVectors();
 }
 
-void GameClient::processBlockInteraction(float deltaTime) {
-    if (!m_gameState) {
+void GameClient::processBlockInteraction(float deltaTime)
+{
+    if (!m_gameState)
+    {
         return;
     }
-    
+
     // Update raycast timer for performance
     m_inputState.raycastTimer += deltaTime;
-    if (m_inputState.raycastTimer > 0.1f) {  // 10 FPS raycasting
+    if (m_inputState.raycastTimer > 0.1f)
+    {  // 10 FPS raycasting
         m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-            m_camera.position, m_camera.front, 50.0f, 
-            m_gameState->getIslandSystem()
-        );
+            m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
         m_inputState.raycastTimer = 0.0f;
     }
-    
+
     bool leftClick = glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     bool rightClick = glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-    
+
     // Left click - break block
-    if (leftClick && !m_inputState.leftMousePressed) {
+    if (leftClick && !m_inputState.leftMousePressed)
+    {
         m_inputState.leftMousePressed = true;
-        
-        if (m_inputState.cachedTargetBlock.hit) {
+
+        if (m_inputState.cachedTargetBlock.hit)
+        {
             // Send network request for block break
-            if (m_networkManager && m_networkManager->getClient() && m_networkManager->getClient()->isConnected()) {
-                m_networkManager->getClient()->sendVoxelChangeRequest(m_inputState.cachedTargetBlock.islandID, 
-                                                                     m_inputState.cachedTargetBlock.localBlockPos, 0);
+            if (m_networkManager && m_networkManager->getClient() &&
+                m_networkManager->getClient()->isConnected())
+            {
+                m_networkManager->getClient()->sendVoxelChangeRequest(
+                    m_inputState.cachedTargetBlock.islandID,
+                    m_inputState.cachedTargetBlock.localBlockPos, 0);
             }
-            
+
             // Apply optimistically for immediate visual feedback
-            m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, 
+            m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID,
                                   m_inputState.cachedTargetBlock.localBlockPos, 0);
         }
-    } else if (!leftClick) {
+    }
+    else if (!leftClick)
+    {
         m_inputState.leftMousePressed = false;
     }
-    
+
     // Right click - place block
-    if (rightClick && !m_inputState.rightMousePressed) {
+    if (rightClick && !m_inputState.rightMousePressed)
+    {
         m_inputState.rightMousePressed = true;
-        
-        if (m_inputState.cachedTargetBlock.hit) {
+
+        if (m_inputState.cachedTargetBlock.hit)
+        {
             Vec3 placePos = VoxelRaycaster::getPlacementPosition(m_inputState.cachedTargetBlock);
-            uint8_t existingVoxel = m_gameState->getVoxel(m_inputState.cachedTargetBlock.islandID, placePos);
-            
-            if (existingVoxel == 0) {
+            uint8_t existingVoxel =
+                m_gameState->getVoxel(m_inputState.cachedTargetBlock.islandID, placePos);
+
+            if (existingVoxel == 0)
+            {
                 // Send network request for block place
-                if (m_networkManager && m_networkManager->getClient() && m_networkManager->getClient()->isConnected()) {
-                    m_networkManager->getClient()->sendVoxelChangeRequest(m_inputState.cachedTargetBlock.islandID, 
-                                                                         placePos, 1);
+                if (m_networkManager && m_networkManager->getClient() &&
+                    m_networkManager->getClient()->isConnected())
+                {
+                    m_networkManager->getClient()->sendVoxelChangeRequest(
+                        m_inputState.cachedTargetBlock.islandID, placePos, 1);
                 }
-                
+
                 // Apply optimistically for immediate visual feedback
                 m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, 1);
             }
         }
-    } else if (!rightClick) {
+    }
+    else if (!rightClick)
+    {
         m_inputState.rightMousePressed = false;
     }
 }
 
-void GameClient::renderWorld() {
-    if (!m_gameState) {
+void GameClient::renderWorld()
+{
+    if (!m_gameState)
+    {
         return;
     }
-    
+
     // Render all islands
     m_gameState->getIslandSystem()->renderAllIslands();
-    
+
     // Render block highlighter
-    if (m_inputState.cachedTargetBlock.hit) {
-        auto* island = m_gameState->getIslandSystem()->getIsland(m_inputState.cachedTargetBlock.islandID);
-        if (island) {
+    if (m_inputState.cachedTargetBlock.hit)
+    {
+        auto* island =
+            m_gameState->getIslandSystem()->getIsland(m_inputState.cachedTargetBlock.islandID);
+        if (island)
+        {
             Vec3 islandPhysicsPos = island->physicsCenter;
-            
+
             // Draw wireframe box around targeted block
             glDisable(GL_DEPTH_TEST);
             glDisable(GL_LIGHTING);
-            glColor3f(1.0f, 1.0f, 0.0f); // Yellow highlight
+            glColor3f(1.0f, 1.0f, 0.0f);  // Yellow highlight
             glLineWidth(2.0f);
-            
+
             float x = islandPhysicsPos.x + m_inputState.cachedTargetBlock.localBlockPos.x;
             float y = islandPhysicsPos.y + m_inputState.cachedTargetBlock.localBlockPos.y;
             float z = islandPhysicsPos.z + m_inputState.cachedTargetBlock.localBlockPos.z;
-            
+
             glBegin(GL_LINES);
             // Bottom face
-            glVertex3f(x, y, z);       glVertex3f(x+1, y, z);
-            glVertex3f(x+1, y, z);     glVertex3f(x+1, y, z+1);
-            glVertex3f(x+1, y, z+1);   glVertex3f(x, y, z+1);
-            glVertex3f(x, y, z+1);     glVertex3f(x, y, z);
-            
+            glVertex3f(x, y, z);
+            glVertex3f(x + 1, y, z);
+            glVertex3f(x + 1, y, z);
+            glVertex3f(x + 1, y, z + 1);
+            glVertex3f(x + 1, y, z + 1);
+            glVertex3f(x, y, z + 1);
+            glVertex3f(x, y, z + 1);
+            glVertex3f(x, y, z);
+
             // Top face
-            glVertex3f(x, y+1, z);     glVertex3f(x+1, y+1, z);
-            glVertex3f(x+1, y+1, z);   glVertex3f(x+1, y+1, z+1);
-            glVertex3f(x+1, y+1, z+1); glVertex3f(x, y+1, z+1);
-            glVertex3f(x, y+1, z+1);   glVertex3f(x, y+1, z);
-            
+            glVertex3f(x, y + 1, z);
+            glVertex3f(x + 1, y + 1, z);
+            glVertex3f(x + 1, y + 1, z);
+            glVertex3f(x + 1, y + 1, z + 1);
+            glVertex3f(x + 1, y + 1, z + 1);
+            glVertex3f(x, y + 1, z + 1);
+            glVertex3f(x, y + 1, z + 1);
+            glVertex3f(x, y + 1, z);
+
             // Vertical edges
-            glVertex3f(x, y, z);       glVertex3f(x, y+1, z);
-            glVertex3f(x+1, y, z);     glVertex3f(x+1, y+1, z);
-            glVertex3f(x+1, y, z+1);   glVertex3f(x+1, y+1, z+1);
-            glVertex3f(x, y, z+1);     glVertex3f(x, y+1, z+1);
+            glVertex3f(x, y, z);
+            glVertex3f(x, y + 1, z);
+            glVertex3f(x + 1, y, z);
+            glVertex3f(x + 1, y + 1, z);
+            glVertex3f(x + 1, y, z + 1);
+            glVertex3f(x + 1, y + 1, z + 1);
+            glVertex3f(x, y, z + 1);
+            glVertex3f(x, y + 1, z + 1);
             glEnd();
-            
+
             glEnable(GL_DEPTH_TEST);
-            glColor3f(1.0f, 1.0f, 1.0f); // Reset color
+            glColor3f(1.0f, 1.0f, 1.0f);  // Reset color
         }
     }
 }
 
-void GameClient::renderWaitingScreen() {
+void GameClient::renderWaitingScreen()
+{
     // Simple text rendering for waiting screen
     // TODO: Replace with proper ImGui or text rendering system
     glColor3f(1.0f, 1.0f, 1.0f);
@@ -493,170 +581,191 @@ void GameClient::renderWaitingScreen() {
     glClearColor(0.1f, 0.1f, 0.3f, 1.0f);  // Dark blue background
 }
 
-void GameClient::renderUI() {
+void GameClient::renderUI()
+{
     // TODO: Implement ImGui UI rendering
     // This will show server connection status, performance metrics, etc.
-    if (m_isRemoteClient) {
+    if (m_isRemoteClient)
+    {
         // Show connection status for remote clients
         // TODO: Add proper UI text rendering
     }
 }
 
-void GameClient::onWindowResize(int width, int height) {
+void GameClient::onWindowResize(int width, int height)
+{
     m_windowWidth = width;
     m_windowHeight = height;
     glViewport(0, 0, width, height);
 }
 
-void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState) {
-    std::cout << "🌍 Creating local game world from server data..." << std::endl;
-    std::cout << "   Islands: " << worldState.numIslands << std::endl;
-    std::cout << "   Spawn position: (" << worldState.playerSpawnPosition.x << ", " 
-              << worldState.playerSpawnPosition.y << ", " << worldState.playerSpawnPosition.z << ")" << std::endl;
-    
+void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)
+{
+    // Removed verbose debug output
+
     // Create a new GameState for the client based on server data
-    m_gameState = new GameState();  // Note: This creates a raw pointer, we might want to use unique_ptr later
-    
-    if (!m_gameState->initialize(false)) {  // Don't create default world, we'll use server data
+    m_gameState =
+        new GameState();  // Note: This creates a raw pointer, we might want to use unique_ptr later
+
+    if (!m_gameState->initialize(false))
+    {  // Don't create default world, we'll use server data
         std::cerr << "Failed to initialize client game state!" << std::endl;
         delete m_gameState;
         m_gameState = nullptr;
         return;
     }
-    
+
     // Set camera position to the spawn location
     m_camera.position = worldState.playerSpawnPosition;
     m_camera.position.y += 2.0f;  // Position camera slightly above spawn point
-    
-    std::cout << "✅ Client world state initialized successfully! Waiting for island data..." << std::endl;
+
+    // Removed verbose debug output
 }
 
-void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize) {
-    if (!m_gameState) {
+void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& position,
+                                                const uint8_t* voxelData, uint32_t dataSize)
+{
+    if (!m_gameState)
+    {
         std::cerr << "Cannot handle island data: No game state initialized" << std::endl;
         return;
     }
-    
-    std::cout << "🏝️ Applying island " << islandID << " data at position (" 
-              << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
-    
+
+    // Removed verbose debug output
+
     auto* islandSystem = m_gameState->getIslandSystem();
-    if (!islandSystem) {
+    if (!islandSystem)
+    {
         std::cerr << "No island system available" << std::endl;
         return;
     }
-    
+
     // Create the island at the specified position with the server's ID
     // We'll create it locally and map the server ID to our local island
     uint32_t localIslandID = islandSystem->createIsland(position);
-    std::cout << "Created local island with ID: " << localIslandID << std::endl;
-    
+    // Removed verbose debug output
+
     // Get the island and apply the voxel data
     FloatingIsland* island = islandSystem->getIsland(localIslandID);
-    if (island) {
-        std::cout << "Successfully retrieved island " << localIslandID << std::endl;
-        
+    if (island)
+    {
+        // Removed verbose debug output
+
         // Create the main chunk if it doesn't exist (client islands don't auto-generate chunks)
-        if (!island->mainChunk) {
-            std::cout << "Creating main chunk for island " << localIslandID << std::endl;
+        if (!island->mainChunk)
+        {
+            // Removed verbose debug output
             island->mainChunk = std::make_unique<VoxelChunk>();
         }
-        
-        if (island->mainChunk) {
-            std::cout << "Island has main chunk, applying voxel data..." << std::endl;
-            
+
+        if (island->mainChunk)
+        {
+            // Removed verbose debug output
+
             // Apply the voxel data directly - this replaces any procedural generation
             island->mainChunk->setRawVoxelData(voxelData, dataSize);
             island->mainChunk->generateMesh();  // Regenerate the mesh with the new data
-            
-            std::cout << "✅ Applied voxel data to island " << islandID << " (local ID: " << localIslandID << ")" << std::endl;
-            std::cout << "   Island positioned at: (" << position.x << ", " << position.y << ", " << position.z << ")" << std::endl;
-        } else {
+
+            // Removed verbose debug output
+        }
+        else
+        {
             std::cerr << "Failed to create main chunk for island " << localIslandID << std::endl;
         }
-    } else {
+    }
+    else
+    {
         std::cerr << "Failed to retrieve island with local ID: " << localIslandID << std::endl;
     }
 }
 
-void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update) {
-    if (!m_gameState) {
+void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update)
+{
+    if (!m_gameState)
+    {
         std::cerr << "Cannot apply voxel change: no game state!" << std::endl;
         return;
     }
-    
-    std::cout << "Applying authoritative voxel change: Island " << update.islandID 
-              << " at (" << update.localPos.x << "," << update.localPos.y 
-              << "," << update.localPos.z << ") = " << (int)update.voxelType 
-              << " by player " << update.authorPlayerId << std::endl;
-    
+
+    // Removed verbose debug output
+
     // Apply the authoritative voxel change from server
     m_gameState->setVoxel(update.islandID, update.localPos, update.voxelType);
-    
+
     // The setVoxel call should automatically trigger mesh regeneration in GameState
 }
 
-void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update) {
-    if (!m_gameState) {
+void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update)
+{
+    if (!m_gameState)
+    {
         return;
     }
-    
+
     // Handle different entity types
-    switch (update.entityType) {
-        case 1: { // Island
-            std::cout << "Received island " << update.entityID << " state: pos(" 
-                      << update.position.x << "," << update.position.y << "," << update.position.z 
-                      << ") vel(" << update.velocity.x << "," << update.velocity.y << "," << update.velocity.z << ")" << std::endl;
-            
+    switch (update.entityType)
+    {
+        case 1:
+        {  // Island
+            // Removed verbose debug output
+
             auto* islandSystem = m_gameState->getIslandSystem();
-            if (islandSystem) {
+            if (islandSystem)
+            {
                 FloatingIsland* island = islandSystem->getIsland(update.entityID);
-                if (island) {
+                if (island)
+                {
                     // Apply server-authoritative velocity for client-side physics simulation
                     // This allows smooth movement while maintaining server authority
-                    
+
                     Vec3 currentPos = island->physicsCenter;
                     Vec3 serverPos = update.position;
                     Vec3 positionError = serverPos - currentPos;
-                    
+
                     // Calculate position error magnitude
-                    float errorMagnitude = sqrtf(positionError.x * positionError.x + 
-                                                positionError.y * positionError.y + 
-                                                positionError.z * positionError.z);
-                    
+                    float errorMagnitude = sqrtf(positionError.x * positionError.x +
+                                                 positionError.y * positionError.y +
+                                                 positionError.z * positionError.z);
+
                     // Set velocity from server for physics simulation
                     island->velocity = update.velocity;
                     island->acceleration = update.acceleration;
-                    
+
                     // Apply position correction based on error magnitude
-                    if (errorMagnitude > 2.0f) {
+                    if (errorMagnitude > 2.0f)
+                    {
                         // Large error: snap to server position (teleport/respawn case)
                         island->physicsCenter = serverPos;
-                    } else if (errorMagnitude > 0.1f) {
+                    }
+                    else if (errorMagnitude > 0.1f)
+                    {
                         // Small to medium error: apply gradual correction
-                        // Add a correction velocity component to smoothly move toward server position
-                        Vec3 correctionVelocity = positionError * 0.8f; // Correction strength
+                        // Add a correction velocity component to smoothly move toward server
+                        // position
+                        Vec3 correctionVelocity = positionError * 0.8f;  // Correction strength
                         island->velocity = island->velocity + correctionVelocity;
                     }
                     // If error is very small (< 0.1f), just use server velocity as-is
-                    
+
                     // Mark for physics update synchronization
                     island->needsPhysicsUpdate = true;
                 }
             }
             break;
         }
-        case 0: // Player (future implementation)
-        case 2: // NPC (future implementation)
+        case 0:  // Player (future implementation)
+        case 2:  // NPC (future implementation)
         default:
             // Handle other entity types in the future
             break;
     }
 }
 
-void GameClient::windowResizeCallback(GLFWwindow* window, int width, int height) {
+void GameClient::windowResizeCallback(GLFWwindow* window, int width, int height)
+{
     GameClient* client = static_cast<GameClient*>(glfwGetWindowUserPointer(window));
-    if (client) {
+    if (client)
+    {
         client->onWindowResize(width, height);
     }
 }

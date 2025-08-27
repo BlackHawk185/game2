@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# Fix runtime library mismatch - use static runtime for consistency with Jolt
+# Fix runtime library mismatch - use static runtime for consistency
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 # Output directories
@@ -25,7 +25,7 @@ target_link_libraries(MMORPGEngine PRIVATE engine)
 
 # Third-party libraries
 add_subdirectory(libs)
- # bgfx, JoltPhysics, and imgui are not CMake projects, so do not use add_subdirectory. Link manually in engine/CMakeLists.txt.
+ # bgfx and imgui are not CMake projects, so do not use add_subdirectory. Link manually in engine/CMakeLists.txt.
 # Manual linking: see engine/CMakeLists.txt for instructions.
 
 # Link libraries in engine/CMakeLists.txt as needed

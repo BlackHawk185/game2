@@ -46,10 +46,6 @@ add_library(engine STATIC
     Network/VoxelCompression.cpp
 )
 
-# === Third-party sources: Jolt Physics ==Move-Item "c:\Users\steve-17\Desktop\game2\engine\Renderer.h" "c:\Users\steve-17\Desktop\game2\engine\Rendering\Renderer.h"=
-# Use proper Jolt CMake integration
-add_subdirectory(${CMAKE_SOURCE_DIR}/libs/JoltPhysics/Build jolt_build EXCLUDE_FROM_ALL)
-
 # === Third-party sources: ImGui ===
 file(GLOB IMGUI_SRC
     ${CMAKE_SOURCE_DIR}/libs/imgui/*.cpp
@@ -66,7 +62,6 @@ target_precompile_headers(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/pch.h")
 # Engine includes
 target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/libs/JoltPhysics
     ${CMAKE_SOURCE_DIR}/libs/imgui
 )
 
@@ -92,7 +87,6 @@ find_package(OpenGL REQUIRED)
 # Link third-party libraries
 target_link_libraries(engine PUBLIC
     glfw
-    Jolt
     enet
     OpenGL::GL
 )

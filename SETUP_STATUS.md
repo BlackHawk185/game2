@@ -95,7 +95,7 @@
 3. **Try sanitized build**: Test memory safety validation on networking code
 
 ### Phase 2 (Next Week):
-4. **Add Precompiled Headers**: Speed up compilation for heavy includes (bgfx, Jolt, etc.)
+4. **Add Precompiled Headers**: Speed up compilation for heavy includes (bgfx, etc.)
 5. **Unit Test Framework**: Set up Catch2 for ECS and networking components
 6. **Tracy Integration**: Add performance profiling for real-time engine monitoring
 

@@ -18,7 +18,7 @@ bool JobSystem::initialize(uint32_t workerCount)
 {
     if (m_initialized.load())
     {
-        std::cout << "⚡ JobSystem already initialized!" << std::endl;
+        // Removed verbose debug output
         return true;
     }
 
@@ -244,8 +244,7 @@ uint32_t submitPhysicsCook(uint32_t chunkID, const void* meshData, size_t meshSi
                                      result.chunkID = chunkID;
                                      result.success = true;
 
-                                     // Physics cooking will integrate with Jolt Physics for
-                                     // collision meshes
+                                     // Physics cooking will generate collision meshes
                                      std::this_thread::sleep_for(std::chrono::milliseconds(2));
 
                                      return result;

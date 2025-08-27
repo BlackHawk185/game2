@@ -2,12 +2,11 @@
 
 This workspace is set up for a modular C++17 MMORPG engine prototype using CMake. It is designed for cross-platform development (Windows, Linux, macOS) and integrates:
 - **bgfx** for rendering
-- **Jolt Physics** for simulation
 - **Dear ImGui** for dev tools
 
 ## Structure
 - `/engine` — Core engine code
-- `/libs` — Third-party libraries (bgfx, Jolt Physics, etc.)
+- `/libs` — Third-party libraries (bgfx, etc.)
 - `/assets` — Placeholder and real assets
 
 ## Getting Started

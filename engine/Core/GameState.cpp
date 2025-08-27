@@ -48,7 +48,7 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
     }
 
     m_initialized = true;
-    std::cout << "✅ GameState initialized successfully" << std::endl;
+    // Removed verbose debug output
     return true;
 }
 
@@ -156,7 +156,7 @@ void GameState::createDefaultWorld()
     Vec3 playerSpawnPos = Vec3(16.0f, 16.0f, 16.0f);  // Relative to island center
     m_primaryPlayer->setPosition(playerSpawnPos);
 
-    std::cout << "✅ Default world created with " << m_islandIDs.size() << " islands" << std::endl;
+    // Removed verbose debug output
 }
 
 void GameState::updatePhysics(float deltaTime)

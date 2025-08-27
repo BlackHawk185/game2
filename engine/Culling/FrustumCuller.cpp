@@ -10,7 +10,7 @@ FrustumCuller g_frustumCuller;
 
 FrustumCuller::FrustumCuller()
 {
-    std::cout << "🔍 FrustumCuller initialized" << std::endl;
+    // Removed verbose debug output
 }
 
 void Frustum::updateFromCamera(const Camera& camera, float aspect, float fovDegrees)
