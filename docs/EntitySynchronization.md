@@ -56,18 +56,18 @@ struct VoxelChangeUpdate {
 ```cpp
 // In your physics update loop for islands (when physics engine is integrated)
 void updateIslandPhysics(FloatingIsland& island, float deltaTime) {
-    // Update island physics (currently stub implementation)
+    // Update island physics (Bullet Physics integrated)
     // island.velocity.y -= 9.81f * deltaTime; // Gravity
     // island.position += island.velocity * deltaTime;
     
-    // Broadcast state to all clients (when physics is active)
+    // Broadcast state to all clients (Bullet Physics active)
     if (integratedServer && integratedServer->isRunning()) {
         integratedServer->broadcastEntityStateUpdate(
             island.islandID,           // entityID
             1,                         // entityType (Island)
             island.physicsCenter,      // position
-            island.velocity,           // velocity (when physics active)
-            island.acceleration,       // acceleration (when physics active)
+            island.velocity,           // velocity (Bullet Physics active)
+            island.acceleration,       // acceleration (Bullet Physics active)
             0                          // flags
         );
     }
@@ -79,17 +79,17 @@ void updateIslandPhysics(FloatingIsland& island, float deltaTime) {
 ```cpp
 // In your player update loop (when physics engine is integrated)
 void updatePlayerMovement(Player& player, float deltaTime) {
-    // Update player physics (currently stub implementation)
+    // Update player physics (Bullet Physics integrated)
     // player.position += player.velocity * deltaTime;
     
-    // Broadcast state to all clients (when physics is active)
+    // Broadcast state to all clients (Bullet Physics active)
     if (integratedServer && integratedServer->isRunning()) {
         integratedServer->broadcastEntityStateUpdate(
             player.playerID,           // entityID
             0,                         // entityType (Player)
             player.position,           // position
-            player.velocity,           // velocity (when physics active)
-            player.acceleration,       // acceleration (when physics active)
+            player.velocity,           // velocity (Bullet Physics active)
+            player.acceleration,       // acceleration (Bullet Physics active)
             player.isGrounded ? 1 : 0  // flags
         );
     }

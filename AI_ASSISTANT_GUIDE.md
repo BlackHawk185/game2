@@ -36,7 +36,7 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 ### Core Systems (Implemented)
 - **ECS Framework**: Entity-Component-System for game objects
 - **JobSystem**: Multi-threaded task processing with worker threads
-- **Physics**: Stub physics system (no-op implementation ready for future physics engine integration)
+- **Physics**: Bullet Physics integrated with collision detection and island simulation
 - **Rendering**: bgfx-based renderer with Dear ImGui dev tools
 - **Input**: Camera controls (WASD+mouse, space for jump)
 - **Time Effects**: Time manipulation system (keys 1-5, 0, T for various effects)
@@ -45,9 +45,9 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 ### Game-Specific Features (Implemented)
 - **Floating Islands**: Procedurally generated voxel islands (physics simulation ready)
 - **Player Movement**: Physics-based movement with real-time network synchronization
-- **Island Momentum**: Players inherit velocity from moving platforms (when physics engine is integrated)
-- **Collision Detection**: Efficient voxel-based collision with islands
-- **Island Drift**: Islands move with realistic physics simulation (when physics engine is integrated)
+- **Island Momentum**: Players inherit velocity from moving platforms (Bullet Physics integrated)
+- **Collision Detection**: Friction-based voxel collision with sliding responses
+- **Island Drift**: Islands move with realistic physics simulation (Bullet Physics integrated)
 - **Block Interaction**: Real-time block break/place with network validation
 
 ### Network Architecture (Implemented)
@@ -64,7 +64,7 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Dependencies**: bgfx, ENet, GLFW, Dear ImGui
 - **Platform**: Currently Windows-focused but designed for cross-platform
 - **Performance**: Optimized for 60+ FPS with multiple islands (physics-ready)
-- **Physics Status**: Stub implementation ready for future physics engine integration
+- **Physics Status**: Bullet Physics integrated with collision detection and island simulation
 
 ---
 

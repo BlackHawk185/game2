@@ -386,7 +386,16 @@ bool VoxelRaycaster::rayIntersectsAABB(const Vec3& rayStart, const Vec3& rayDir,
 
 uint32_t VoxelRaycaster::findIslandIDForChunk(IslandChunkSystem* islandSystem, VoxelChunk* chunk)
 {
-    // For now, assume main island is ID 1
-    // TODO: Implement proper chunk->island lookup
-    return 1;
+    // Iterate through all islands to find which one contains this chunk
+    const auto& islands = islandSystem->getIslands();
+    for (const auto& [islandID, island] : islands)
+    {
+        if (island.mainChunk.get() == chunk)
+        {
+            return islandID;
+        }
+    }
+
+    // If not found, return 0 (invalid island ID)
+    return 0;
 }

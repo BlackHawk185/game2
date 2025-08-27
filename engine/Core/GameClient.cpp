@@ -358,7 +358,9 @@ void GameClient::processKeyboard(float deltaTime)
     Vec3 intendedPosition = m_camera.position + movement;
     const float PLAYER_RADIUS = 0.5f;  // Player collision radius
 
-    std::cout << "[CLIENT] Movement input: (" << movement.x << ", " << movement.y << ", " << movement.z << "), intended pos: (" << intendedPosition.x << ", " << intendedPosition.y << ", " << intendedPosition.z << ")" << std::endl;
+    std::cout << "[CLIENT] Movement input: (" << movement.x << ", " << movement.y << ", "
+              << movement.z << "), intended pos: (" << intendedPosition.x << ", "
+              << intendedPosition.y << ", " << intendedPosition.z << ")" << std::endl;
 
     // Check for collision with islands
     Vec3 collisionNormal;
@@ -366,25 +368,37 @@ void GameClient::processKeyboard(float deltaTime)
 
     if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
     {
-        std::cout << "[CLIENT] Initial collision detected, attempting slide collision" << std::endl;
-        // Collision detected - implement simple sliding collision
+        std::cout
+            << "[CLIENT] Initial collision detected, applying friction-based sliding collision"
+            << std::endl;
+        // Collision detected - implement friction-based sliding collision
+        const float FRICTION_COEFFICIENT =
+            0.3f;  // Friction factor (0 = no friction, 1 = full stop)
+
         // Project movement onto the collision plane
         float dotProduct = movement.dot(collisionNormal);
         Vec3 slideMovement = movement - collisionNormal * dotProduct;
 
-        // Apply sliding movement instead
+        // Apply friction to the sliding movement
+        slideMovement *= (1.0f - FRICTION_COEFFICIENT);
+
+        // Apply sliding movement with friction
         intendedPosition = m_camera.position + slideMovement;
 
         // Check if sliding movement also collides
         if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
         {
-            std::cout << "[CLIENT] Slide collision also detected, blocking movement" << std::endl;
-            // If sliding also collides, don't move
-            intendedPosition = m_camera.position;
+            std::cout << "[CLIENT] Slide collision also detected, applying stronger friction"
+                      << std::endl;
+            // If sliding also collides, apply stronger friction instead of blocking completely
+            const float STRONG_FRICTION = 0.7f;
+            Vec3 strongFrictionMovement = movement * (1.0f - STRONG_FRICTION);
+            intendedPosition = m_camera.position + strongFrictionMovement;
         }
         else
         {
-            std::cout << "[CLIENT] Slide movement successful: (" << slideMovement.x << ", " << slideMovement.y << ", " << slideMovement.z << ")" << std::endl;
+            std::cout << "[CLIENT] Friction-based slide movement successful: (" << slideMovement.x
+                      << ", " << slideMovement.y << ", " << slideMovement.z << ")" << std::endl;
         }
 
         hasCollision = true;
@@ -393,7 +407,7 @@ void GameClient::processKeyboard(float deltaTime)
     {
         std::cout << "[CLIENT] No collision detected, movement allowed" << std::endl;
     }
-    
+
     // Apply movement (with collision response)
     m_camera.position = intendedPosition;
 
@@ -512,6 +526,12 @@ void GameClient::processBlockInteraction(float deltaTime)
             // Apply optimistically for immediate visual feedback
             m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID,
                                   m_inputState.cachedTargetBlock.localBlockPos, 0);
+
+            // Clear the cached target block immediately to remove the yellow outline
+            m_inputState.cachedTargetBlock = RayHit();
+
+            // Reset raycast timer to prevent immediate re-raycast
+            m_inputState.raycastTimer = 0.0f;
         }
     }
     else if (!leftClick)
@@ -542,6 +562,12 @@ void GameClient::processBlockInteraction(float deltaTime)
 
                 // Apply optimistically for immediate visual feedback
                 m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, 1);
+
+                // Clear the cached target block to refresh the selection
+                m_inputState.cachedTargetBlock = RayHit();
+
+                // Reset raycast timer to prevent immediate re-raycast
+                m_inputState.raycastTimer = 0.0f;
             }
         }
     }
@@ -710,11 +736,12 @@ void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& p
 
             // Apply the voxel data directly - this replaces any procedural generation
             island->mainChunk->setRawVoxelData(voxelData, dataSize);
-            island->mainChunk->generateMesh();  // Regenerate the mesh with the new data
+            island->mainChunk->generateMesh();        // Regenerate the mesh with the new data
             island->mainChunk->buildCollisionMesh();  // Build collision faces from vertices
 
             std::cout << "[CLIENT] Received and built collision mesh for island " << islandID
-                      << " (" << island->mainChunk->getCollisionMesh().faces.size() << " faces)" << std::endl;
+                      << " (" << island->mainChunk->getCollisionMesh().faces.size() << " faces)"
+                      << std::endl;
         }
         else
         {
@@ -739,6 +766,16 @@ void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update)
 
     // Apply the authoritative voxel change from server
     m_gameState->setVoxel(update.islandID, update.localPos, update.voxelType);
+
+    // Clear cached target block if it was affected by this update
+    if (m_inputState.cachedTargetBlock.hit &&
+        m_inputState.cachedTargetBlock.islandID == update.islandID &&
+        m_inputState.cachedTargetBlock.localBlockPos.x == update.localPos.x &&
+        m_inputState.cachedTargetBlock.localBlockPos.y == update.localPos.y &&
+        m_inputState.cachedTargetBlock.localBlockPos.z == update.localPos.z)
+    {
+        m_inputState.cachedTargetBlock = RayHit();
+    }
 
     // The setVoxel call should automatically trigger mesh regeneration in GameState
 }

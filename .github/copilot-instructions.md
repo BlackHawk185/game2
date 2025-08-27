@@ -2,7 +2,7 @@
 
 - This project is a modular C++17 MMORPG engine prototype using CMake.
 - Use SoA (Structure of Arrays) for all entity/component storage and performance-critical systems.
-- Integrate bgfx for rendering, Jolt Physics for simulation, and Dear ImGui for dev tools.
+- Integrate bgfx for rendering, Bullet Physics for simulation, and Dear ImGui for dev tools.
 - Prioritize cross-platform compatibility (Windows, Linux, macOS).
 - All code should be well-commented and beginner-friendly.
 - Use tasks.json for build/run tasks and recommend C++/CMake extensions.

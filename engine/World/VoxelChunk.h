@@ -81,10 +81,13 @@ class VoxelChunk
     }
 
     // Collision detection methods
-    const CollisionMesh& getCollisionMesh() const { return collisionMesh; }
+    const CollisionMesh& getCollisionMesh() const
+    {
+        return collisionMesh;
+    }
     void buildCollisionMesh();
     bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
-                          Vec3& hitPoint, Vec3& hitNormal) const;
+                           Vec3& hitPoint, Vec3& hitNormal) const;
 
     // Island generation (for floating terrain)
     void generateFloatingIsland(int seed);

@@ -5,6 +5,7 @@
 #include <iostream>
 
 #include "NetworkMessages.h"
+
 #include "../Physics/PhysicsSystem.h"
 
 NetworkManager::NetworkManager() : isNetworkingEnabled(false)
@@ -82,19 +83,40 @@ bool NetworkManager::startHosting(uint16_t port)
         server->onPlayerMovementRequest =
             [this](ENetPeer* peer, const PlayerMovementRequest& request)
         {
-            std::cout << "[SERVER] Player movement request: (" << request.intendedPosition.x << ", " << request.intendedPosition.y << ", " << request.intendedPosition.z << ") (velocity: (" << request.velocity.x << ", " << request.velocity.y << ", " << request.velocity.z << "))" << std::endl;
+            std::cout << "[SERVER] Player movement request: (" << request.intendedPosition.x << ", "
+                      << request.intendedPosition.y << ", " << request.intendedPosition.z
+                      << ") (velocity: (" << request.velocity.x << ", " << request.velocity.y
+                      << ", " << request.velocity.z << "))" << std::endl;
 
             // Validate movement against collision
             Vec3 collisionNormal;
             const float PLAYER_RADIUS = 0.5f;
 
-            if (g_physics.checkPlayerCollision(request.intendedPosition, collisionNormal, PLAYER_RADIUS))
+            if (g_physics.checkPlayerCollision(request.intendedPosition, collisionNormal,
+                                               PLAYER_RADIUS))
             {
-                std::cout << "[SERVER] Movement blocked by collision (normal: (" << collisionNormal.x << ", " << collisionNormal.y << ", " << collisionNormal.z << "))" << std::endl;
+                std::cout
+                    << "[SERVER] Collision detected, applying friction-based response (normal: ("
+                    << collisionNormal.x << ", " << collisionNormal.y << ", " << collisionNormal.z
+                    << "))" << std::endl;
 
-                // Send corrected position back to client (current position for now)
-                // In a full implementation, we'd send the last valid position
-                this->broadcastPlayerPosition(0, request.intendedPosition, Vec3(0, 0, 0)); // Zero velocity to stop movement
+                // Apply friction-based collision response instead of instant stop
+                const float FRICTION_COEFFICIENT =
+                    0.3f;  // Friction factor (0 = no friction, 1 = full stop)
+                Vec3 frictionVelocity = request.velocity * (1.0f - FRICTION_COEFFICIENT);
+
+                // Project velocity onto collision plane to prevent penetration
+                float velocityDotNormal = request.velocity.dot(collisionNormal);
+                if (velocityDotNormal < 0)
+                {
+                    // Only apply friction if moving towards the collision surface
+                    Vec3 tangentialVelocity =
+                        request.velocity - collisionNormal * velocityDotNormal;
+                    frictionVelocity = tangentialVelocity * (1.0f - FRICTION_COEFFICIENT);
+                }
+
+                // Send corrected position with friction-applied velocity
+                this->broadcastPlayerPosition(0, request.intendedPosition, frictionVelocity);
             }
             else
             {

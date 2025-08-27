@@ -335,7 +335,8 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
 
             std::cout << "[SERVER] Sending island " << islandIDs[i] << " to client ("
                       << voxelDataSize << " bytes, "
-                      << island->mainChunk->getCollisionMesh().faces.size() << " collision faces)" << std::endl;
+                      << island->mainChunk->getCollisionMesh().faces.size() << " collision faces)"
+                      << std::endl;
 
             server->sendCompressedIslandToClient(peer, islandIDs[i], worldState.islandPositions[i],
                                                  voxelData, voxelDataSize);

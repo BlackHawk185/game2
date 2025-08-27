@@ -11,7 +11,7 @@ This workspace is set up for a modular C++17 MMORPG engine prototype using CMake
 The engine uses a **modular client-server architecture** with:
 - **GameServer**: Authoritative simulation (physics, world state, player management)
 - **GameClient**: Rendering and input handling
-- **Stub Physics System**: No-op physics implementation (ready for future physics engine integration)
+- **Bullet Physics**: Integrated physics simulation for realistic island movement and collision detection
 - **Unified Networking**: All modes use ENet networking (even integrated mode)
 - **SoA Data Layout**: Structure of Arrays for performance-critical systems
 

@@ -1,5 +1,7 @@
 // NetworkArchitecture.md - MMORPG Client-Server Design
-# MMORPG Client-Server Architecture 
+# MMORPG Client-Server Arc### B. State Synchronization
+- **Friction-based Collision**: Server validates movement with friction instead of instant velocity mirroring
+- **Snapshot System**: Full world state periodicallytecture 
 
 ## ✅ Current State: Unified Networking Architecture (IMPLEMENTED)
 - **Separated processes**: GameServer + GameClient with ENet networking
@@ -14,7 +16,7 @@
 ```cpp
 class GameServer {
     GameState world;                // Authoritative world state  
-    PhysicsSystem physics;          // Stub physics system (ready for future integration)
+    PhysicsSystem physics;          // Bullet Physics integrated with collision detection
     NetworkManager network;         // ENet-based client connections
     PlayerManager players;          // Manage connected players
     IslandChunkSystem chunks;       // Floating island management
