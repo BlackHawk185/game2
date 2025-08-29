@@ -83,10 +83,11 @@ bool NetworkManager::startHosting(uint16_t port)
         server->onPlayerMovementRequest =
             [this](ENetPeer* peer, const PlayerMovementRequest& request)
         {
-            std::cout << "[SERVER] Player movement request: (" << request.intendedPosition.x << ", "
-                      << request.intendedPosition.y << ", " << request.intendedPosition.z
-                      << ") (velocity: (" << request.velocity.x << ", " << request.velocity.y
-                      << ", " << request.velocity.z << "))" << std::endl;
+            // Debug: Uncomment for movement debugging
+            // std::cout << "[SERVER] Player movement request: (" << request.intendedPosition.x << ", "
+            //           << request.intendedPosition.y << ", " << request.intendedPosition.z
+            //           << ") (velocity: (" << request.velocity.x << ", " << request.velocity.y
+            //           << ", " << request.velocity.z << "))" << std::endl;
 
             // Validate movement against collision
             Vec3 collisionNormal;
@@ -95,10 +96,11 @@ bool NetworkManager::startHosting(uint16_t port)
             if (g_physics.checkPlayerCollision(request.intendedPosition, collisionNormal,
                                                PLAYER_RADIUS))
             {
-                std::cout
-                    << "[SERVER] Collision detected, applying friction-based response (normal: ("
-                    << collisionNormal.x << ", " << collisionNormal.y << ", " << collisionNormal.z
-                    << "))" << std::endl;
+                // Debug: Uncomment for collision debugging
+                // std::cout
+                //     << "[SERVER] Collision detected, applying friction-based response (normal: ("
+                //     << collisionNormal.x << ", " << collisionNormal.y << ", " << collisionNormal.z
+                //     << "))" << std::endl;
 
                 // Apply friction-based collision response instead of instant stop
                 const float FRICTION_COEFFICIENT =
@@ -120,7 +122,8 @@ bool NetworkManager::startHosting(uint16_t port)
             }
             else
             {
-                std::cout << "[SERVER] Movement validated, broadcasting to clients" << std::endl;
+                // Debug: Uncomment for movement debugging
+                // std::cout << "[SERVER] Movement validated, broadcasting to clients" << std::endl;
                 // Movement is valid, broadcast to all clients
                 this->broadcastPlayerPosition(0, request.intendedPosition, request.velocity);
             }

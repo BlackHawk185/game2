@@ -88,5 +88,6 @@ find_package(OpenGL REQUIRED)
 target_link_libraries(engine PUBLIC
     glfw
     enet
+    lz4
     OpenGL::GL
 )

@@ -19,4 +19,12 @@ if(WIN32)
     target_link_libraries(enet PUBLIC winmm ws2_32)
 endif()
 
+# LZ4 compression library
+add_library(lz4 STATIC
+    lz4/lz4_simple.c
+)
+
+# Set up LZ4 target properties
+target_include_directories(lz4 PUBLIC lz4)
+
 # This target will be linked by the engine
