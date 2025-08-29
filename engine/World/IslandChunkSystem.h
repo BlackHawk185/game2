@@ -104,23 +104,14 @@ class IslandChunkSystem
         m_renderDistance = chunks;
     }
 
-    // Generation
-    void generateFloatingIsland(uint32_t islandID, uint32_t seed, float radius = 16.0f);
-
     // Rendering interface
     void getAllChunks(std::vector<VoxelChunk*>& outChunks);
     void getVisibleChunks(const Vec3& viewPosition, std::vector<VoxelChunk*>& outChunks);
     void renderAllIslands();  // Render all islands with proper positioning
 
-    // Multi-chunk generation for larger islands
-    void generateFloatingIslandMultiChunk(uint32_t islandID, uint32_t seed, float radius = 16.0f, int chunkRadius = 1);
-    
     // **ORGANIC ISLAND GENERATION** (Creates chunks dynamically based on island shape)
+    // This is now the primary and only island generation method
     void generateFloatingIslandOrganic(uint32_t islandID, uint32_t seed, float radius = 48.0f);
-    
-    // **NEW GENERATION APPROACHES** - Noise-first and sphere-first methods
-    void generateWithNoiseFirst(uint32_t islandID, uint32_t seed, float radius, float flatten);
-    void generateWithSphereFirst(uint32_t islandID, float radius);
 
     // Island queries
     Vec3 getIslandCenter(uint32_t islandID) const;    // Get current physics center of island
