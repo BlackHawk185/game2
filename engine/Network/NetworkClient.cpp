@@ -250,9 +250,6 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
             {
                 CompressedChunkHeader header = *(CompressedChunkHeader*) packet->data;
 
-                std::cout << "Received chunk (" << header.chunkCoord.x << "," << header.chunkCoord.y 
-                          << "," << header.chunkCoord.z << ") for island " << header.islandID << std::endl;
-
                 // The compressed data starts after the header
                 const uint8_t* compressedData =
                     reinterpret_cast<const uint8_t*>(packet->data) + sizeof(CompressedChunkHeader);

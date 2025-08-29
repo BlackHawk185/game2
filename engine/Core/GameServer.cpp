@@ -2,6 +2,7 @@
 #include "GameServer.h"
 
 #include "pch.h"
+#include "Profiler.h"
 
 #include "../Network/NetworkMessages.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data
@@ -37,16 +38,8 @@ bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_
     }
 
     // Log island generation mode once (noise is now default)
-    static bool s_loggedNoiseFlag = false;
-    if (!s_loggedNoiseFlag)
-    {
-        std::cout << "[SERVER] Island generation mode: NOISE" << std::endl;
-        s_loggedNoiseFlag = true;
-    }
-
     // Connect physics system to island system for server-side collision detection
     g_physics.setIslandSystem(m_gameState->getIslandSystem());
-    std::cout << "[SERVER] Physics system connected to island system" << std::endl;
 
     // Initialize networking if requested
     if (m_networkingEnabled)
@@ -128,16 +121,11 @@ void GameServer::stop()
         m_serverThread->join();
         m_serverThread.reset();
     }
-
-    std::cout << "✅ GameServer stopped" << std::endl;
-    std::cout << "   Total ticks processed: " << m_totalTicks << std::endl;
 }
 
 void GameServer::shutdown()
 {
     stop();
-
-    std::cout << "🔄 Shutting down GameServer..." << std::endl;
 
     // Clear command queues
     m_pendingVoxelChanges.clear();
@@ -151,8 +139,6 @@ void GameServer::shutdown()
     }
 
     m_timeManager.reset();
-
-    std::cout << "✅ GameServer shutdown complete" << std::endl;
 }
 
 void GameServer::queueVoxelChange(uint32_t islandID, const Vec3& localPos, uint8_t voxelType)
@@ -176,6 +162,8 @@ void GameServer::queuePlayerMovement(const Vec3& movement)
 
 void GameServer::serverLoop()
 {
+    PROFILE_SCOPE("GameServer::serverLoop");
+    
     auto lastTime = std::chrono::high_resolution_clock::now();
     float accumulator = 0.0f;
 
@@ -183,6 +171,8 @@ void GameServer::serverLoop()
 
     while (m_running.load())
     {
+        PROFILE_SCOPE("Server main loop iteration");
+        
         auto currentTime = std::chrono::high_resolution_clock::now();
         float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
         lastTime = currentTime;
@@ -198,13 +188,20 @@ void GameServer::serverLoop()
         // Fixed timestep simulation
         while (accumulator >= m_fixedDeltaTime)
         {
+            PROFILE_SCOPE("Fixed timestep tick");
             processTick(m_fixedDeltaTime);
             accumulator -= m_fixedDeltaTime;
             m_totalTicks++;
         }
 
         // Update tick rate statistics
-        updateTickRateStats(deltaTime);
+        {
+            PROFILE_SCOPE("updateTickRateStats");
+            updateTickRateStats(deltaTime);
+        }
+
+        // Update profiler (will auto-report every second)
+        g_profiler.updateAndReport();
 
         // Sleep to avoid consuming 100% CPU
         // Target is to wake up several times per fixed timestep for responsiveness
@@ -216,30 +213,39 @@ void GameServer::serverLoop()
 
 void GameServer::processTick(float deltaTime)
 {
+    PROFILE_SCOPE("GameServer::processTick");
+    
     // Process queued commands first
-    processQueuedCommands();
+    {
+        PROFILE_SCOPE("processQueuedCommands");
+        processQueuedCommands();
+    }
 
     // Update networking
     if (m_networkingEnabled && m_networkManager)
     {
+        PROFILE_SCOPE("NetworkManager::update");
         m_networkManager->update();
     }
 
     // Update time manager
     if (m_timeManager)
     {
+        PROFILE_SCOPE("TimeManager::update");
         m_timeManager->update(deltaTime);
     }
 
     // Update game simulation
     if (m_gameState)
     {
+        PROFILE_SCOPE("GameState::updateSimulation");
         m_gameState->updateSimulation(deltaTime);
     }
 
     // Broadcast island state updates to clients
     if (m_networkingEnabled && m_networkManager)
     {
+        PROFILE_SCOPE("broadcastIslandStates");
         broadcastIslandStates();
     }
 }
@@ -345,12 +351,6 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
                 {
                     const uint8_t* voxelData = chunk->getRawVoxelData();
                     uint32_t voxelDataSize = chunk->getVoxelDataSize();
-
-                    std::cout << "[SERVER] Sending island " << islandIDs[i] << " chunk " 
-                              << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
-                              << " to client (" << voxelDataSize << " bytes, "
-                              << chunk->getCollisionMesh().faces.size() << " collision faces)"
-                              << std::endl;
 
                     // Use the new sendCompressedChunkToClient method with chunk coordinates
                     server->sendCompressedChunkToClient(peer, islandIDs[i], chunkCoord, worldState.islandPositions[i], voxelData, voxelDataSize);

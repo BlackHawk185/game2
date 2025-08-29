@@ -31,9 +31,6 @@ uint32_t VoxelCompression::compressLZ4(const uint8_t* input, uint32_t inputSize,
     // Resize output to actual compressed size
     output.resize(compressedSize);
     
-    std::cout << "LZ4 compression: " << inputSize << " -> " << compressedSize 
-              << " bytes (" << (100.0f * compressedSize / inputSize) << "%)" << std::endl;
-    
     return static_cast<uint32_t>(compressedSize);
 }
 
@@ -61,8 +58,6 @@ bool VoxelCompression::decompressLZ4(const uint8_t* input, uint32_t inputSize, u
                   << ", Got: " << decompressedSize << std::endl;
         return false;
     }
-    
-    std::cout << "LZ4 decompression: " << inputSize << " -> " << decompressedSize << " bytes" << std::endl;
     
     return true;
 }

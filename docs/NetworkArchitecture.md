@@ -1,7 +1,8 @@
 // NetworkArchitecture.md - MMORPG Client-Server Design
 # MMORPG Client-Server Arc### B. State Synchronization
-- **Friction-based Collision**: Server validates movement with friction instead of instant velocity mirroring
-- **Snapshot System**: Full world state periodicallytecture 
+- **Custom Collision System**: Server validates movement using voxel-face collision detection
+- **Dual-Mesh Architecture**: Simultaneous generation of render and collision meshes
+- **Snapshot System**: Full world state periodically
 
 ## ✅ Current State: Unified Networking Architecture (IMPLEMENTED)
 - **Separated processes**: GameServer + GameClient with ENet networking
@@ -9,6 +10,7 @@
 - **Single debug path**: No more dual local/remote code paths
 - **Compressed transmission**: ~98% compression for world data
 - **Real-time sync**: Player movement and block updates working
+- **Custom Physics**: Voxel-face-based collision detection integrated
 
 ## 🎯 Achieved Architecture
 
@@ -16,7 +18,7 @@
 ```cpp
 class GameServer {
     GameState world;                // Authoritative world state  
-    PhysicsSystem physics;          // Bullet Physics integrated with collision detection
+    PhysicsSystem physics;          // Custom voxel-face collision system
     NetworkManager network;         // ENet-based client connections
     PlayerManager players;          // Manage connected players
     IslandChunkSystem chunks;       // Floating island management
@@ -73,7 +75,7 @@ class NetworkedJobSystem : public JobSystem {
     // Existing job types
     enum JobType { 
         CHUNK_MESHING, 
-        PHYSICS_UPDATE,          // Physics simulation (when physics engine integrated)
+        PHYSICS_UPDATE,          // Custom collision detection
         
         // New network job types
         NETWORK_SEND,           // Serialize and send data

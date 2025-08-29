@@ -5,13 +5,14 @@ This workspace is set up for a modular C++17 MMORPG engine prototype using CMake
 - **Dear ImGui** for dev tools
 - **ENet** for networking
 - **GLFW** for window/input management
+- **Custom Physics**: Voxel-face-based collision detection system
 
 ## Architecture Overview
 
 The engine uses a **modular client-server architecture** with:
 - **GameServer**: Authoritative simulation (physics, world state, player management)
 - **GameClient**: Rendering and input handling
-- **Bullet Physics**: Integrated physics simulation for realistic island movement and collision detection
+- **Custom Physics System**: Voxel-face-based collision detection that piggybacks on mesh generation
 - **Unified Networking**: All modes use ENet networking (even integrated mode)
 - **SoA Data Layout**: Structure of Arrays for performance-critical systems
 
@@ -63,11 +64,12 @@ MMORPGEngine.exe --client <server_address>
 - **Client-Server Architecture**: Separated GameServer/GameClient with ENet networking
 - **Unified Networking**: All modes use network layer (no direct local calls)
 - **World Generation**: Procedural floating islands with voxel terrain
-- **Player Movement**: Physics-based movement with network synchronization
+- **Player Movement**: Custom collision detection with network synchronization
 - **Block Interaction**: Real-time block break/place with server validation
 - **Time Effects**: Time manipulation system (keys 1-5, 0, T)
 - **Rendering**: OpenGL-based renderer with Dear ImGui dev tools
 - **Input System**: WASD+mouse camera controls, space for jump
+- **Custom Physics**: Dual-mesh generation (render + collision) from voxel face culling
 
 ### 🔧 Technical Features
 - **Cross-Platform**: Windows, Linux, macOS support

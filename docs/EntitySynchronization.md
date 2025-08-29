@@ -2,7 +2,7 @@
 
 ## Overview
 
-The engine now includes a unified entity synchronization system that handles networking for both islands and players using the same core system. This eliminates the need for separate synchronization mechanisms and provides a consistent approach to entity networking.
+The engine includes a unified entity synchronization system that handles networking for both islands and players using the same core system. This eliminates the need for separate synchronization mechanisms and provides a consistent approach to entity networking with custom voxel-based collision detection.
 
 ## Key Features
 
@@ -54,20 +54,20 @@ struct VoxelChangeUpdate {
 ### Server Side - Broadcasting Island Movement
 
 ```cpp
-// In your physics update loop for islands (when physics engine is integrated)
+// In your island physics update loop (custom collision system)
 void updateIslandPhysics(FloatingIsland& island, float deltaTime) {
-    // Update island physics (Bullet Physics integrated)
-    // island.velocity.y -= 9.81f * deltaTime; // Gravity
+    // Update island position using custom movement system
+    // island.velocity.y -= 9.81f * deltaTime; // Gravity (if implemented)
     // island.position += island.velocity * deltaTime;
     
-    // Broadcast state to all clients (Bullet Physics active)
+    // Broadcast state to all clients (custom physics active)
     if (integratedServer && integratedServer->isRunning()) {
         integratedServer->broadcastEntityStateUpdate(
             island.islandID,           // entityID
             1,                         // entityType (Island)
             island.physicsCenter,      // position
-            island.velocity,           // velocity (Bullet Physics active)
-            island.acceleration,       // acceleration (Bullet Physics active)
+            island.velocity,           // velocity (custom physics)
+            island.acceleration,       // acceleration (custom physics)
             0                          // flags
         );
     }
@@ -77,19 +77,19 @@ void updateIslandPhysics(FloatingIsland& island, float deltaTime) {
 ### Server Side - Broadcasting Player Movement
 
 ```cpp
-// In your player update loop (when physics engine is integrated)
+// In your player update loop (custom collision system)
 void updatePlayerMovement(Player& player, float deltaTime) {
-    // Update player physics (Bullet Physics integrated)
+    // Update player using custom voxel-face collision detection
     // player.position += player.velocity * deltaTime;
     
-    // Broadcast state to all clients (Bullet Physics active)
+    // Broadcast state to all clients (custom physics active)
     if (integratedServer && integratedServer->isRunning()) {
         integratedServer->broadcastEntityStateUpdate(
             player.playerID,           // entityID
             0,                         // entityType (Player)
             player.position,           // position
-            player.velocity,           // velocity (Bullet Physics active)
-            player.acceleration,       // acceleration (Bullet Physics active)
+            player.velocity,           // velocity (custom physics)
+            player.acceleration,       // acceleration (custom physics)
             player.isGrounded ? 1 : 0  // flags
         );
     }
@@ -116,12 +116,12 @@ networkClient->onEntityStateReceived = [this](const EntityStateUpdate& update) {
         case 1: { // Island
             auto* island = findIslandByID(update.entityID);
             if (island) {
-                // Update island physics state (when physics engine is integrated)
+                // Update island state (custom physics system)
                 island->physicsCenter = update.position;
-                // island->velocity = update.velocity;      // When physics active
-                // island->acceleration = update.acceleration; // When physics active
+                // island->velocity = update.velocity;      // When custom physics active
+                // island->acceleration = update.acceleration; // When custom physics active
                 
-                // Update all players on this island (when physics active)
+                // Update all players on this island (custom collision system)
                 // updatePlayersOnIsland(island);
             }
             break;
@@ -185,16 +185,17 @@ networkClient->onVoxelChangeReceived = [this](const VoxelChangeUpdate& update) {
 ### Island-Player Relationship
 When islands move, all players on them need to move with them. The relationship is handled as follows:
 
-1. Server updates island position/velocity (when physics engine is integrated)
+1. Server updates island position/velocity (custom movement system)
 2. Server broadcasts island entity update
 3. Clients receive island update and move all players on that island
 4. Players maintain their LOCAL position relative to the island
 
 ### Current Physics Status
-- **Physics System**: Currently implemented as a stub (no-op) system
-- **Ready for Integration**: Architecture supports future physics engine integration
-- **Network Synchronization**: Entity synchronization system ready for physics data
-- **Performance**: SoA data layout optimized for physics calculations
+- **Custom Physics System**: Voxel-face-based collision detection integrated with mesh generation
+- **Dual-Mesh Generation**: Single-pass creation of both render and collision meshes
+- **Sphere-Face Collision**: Player collision uses sphere-plane intersection with voxel faces
+- **Network Synchronization**: Entity synchronization system integrated with custom collision
+- **Performance**: SoA data layout optimized for voxel-based collision calculations
 
 ### Lag Compensation
 The system includes server timestamps for proper lag compensation:

@@ -2,6 +2,7 @@
 #include "PhysicsSystem.h"
 
 #include <iostream>
+#include <cmath>
 
 #include "../World/IslandChunkSystem.h"
 #include "../World/VoxelChunk.h"
@@ -48,25 +49,50 @@ bool PhysicsSystem::checkPlayerCollision(const Vec3& playerPos, Vec3& outNormal,
         if (!island)
             continue;
 
-        // Check collision with all chunks in this island
-        for (const auto& [chunkCoord, chunk] : island->chunks)
+        // Convert player position to island-local coordinates
+        Vec3 localPlayerPos = playerPos - island->physicsCenter;
+        
+        // Calculate which chunks the player could potentially collide with
+        // Player radius extended by one chunk to be safe
+        float checkRadius = playerRadius + VoxelChunk::SIZE;
+        
+        // Calculate chunk coordinate bounds
+        int minChunkX = static_cast<int>(std::floor((localPlayerPos.x - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkX = static_cast<int>(std::ceil((localPlayerPos.x + checkRadius) / VoxelChunk::SIZE));
+        int minChunkY = static_cast<int>(std::floor((localPlayerPos.y - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkY = static_cast<int>(std::ceil((localPlayerPos.y + checkRadius) / VoxelChunk::SIZE));
+        int minChunkZ = static_cast<int>(std::floor((localPlayerPos.z - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkZ = static_cast<int>(std::ceil((localPlayerPos.z + checkRadius) / VoxelChunk::SIZE));
+
+        // Only check chunks that could potentially contain collisions
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX)
         {
-            if (!chunk)
-                continue;
-
-            // Calculate chunk world position
-            Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
-            
-            // Convert player position to chunk-local coordinates
-            Vec3 localPlayerPos = playerPos - chunkWorldPos;
-
-            // Check collision with this chunk
-            Vec3 collisionNormal;
-            if (checkChunkCollision(chunk.get(), localPlayerPos, chunkWorldPos,
-                                    collisionNormal, playerRadius))
+            for (int chunkY = minChunkY; chunkY <= maxChunkY; ++chunkY)
             {
-                outNormal = collisionNormal;
-                return true;
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; ++chunkZ)
+                {
+                    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+                    
+                    // Check if this chunk exists in the island
+                    auto chunkIt = island->chunks.find(chunkCoord);
+                    if (chunkIt == island->chunks.end() || !chunkIt->second)
+                        continue;
+
+                    // Calculate chunk world position
+                    Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                    
+                    // Convert player position to chunk-local coordinates
+                    Vec3 chunkLocalPlayerPos = playerPos - chunkWorldPos;
+
+                    // Check collision with this chunk
+                    Vec3 collisionNormal;
+                    if (checkChunkCollision(chunkIt->second.get(), chunkLocalPlayerPos, chunkWorldPos,
+                                            collisionNormal, playerRadius))
+                    {
+                        outNormal = collisionNormal;
+                        return true;
+                    }
+                }
             }
         }
     }
@@ -88,27 +114,57 @@ bool PhysicsSystem::checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDire
         if (!island)
             continue;
 
-        // Check ray collision with all chunks in this island
-        for (const auto& [chunkCoord, chunk] : island->chunks)
+        // Convert ray origin to island-local coordinates
+        Vec3 localRayOrigin = rayOrigin - island->physicsCenter;
+        Vec3 rayEnd = localRayOrigin + (rayDirection * maxDistance);
+        
+        // Calculate bounding box of ray path
+        float minX = std::min(localRayOrigin.x, rayEnd.x);
+        float maxX = std::max(localRayOrigin.x, rayEnd.x);
+        float minY = std::min(localRayOrigin.y, rayEnd.y);
+        float maxY = std::max(localRayOrigin.y, rayEnd.y);
+        float minZ = std::min(localRayOrigin.z, rayEnd.z);
+        float maxZ = std::max(localRayOrigin.z, rayEnd.z);
+        
+        // Calculate chunk coordinate bounds that the ray could intersect
+        int minChunkX = static_cast<int>(std::floor(minX / VoxelChunk::SIZE));
+        int maxChunkX = static_cast<int>(std::ceil(maxX / VoxelChunk::SIZE));
+        int minChunkY = static_cast<int>(std::floor(minY / VoxelChunk::SIZE));
+        int maxChunkY = static_cast<int>(std::ceil(maxY / VoxelChunk::SIZE));
+        int minChunkZ = static_cast<int>(std::floor(minZ / VoxelChunk::SIZE));
+        int maxChunkZ = static_cast<int>(std::ceil(maxZ / VoxelChunk::SIZE));
+
+        // Only check chunks that the ray could potentially intersect
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX)
         {
-            if (!chunk)
-                continue;
-
-            // Calculate chunk world position
-            Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
-            
-            // Convert ray to chunk-local coordinates
-            Vec3 localRayOrigin = rayOrigin - chunkWorldPos;
-
-            // Check ray collision with this chunk
-            Vec3 localHitPoint, localHitNormal;
-            if (chunk->checkRayCollision(localRayOrigin, rayDirection, maxDistance,
-                                         localHitPoint, localHitNormal))
+            for (int chunkY = minChunkY; chunkY <= maxChunkY; ++chunkY)
             {
-                // Convert back to world coordinates
-                hitPoint = localHitPoint + chunkWorldPos;
-                hitNormal = localHitNormal;
-                return true;
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; ++chunkZ)
+                {
+                    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+                    
+                    // Check if this chunk exists in the island
+                    auto chunkIt = island->chunks.find(chunkCoord);
+                    if (chunkIt == island->chunks.end() || !chunkIt->second)
+                        continue;
+
+                    // Calculate chunk world position
+                    Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                    
+                    // Convert ray to chunk-local coordinates
+                    Vec3 chunkLocalRayOrigin = rayOrigin - chunkWorldPos;
+
+                    // Check ray collision with this chunk
+                    Vec3 localHitPoint, localHitNormal;
+                    if (chunkIt->second->checkRayCollision(chunkLocalRayOrigin, rayDirection, maxDistance,
+                                                          localHitPoint, localHitNormal))
+                    {
+                        // Convert back to world coordinates
+                        hitPoint = localHitPoint + chunkWorldPos;
+                        hitNormal = localHitNormal;
+                        return true;
+                    }
+                }
             }
         }
     }

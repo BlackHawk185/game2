@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "Threading/JobSystem.h"
+#include "../Core/Profiler.h"
 
 // External job system reference
 extern JobSystem g_jobSystem;
@@ -23,11 +24,18 @@ VoxelChunk::VoxelChunk()
     std::fill(voxels.begin(), voxels.end(), 0);
     meshDirty = true;
     collisionMesh.needsUpdate = true;
+    
+    // Initialize VBO handles
+    mesh.VAO = 0;
+    mesh.VBO = 0;
+    mesh.EBO = 0;
+    mesh.needsUpdate = true;
 }
 
 VoxelChunk::~VoxelChunk()
 {
-    // No OpenGL resources to clean up in immediate mode
+    // Clean up VBO resources if they exist
+    // We'll handle this through the VBORenderer to avoid OpenGL context issues
 }
 
 uint8_t VoxelChunk::getVoxel(int x, int y, int z) const
@@ -50,13 +58,9 @@ void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
 {
     if (size != VOLUME)
     {
-        std::cout << "[CHUNK] Size mismatch: Expected " << VOLUME << " bytes (16x16x16), got " << size << " bytes" << std::endl;
-        
         // TEMPORARY FIX: Handle legacy 32x32x32 chunks by extracting the 16x16x16 corner
         if (size == 32768) // 32*32*32 = 32768
         {
-            std::cout << "[CHUNK] Converting 32x32x32 chunk to 16x16x16 by extracting corner" << std::endl;
-            
             // Extract the first 16x16x16 corner from the 32x32x32 data
             for (int z = 0; z < SIZE; z++)
             {
@@ -336,8 +340,11 @@ void VoxelChunk::render()
 
 void VoxelChunk::render(const Vec3& worldOffset)
 {
+    PROFILE_SCOPE("VoxelChunk::render");
+    
     if (meshDirty)
     {
+        PROFILE_SCOPE("generateMesh");
         generateMesh();
     }
 
@@ -345,13 +352,15 @@ void VoxelChunk::render(const Vec3& worldOffset)
         return;
 
     // Immediate mode rendering
-    glPushMatrix();
-    glTranslatef(worldOffset.x, worldOffset.y, worldOffset.z);
+    {
+        PROFILE_SCOPE("OpenGL rendering");
+        glPushMatrix();
+        glTranslatef(worldOffset.x, worldOffset.y, worldOffset.z);
 
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
-    glFrontFace(GL_CCW);
-    glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+        glFrontFace(GL_CCW);
+        glEnable(GL_DEPTH_TEST);
 
     // Disable lighting to see custom colors clearly
     glDisable(GL_LIGHTING);
@@ -384,6 +393,7 @@ void VoxelChunk::render(const Vec3& worldOffset)
     glEnd();
 
     glPopMatrix();
+    } // End OpenGL rendering scope
 }
 
 void VoxelChunk::renderLOD(int lodLevel, const Vec3& cameraPos)
@@ -468,11 +478,6 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
             catch (...) {}
         }
     }
-
-    // One-time debug for this generation (per chunk)
-    std::cout << "[GEN] useNoise=" << (useNoise ? 1 : 0)
-              << ", baseScale=" << baseScale << ", baseRadius=" << radius
-              << (useNoise ? ", flatten=" : ", flatten=") << flatten << std::endl;
 
     // If job system is available, use multithreading
     if (g_jobSystem.isInitialized())

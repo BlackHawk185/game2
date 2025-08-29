@@ -4,6 +4,7 @@ add_library(engine STATIC
     Core/GameState.cpp
     Core/GameServer.cpp
     Core/GameClient.cpp
+    Core/Profiler.cpp
     
     # World systems
     World/VoxelChunk.cpp
@@ -16,8 +17,9 @@ add_library(engine STATIC
     # Rendering systems
     Rendering/Renderer.cpp
     Rendering/VoxelRenderer.cpp
-    Rendering/VBORenderer.cpp
+    Rendering/VBORenderer.cpp  # RE-ENABLED
     Rendering/ModernRenderer.cpp
+    Rendering/TextureManager.cpp
     
     # Input systems
     Input/Camera.cpp
@@ -91,5 +93,6 @@ target_link_libraries(engine PUBLIC
     glfw
     enet
     lz4
+    stb
     OpenGL::GL
 )

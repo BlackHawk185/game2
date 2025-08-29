@@ -9,10 +9,12 @@
 #include <memory>
 
 #include "GameState.h"
+#include "Profiler.h"
 
 #include "../Network/NetworkManager.h"
 #include "../Network/NetworkMessages.h"
 #include "../Rendering/Renderer.h"
+#include "../Rendering/VBORenderer.h"  // RE-ENABLED
 #include "../Time/TimeEffects.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data
 
@@ -141,13 +143,18 @@ bool GameClient::connectToRemoteServer(const std::string& serverAddress, uint16_
 
 bool GameClient::update(float deltaTime)
 {
+    PROFILE_SCOPE("GameClient::update");
+    
     if (!m_initialized)
     {
         return false;
     }
 
     // Poll window events
-    glfwPollEvents();
+    {
+        PROFILE_SCOPE("glfwPollEvents");
+        glfwPollEvents();
+    }
 
     // Check if window should close
     if (shouldClose())
@@ -158,12 +165,14 @@ bool GameClient::update(float deltaTime)
     // Update networking if remote client
     if (m_isRemoteClient && m_networkManager)
     {
+        PROFILE_SCOPE("NetworkManager::update");
         m_networkManager->update();
     }
 
     // Update client-side physics for smooth island movement
     if (m_gameState)
     {
+        PROFILE_SCOPE("Island physics update");
         auto* islandSystem = m_gameState->getIslandSystem();
         if (islandSystem)
         {
@@ -174,13 +183,25 @@ bool GameClient::update(float deltaTime)
     }
 
     // Process input
-    processInput(deltaTime);
+    {
+        PROFILE_SCOPE("processInput");
+        processInput(deltaTime);
+    }
 
     // Render frame
-    render();
+    {
+        PROFILE_SCOPE("render");
+        render();
+    }
 
     // Swap buffers
-    glfwSwapBuffers(m_window);
+    {
+        PROFILE_SCOPE("glfwSwapBuffers");
+        glfwSwapBuffers(m_window);
+    }
+
+    // Update profiler (will auto-report every second)
+    g_profiler.updateAndReport();
 
     return true;
 }
@@ -196,6 +217,16 @@ void GameClient::shutdown()
 
     // Disconnect from game state
     m_gameState = nullptr;
+
+    // Cleanup VBO renderer
+    // RE-ENABLED FOR TESTING
+    if (g_vboRenderer)
+    {
+        g_vboRenderer->shutdown();
+        delete g_vboRenderer;
+        g_vboRenderer = nullptr;
+        std::cout << "VBO renderer shutdown" << std::endl;
+    }
 
     // Cleanup graphics
     if (m_window)
@@ -234,48 +265,61 @@ void GameClient::processInput(float deltaTime)
 
 void GameClient::render()
 {
+    PROFILE_SCOPE("GameClient::render");
+    
     // Clear screen
-    Renderer::clear();
+    {
+        PROFILE_SCOPE("Renderer::clear");
+        Renderer::clear();
+    }
 
     // Set up 3D projection
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
+    {
+        PROFILE_SCOPE("Setup 3D projection");
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
 
-    float aspect = (float) m_windowWidth / (float) m_windowHeight;
-    float fov = 45.0f;
-    float nearPlane = 0.1f;
-    float farPlane = 1000.0f;
+        float aspect = (float) m_windowWidth / (float) m_windowHeight;
+        float fov = 45.0f;
+        float nearPlane = 0.1f;
+        float farPlane = 1000.0f;
 
-    // Manual perspective setup
-    float top = nearPlane * tan(fov * 3.14159f / 360.0f);
-    float bottom = -top;
-    float right = top * aspect;
-    float left = -right;
-    glFrustum(left, right, bottom, top, nearPlane, farPlane);
+        // Manual perspective setup
+        float top = nearPlane * tan(fov * 3.14159f / 360.0f);
+        float bottom = -top;
+        float right = top * aspect;
+        float left = -right;
+        glFrustum(left, right, bottom, top, nearPlane, farPlane);
 
-    // Set up view matrix
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
+        // Set up view matrix
+        glMatrixMode(GL_MODELVIEW);
+        glLoadIdentity();
 
-    Mat4 viewMatrix = m_camera.getViewMatrix();
-    glMultMatrixf(viewMatrix.data());
+        Mat4 viewMatrix = m_camera.getViewMatrix();
+        glMultMatrixf(viewMatrix.data());
 
-    // Update frustum culling
-    m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);
+        // Update frustum culling
+        m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);
+    }
 
     // Render world (only if we have local game state)
     if (m_gameState)
     {
+        PROFILE_SCOPE("renderWorld");
         renderWorld();
     }
     else if (m_isRemoteClient)
     {
         // Render waiting screen for remote clients
+        PROFILE_SCOPE("renderWaitingScreen");
         renderWaitingScreen();
     }
 
     // Render UI
-    renderUI();
+    {
+        PROFILE_SCOPE("renderUI");
+        renderUI();
+    }
 }
 
 bool GameClient::initializeWindow()
@@ -316,6 +360,18 @@ bool GameClient::initializeGraphics()
         std::cerr << "Failed to initialize renderer!" << std::endl;
         return false;
     }
+
+    // Initialize VBO renderer for modern OpenGL rendering
+    // RE-ENABLED FOR TESTING
+    g_vboRenderer = new VBORenderer();
+    if (!g_vboRenderer->initialize())
+    {
+        std::cerr << "Failed to initialize VBO renderer!" << std::endl;
+        delete g_vboRenderer;
+        g_vboRenderer = nullptr;
+        return false;
+    }
+    std::cout << "VBO renderer initialized successfully" << std::endl;
 
     // Initialize ImGui
     IMGUI_CHECKVERSION();
@@ -581,17 +637,23 @@ void GameClient::processBlockInteraction(float deltaTime)
 
 void GameClient::renderWorld()
 {
+    PROFILE_SCOPE("GameClient::renderWorld");
+    
     if (!m_gameState)
     {
         return;
     }
 
     // Render all islands
-    m_gameState->getIslandSystem()->renderAllIslands();
+    {
+        PROFILE_SCOPE("renderAllIslands");
+        m_gameState->getIslandSystem()->renderAllIslands();
+    }
 
     // Render block highlighter
     if (m_inputState.cachedTargetBlock.hit)
     {
+        PROFILE_SCOPE("renderBlockHighlighter");
         auto* island =
             m_gameState->getIslandSystem()->getIsland(m_inputState.cachedTargetBlock.islandID);
         if (island)
@@ -738,10 +800,6 @@ void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& p
             chunk->setRawVoxelData(voxelData, dataSize);
             chunk->generateMesh();        // Regenerate the mesh with the new data
             chunk->buildCollisionMesh();  // Build collision faces from vertices
-
-            std::cout << "[CLIENT] Received and built collision mesh for island " << islandID
-                      << " (" << chunk->getCollisionMesh().faces.size() << " faces)"
-                      << std::endl;
         }
         else
         {
@@ -761,10 +819,6 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
         std::cerr << "Cannot handle chunk data: No game state initialized" << std::endl;
         return;
     }
-
-    std::cout << "[CLIENT] Received chunk (" << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
-              << ") for island " << islandID << " at position (" << islandPosition.x << "," 
-              << islandPosition.y << "," << islandPosition.z << ")" << std::endl;
 
     auto* islandSystem = m_gameState->getIslandSystem();
     if (!islandSystem)
@@ -802,9 +856,6 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
         chunk->setRawVoxelData(voxelData, dataSize);
         chunk->generateMesh();        // Regenerate the mesh with the new data
         chunk->buildCollisionMesh();  // Build collision faces from vertices
-
-        std::cout << "[CLIENT] Built chunk (" << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
-                  << ") with " << chunk->getCollisionMesh().faces.size() << " collision faces" << std::endl;
     }
     else
     {

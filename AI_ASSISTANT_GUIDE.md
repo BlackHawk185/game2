@@ -19,7 +19,7 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Modular design**: Keep code modular and organized per the project structure in the prompt.
 - **Iterative approach**: After each step, check with the user before proceeding to the next major system or feature.
 - **Cross-platform**: Ensure all code and build steps are cross-platform (Windows, Linux, macOS) unless otherwise specified.
-- **Physics abstraction**: Always use the custom physics interface, not direct physics engine calls, unless implementing the abstraction layer.
+- **Custom physics**: The engine uses a custom voxel-face-based collision system, not external physics engines.
 - **Console support**: Keep future console support in mind (no platform-specific hacks).
 - **Unified networking**: All game modes use the network layer - avoid direct GameState access from clients.
 - **Server authority**: Game state changes should go through server validation, even in integrated mode.
@@ -36,19 +36,18 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 ### Core Systems (Implemented)
 - **ECS Framework**: Entity-Component-System for game objects
 - **JobSystem**: Multi-threaded task processing with worker threads
-- **Physics**: Bullet Physics integrated with collision detection and island simulation
+- **Custom Physics**: Voxel-face-based collision detection with dual-mesh generation
 - **Rendering**: bgfx-based renderer with Dear ImGui dev tools
 - **Input**: Camera controls (WASD+mouse, space for jump)
 - **Time Effects**: Time manipulation system (keys 1-5, 0, T for various effects)
 - **Networking**: ENet-based client-server architecture with unified networking paths
 
 ### Game-Specific Features (Implemented)
-- **Floating Islands**: Procedurally generated voxel islands (physics simulation ready)
-- **Player Movement**: Physics-based movement with real-time network synchronization
-- **Island Momentum**: Players inherit velocity from moving platforms (Bullet Physics integrated)
-- **Collision Detection**: Friction-based voxel collision with sliding responses
-- **Island Drift**: Islands move with realistic physics simulation (Bullet Physics integrated)
+- **Floating Islands**: Procedurally generated voxel islands with custom collision detection
+- **Player Movement**: Custom sphere-face collision with real-time network synchronization
+- **Voxel Collision**: Friction-based collision detection using exposed voxel faces
 - **Block Interaction**: Real-time block break/place with network validation
+- **Dual-Mesh Generation**: Single-pass generation of both render and collision meshes
 
 ### Network Architecture (Implemented)
 - **Unified Networking**: All modes (integrated + remote) use identical network layer
@@ -63,8 +62,8 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Cross-Platform**: Windows, Linux, macOS compatibility maintained
 - **Dependencies**: bgfx, ENet, GLFW, Dear ImGui
 - **Platform**: Currently Windows-focused but designed for cross-platform
-- **Performance**: Optimized for 60+ FPS with multiple islands (physics-ready)
-- **Physics Status**: Bullet Physics integrated with collision detection and island simulation
+- **Performance**: Optimized for 60+ FPS with multiple islands and custom collision
+- **Physics Architecture**: Custom voxel-face collision system with dual-mesh generation
 
 ---
 

@@ -27,4 +27,12 @@ add_library(lz4 STATIC
 # Set up LZ4 target properties
 target_include_directories(lz4 PUBLIC lz4)
 
+# STB image loading library
+add_library(stb STATIC
+    stb/stb_image_impl.cpp
+)
+
+# Set up STB target properties
+target_include_directories(stb PUBLIC stb)
+
 # This target will be linked by the engine

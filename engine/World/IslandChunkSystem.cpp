@@ -6,8 +6,11 @@
 #include <ctime>
 #include <iostream>
 #include <memory>
+#include <string>
 
 #include "VoxelChunk.h"
+#include "../Core/Profiler.h"
+#include "../Rendering/VBORenderer.h"  // RE-ENABLED - VBO only, no immediate mode
 
 IslandChunkSystem g_islandSystem;
 
@@ -142,11 +145,7 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     // Allow environment variable to override (mainly for testing sphere vs noise)
     if (noiseEnv && (noiseEnv[0]=='0' || noiseEnv[0]=='F' || noiseEnv[0]=='f' || noiseEnv[0]=='N' || noiseEnv[0]=='n')) {
         useNoise = false;
-        std::cout << "[ISLAND] Environment override: Using sphere-first generation (ISLAND_NOISE=" << noiseEnv << ")" << std::endl;
     }
-    
-    std::cout << "[ISLAND] Organic Generation - Using " << (useNoise ? "NOISE-FIRST" : "SPHERE-FIRST") 
-              << " approach for island " << islandID << " (radius=" << radius << ")" << std::endl;
     
     // **NOISE PARAMETERS** - Tuned for island-like terrain
     float noiseScale = 0.08f;  // Medium-scale features for island detail
@@ -164,12 +163,6 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     const char* octavesEnv = std::getenv("NOISE_OCTAVES");
     if (octavesEnv) octaves = std::stoi(octavesEnv);
     
-    if (useNoise) {
-        std::cout << "[NOISE] Parameters: scale=" << noiseScale 
-                  << " threshold=" << densityThreshold 
-                  << " octaves=" << octaves << std::endl;
-    }
-    
     // **ROBUST FLATTEN LOGGING** - Safer approach to flatten to avoid crashes
     float flatten = 1.0f;
     bool flattenEnabled = false;
@@ -180,35 +173,19 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
         // **SAFE FLATTEN PARSING** with extensive logging
         const char* flattenEnv = std::getenv("ISLAND_FLATTEN");
         if (flattenEnv) {
-            std::cout << "[FLATTEN] Environment variable found: ISLAND_FLATTEN=" << flattenEnv << std::endl;
-            
             try {
                 float parsedFlatten = std::stof(flattenEnv);
-                std::cout << "[FLATTEN] Parsed value: " << parsedFlatten << std::endl;
                 
                 // **STRICT BOUNDS CHECKING** to prevent crashes
                 if (parsedFlatten >= 0.5f && parsedFlatten <= 1.0f) {
                     flatten = parsedFlatten;
                     flattenEnabled = true;
-                    std::cout << "[FLATTEN] Applied flatten factor: " << flatten << std::endl;
-                } else {
-                    std::cout << "[FLATTEN] WARNING: Value " << parsedFlatten 
-                              << " outside safe range [0.5, 1.0], using default: " << flatten << std::endl;
                 }
             } catch (const std::exception& e) {
-                std::cout << "[FLATTEN] ERROR: Failed to parse '" << flattenEnv 
-                          << "', using default: " << flatten << " (Error: " << e.what() << ")" << std::endl;
+                // Failed to parse, use default
             }
-        } else {
-            std::cout << "[FLATTEN] No ISLAND_FLATTEN environment variable, using default: " << flatten << std::endl;
         }
     }
-    
-    std::cout << "[ORGANIC] Generating island " << islandID << " with radius " << radius 
-              << ", useNoise=" << (useNoise ? 1 : 0) 
-              << ", flattenEnabled=" << (flattenEnabled ? 1 : 0)
-              << ", flatten=" << flatten 
-              << ", approach=" << (useNoise ? "NOISE-FIRST" : "SPHERE-FIRST") << std::endl;
     
     int voxelsGenerated = 0;
     int chunksCreated = 0;
@@ -225,26 +202,11 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     
     int searchRadius = static_cast<int>(radius * 1.4f); // Slightly wider search area
     
-    std::cout << "[ISLAND] Generating wide island with dynamic height scaling:" << std::endl;
-    std::cout << "  Horizontal radius=" << radiusInt 
-              << ", base height=" << static_cast<int>(radius * baseHeightRatio)
-              << ", scaled height=" << islandHeight 
-              << " (scaling factor=" << heightScaling << ")" << std::endl;
-    std::cout << "  Search radius=" << searchRadius 
-              << ", width:height ratio=" << (float)radiusInt / (float)islandHeight << ":1" << std::endl;
-    
     // Iterate more efficiently: for each Y layer, use wider horizontal bounds
     for (int y = -islandHeight; y <= islandHeight; y++)
     {
         float dy = static_cast<float>(y);
         int maxXZ = searchRadius; // Use fixed horizontal search area, not spherical constraint
-        
-        // Progress reporting
-        if (y % 5 == 0 || y == -islandHeight)
-        {
-            std::cout << "[ORGANIC] Processing Y layer " << y << "/" << islandHeight 
-                      << " (horizontal search radius: " << maxXZ << ")" << std::endl;
-        }
         
         for (int x = -maxXZ; x <= maxXZ; x++)
         {
@@ -266,7 +228,6 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                             dyFlattened = dy * flatten;
                         }
                     } catch (...) {
-                        std::cout << "[FLATTEN] ERROR: Exception during flatten calculation, using original Y" << std::endl;
                         dyFlattened = dy;
                     }
                     
@@ -361,12 +322,7 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
         }
     }
     
-    std::cout << "[ORGANIC] Generated island " << islandID << " organically: " 
-              << voxelsGenerated << " voxels across " << island->chunks.size() 
-              << " chunks (" << chunksCreated << " created dynamically)" << std::endl;
-    
     // **SINGLE MESH GENERATION PASS** - much faster than per-voxel generation
-    std::cout << "[ORGANIC] Building meshes and collision for " << island->chunks.size() << " chunks..." << std::endl;
     for (auto& [chunkCoord, chunk] : island->chunks)
     {
         if (chunk)
@@ -375,7 +331,6 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
             chunk->buildCollisionMesh();
         }
     }
-    std::cout << "[ORGANIC] Mesh generation complete!" << std::endl;
 }
 
 uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& islandRelativePosition) const
@@ -512,20 +467,40 @@ void IslandChunkSystem::getVisibleChunks(const Vec3& viewPosition,
 
 void IslandChunkSystem::renderAllIslands()
 {
+    PROFILE_SCOPE("IslandChunkSystem::renderAllIslands");
+    
+    // VBO-ONLY RENDERING - NO IMMEDIATE MODE FALLBACK
+    if (!g_vboRenderer) {
+        // No renderer available - don't render anything
+        return;
+    }
+    
+    // Start batch rendering for all chunks
+    g_vboRenderer->beginBatch();
+    
     // Render each island at its physics center position
     for (auto& [id, island] : m_islands)
     {
+        PROFILE_SCOPE("Render single island");
+        
         // Render all chunks in this island
         for (const auto& [chunkCoord, chunk] : island.chunks)
         {
             if (chunk)
             {
+                PROFILE_SCOPE("Add chunk to batch");
                 // Calculate world position for this chunk
                 Vec3 chunkWorldPos = island.physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
-                chunk->render(chunkWorldPos);
+                
+                // Upload and batch render this chunk - VBO ONLY
+                g_vboRenderer->uploadChunkMesh(chunk.get());
+                g_vboRenderer->renderChunk(chunk.get(), chunkWorldPos);
             }
         }
     }
+    
+    // Finish batch rendering
+    g_vboRenderer->endBatch();
 }
 
 void IslandChunkSystem::updateIslandPhysics(float deltaTime)

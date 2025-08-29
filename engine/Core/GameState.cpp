@@ -136,14 +136,14 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (3 floating islands)..." << std::endl;
 
     // **OPTIMIZED ISLAND SPACING** - Calculate safe distances to prevent overlap
-    // Main island: 160-unit radius = 320 units diameter
-    // Secondary islands: 64-unit radius = 128 units diameter  
-    // Safe spacing: 160 + 64 + 100 buffer = 324 units minimum
-    // Using 350 units for aesthetic separation and clear visual distinction
+    // Main island: 320-unit radius = 640 units diameter (doubled from 160)
+    // Secondary islands: 128-unit radius = 256 units diameter (doubled from 64)
+    // Safe spacing: 320 + 128 + 100 buffer = 548 units minimum
+    // Using 600 units for aesthetic separation and clear visual distinction
     
-    float mainRadius = 160.0f;
-    float secondaryRadius = 64.0f;
-    float spacing = 350.0f;  // Safe distance preventing any overlap
+    float mainRadius = 320.0f;      // Doubled from 160.0f
+    float secondaryRadius = 128.0f; // Doubled from 64.0f
+    float spacing = 600.0f;  // Increased spacing for larger islands
     
     // Create 3 islands in a triangle formation with proper spacing
     uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));  // Center island (large)

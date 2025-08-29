@@ -85,6 +85,11 @@ class VoxelChunk
     {
         return collisionMesh;
     }
+    
+    // Mesh access for VBO rendering
+    VoxelMesh& getMesh() { return mesh; }
+    const VoxelMesh& getMesh() const { return mesh; }
+    
     void buildCollisionMesh();
     bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
                            Vec3& hitPoint, Vec3& hitNormal) const;

@@ -205,10 +205,6 @@ void IntegratedServer::sendCompressedIslandToClient(ENetPeer* client, uint32_t i
         return;
     }
 
-    std::cout << "Compressed island " << islandID << ": " << voxelDataSize << " -> "
-              << compressedSize << " bytes (" << (100.0f * compressedSize / voxelDataSize)
-              << "% ratio)" << std::endl;
-
     // Create header
     CompressedIslandHeader header;
     header.islandID = islandID;
@@ -248,12 +244,6 @@ void IntegratedServer::sendCompressedChunkToClient(ENetPeer* client, uint32_t is
                   << " chunk (" << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z << ")" << std::endl;
         return;
     }
-
-    std::cout << "LZ4 compression: " << voxelDataSize << " -> " << compressedSize << " bytes (" 
-              << (100.0f * compressedSize / voxelDataSize) << "%)" << std::endl;
-    std::cout << "Compressed chunk (" << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
-              << ") for island " << islandID << ": " << voxelDataSize << " -> " << compressedSize 
-              << " bytes (" << (100.0f * compressedSize / voxelDataSize) << "% ratio)" << std::endl;
 
     // Create header
     CompressedChunkHeader header;
