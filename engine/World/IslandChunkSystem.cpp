@@ -126,59 +126,6 @@ VoxelChunk* IslandChunkSystem::getChunkFromIsland(uint32_t islandID, const Vec3&
     return nullptr;
 }
 
-void IslandChunkSystem::generateFloatingIsland(uint32_t islandID, uint32_t seed, float radius)
-{
-    FloatingIsland* island = getIsland(islandID);
-    if (!island)
-        return;
-
-    // Create the main chunk at origin (0,0,0) for backward compatibility
-    Vec3 originChunk(0, 0, 0);
-    addChunkToIsland(islandID, originChunk);
-    
-    VoxelChunk* chunk = getChunkFromIsland(islandID, originChunk);
-    if (chunk)
-    {
-        const char* noiseEnv = std::getenv("ISLAND_NOISE");
-        bool useNoise = (noiseEnv && (noiseEnv[0]=='1' || noiseEnv[0]=='T' || noiseEnv[0]=='t' || noiseEnv[0]=='Y' || noiseEnv[0]=='y'));
-        chunk->generateFloatingIsland(seed, useNoise);
-    }
-}
-
-void IslandChunkSystem::generateFloatingIslandMultiChunk(uint32_t islandID, uint32_t seed, float radius, int chunkRadius)
-{
-    FloatingIsland* island = getIsland(islandID);
-    if (!island)
-        return;
-
-    // Generate chunks in a cubic pattern around the origin
-    for (int x = -chunkRadius; x <= chunkRadius; x++)
-    {
-        for (int y = -chunkRadius; y <= chunkRadius; y++)
-        {
-            for (int z = -chunkRadius; z <= chunkRadius; z++)
-            {
-                Vec3 chunkCoord(x, y, z);
-                addChunkToIsland(islandID, chunkCoord);
-                
-                VoxelChunk* chunk = getChunkFromIsland(islandID, chunkCoord);
-                if (chunk)
-                {
-                    // Generate island content for this chunk
-                    // Use coordinate-based seed variation for different chunks
-                    uint32_t chunkSeed = seed + static_cast<uint32_t>(x * 1000 + y * 100 + z * 10);
-                    
-                    const char* noiseEnv = std::getenv("ISLAND_NOISE");
-                    bool useNoise = (noiseEnv && (noiseEnv[0]=='1' || noiseEnv[0]=='T' || noiseEnv[0]=='t' || noiseEnv[0]=='Y' || noiseEnv[0]=='y'));
-                    chunk->generateFloatingIsland(chunkSeed, useNoise);
-                }
-            }
-        }
-    }
-    
-    std::cout << "Generated multi-chunk island " << islandID << " with " << (2*chunkRadius+1) << "x" << (2*chunkRadius+1) << "x" << (2*chunkRadius+1) << " chunks" << std::endl;
-}
-
 void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_t seed, float radius)
 {
     FloatingIsland* island = getIsland(islandID);
@@ -188,8 +135,40 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     // Start with a center chunk at origin to ensure we have at least one chunk
     addChunkToIsland(islandID, Vec3(0, 0, 0));
     
+    // **ORGANIC GENERATION DEFAULTS TO NOISE-FIRST** - This is the whole point of the "Organic" function
     const char* noiseEnv = std::getenv("ISLAND_NOISE");
-    bool useNoise = (noiseEnv && (noiseEnv[0]=='1' || noiseEnv[0]=='T' || noiseEnv[0]=='t' || noiseEnv[0]=='Y' || noiseEnv[0]=='y'));
+    bool useNoise = true; // Default to true for organic generation
+    
+    // Allow environment variable to override (mainly for testing sphere vs noise)
+    if (noiseEnv && (noiseEnv[0]=='0' || noiseEnv[0]=='F' || noiseEnv[0]=='f' || noiseEnv[0]=='N' || noiseEnv[0]=='n')) {
+        useNoise = false;
+        std::cout << "[ISLAND] Environment override: Using sphere-first generation (ISLAND_NOISE=" << noiseEnv << ")" << std::endl;
+    }
+    
+    std::cout << "[ISLAND] Organic Generation - Using " << (useNoise ? "NOISE-FIRST" : "SPHERE-FIRST") 
+              << " approach for island " << islandID << " (radius=" << radius << ")" << std::endl;
+    
+    // **NOISE PARAMETERS** - Tuned for island-like terrain
+    float noiseScale = 0.08f;  // Medium-scale features for island detail
+    float densityThreshold = 0.35f;  // Balanced threshold for natural terrain
+    int octaves = 3;  // Sufficient detail without over-complexity
+    float persistence = 0.5f;
+    
+    // **ENVIRONMENT OVERRIDES** for noise parameters
+    const char* scaleEnv = std::getenv("NOISE_SCALE");
+    if (scaleEnv) noiseScale = std::stof(scaleEnv);
+    
+    const char* thresholdEnv = std::getenv("NOISE_THRESHOLD");
+    if (thresholdEnv) densityThreshold = std::stof(thresholdEnv);
+    
+    const char* octavesEnv = std::getenv("NOISE_OCTAVES");
+    if (octavesEnv) octaves = std::stoi(octavesEnv);
+    
+    if (useNoise) {
+        std::cout << "[NOISE] Parameters: scale=" << noiseScale 
+                  << " threshold=" << densityThreshold 
+                  << " octaves=" << octaves << std::endl;
+    }
     
     // **ROBUST FLATTEN LOGGING** - Safer approach to flatten to avoid crashes
     float flatten = 1.0f;
@@ -234,21 +213,37 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     int voxelsGenerated = 0;
     int chunksCreated = 0;
     
-    // **OPTIMIZED SPHERICAL ITERATION** - only check voxels that could be inside the sphere
+    // **OPTIMIZED ISLAND ITERATION** - Wide, low islands with dynamic height scaling
     int radiusInt = static_cast<int>(radius + 1);
     
-    // Iterate more efficiently: for each Y layer, calculate the circular bounds
-    for (int y = -radiusInt; y <= radiusInt; y++)
+    // **DYNAMIC HEIGHT SCALING** - Larger islands get taller, but maintain wide/low proportions
+    // Base height ratio is 0.075f (half of previous 0.15f)
+    // Add scaling factor so larger islands get proportionally more height
+    float baseHeightRatio = 0.075f;
+    float heightScaling = 1.0f + (radius / 200.0f); // Gradual increase: +50% height at 100 units, +100% at 200 units
+    int islandHeight = static_cast<int>(radius * baseHeightRatio * heightScaling);
+    
+    int searchRadius = static_cast<int>(radius * 1.4f); // Slightly wider search area
+    
+    std::cout << "[ISLAND] Generating wide island with dynamic height scaling:" << std::endl;
+    std::cout << "  Horizontal radius=" << radiusInt 
+              << ", base height=" << static_cast<int>(radius * baseHeightRatio)
+              << ", scaled height=" << islandHeight 
+              << " (scaling factor=" << heightScaling << ")" << std::endl;
+    std::cout << "  Search radius=" << searchRadius 
+              << ", width:height ratio=" << (float)radiusInt / (float)islandHeight << ":1" << std::endl;
+    
+    // Iterate more efficiently: for each Y layer, use wider horizontal bounds
+    for (int y = -islandHeight; y <= islandHeight; y++)
     {
         float dy = static_cast<float>(y);
-        float maxRadiusAtY = std::sqrt(radius * radius - dy * dy);
-        int maxXZ = static_cast<int>(maxRadiusAtY + 1);
+        int maxXZ = searchRadius; // Use fixed horizontal search area, not spherical constraint
         
         // Progress reporting
-        if (y % 10 == 0 || y == -radiusInt)
+        if (y % 5 == 0 || y == -islandHeight)
         {
-            std::cout << "[ORGANIC] Processing Y layer " << y << "/" << radiusInt 
-                      << " (max radius at this Y: " << maxRadiusAtY << ")" << std::endl;
+            std::cout << "[ORGANIC] Processing Y layer " << y << "/" << islandHeight 
+                      << " (horizontal search radius: " << maxXZ << ")" << std::endl;
         }
         
         for (int x = -maxXZ; x <= maxXZ; x++)
@@ -260,7 +255,7 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                 float dy = static_cast<float>(y);
                 float dz = static_cast<float>(z);
                 
-                // **NOISE-FIRST APPROACH** - Use noise as primary shape driver when enabled
+                // **TRUE NOISE-FIRST APPROACH** - Noise defines the terrain shape directly
                 bool shouldPlaceVoxel = false;
                 
                 if (useNoise) {
@@ -275,20 +270,34 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                         dyFlattened = dy;
                     }
                     
-                    // **RADIAL CONSTRAINT** - Distance from island center
-                    float distanceFromCenter = std::sqrt(dx * dx + dyFlattened * dyFlattened + dz * dz);
-                    if (distanceFromCenter <= radius) {
-                        // **RADIAL FALLOFF** - Density decreases towards edges
-                        float radialFalloff = 1.0f - (distanceFromCenter / radius);
-                        radialFalloff = std::max(0.0f, radialFalloff);
+                    // **ISLAND-SHAPED GENERATION** - Create realistic wide, low floating islands
+                    float distanceFromCenter = std::sqrt(dx * dx + dz * dz); // Only horizontal distance
+                    
+                    if (distanceFromCenter <= radius * 1.4f) {  // Wider generation area
                         
-                        // **3D NOISE SAMPLING** - Simple multi-octave noise
-                        const float noiseScale = 0.05f;
-                        const float densityThreshold = 0.3f;
-                        const int octaves = 3;
-                        const float persistence = 0.5f;
+                        // **BASE ISLAND SHAPE** - Strong radial falloff for island edges
+                        float islandBase = 1.0f - (distanceFromCenter / (radius * 1.2f));
+                        islandBase = std::max(0.0f, islandBase);
+                        islandBase = islandBase * islandBase * islandBase; // Sharper falloff for defined island edges
                         
-                        float noiseValue = 0.0f;
+                        // **HEIGHT-BASED TERRAIN** - More dramatic height variation for low islands
+                        float islandHeightRange = islandHeight * 2.0f; // Total height range
+                        float normalizedY = (dyFlattened + islandHeight) / islandHeightRange; // 0 at bottom, 1 at top
+                        float heightFactor = 1.0f;
+                        
+                        if (normalizedY < 0.2f) {
+                            // Bottom foundation - very solid
+                            heightFactor = 1.5f;
+                        } else if (normalizedY < 0.6f) {
+                            // Middle bulk - main island mass
+                            heightFactor = 1.2f;
+                        } else {
+                            // Upper surface - lighter, creates hills/peaks
+                            heightFactor = 0.4f;
+                        }
+                        
+                        // **3D NOISE FOR SURFACE DETAIL** - Multiple octaves for realism
+                        float surfaceNoise = 0.0f;
                         float amplitude = 1.0f;
                         float frequency = noiseScale;
                         
@@ -298,14 +307,31 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                             float sampleZ = dz * frequency + seed * 0.3f;
                             
                             float octaveNoise = (std::sin(sampleX) * std::cos(sampleY) * std::sin(sampleZ) + 1.0f) * 0.5f;
-                            noiseValue += octaveNoise * amplitude;
+                            surfaceNoise += octaveNoise * amplitude;
                             
                             amplitude *= persistence;
                             frequency *= 2.0f;
                         }
                         
-                        // **FINAL DENSITY** - Noise modulated by radial falloff
-                        float finalDensity = noiseValue * radialFalloff;
+                        // **LARGE-SCALE TERRAIN FEATURES** - Hills and valleys
+                        float terrainNoise = 0.0f;
+                        float terrainScale = noiseScale * 0.5f; // Larger features
+                        amplitude = 0.8f;
+                        frequency = terrainScale;
+                        
+                        for (int octave = 0; octave < 2; octave++) {
+                            float sampleX = dx * frequency + seed * 0.4f;
+                            float sampleZ = dz * frequency + seed * 0.5f;
+                            
+                            float octaveNoise = (std::sin(sampleX) * std::cos(sampleZ) + 1.0f) * 0.5f;
+                            terrainNoise += octaveNoise * amplitude;
+                            
+                            amplitude *= 0.5f;
+                            frequency *= 2.0f;
+                        }
+                        
+                        // **FINAL ISLAND DENSITY** - Combine all factors
+                        float finalDensity = islandBase * heightFactor * (surfaceNoise * 0.7f + terrainNoise * 0.3f);
                         shouldPlaceVoxel = (finalDensity > densityThreshold);
                     }
                 } else {

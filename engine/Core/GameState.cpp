@@ -135,23 +135,34 @@ void GameState::createDefaultWorld()
 {
     std::cout << "🏝️ Creating default world (3 floating islands)..." << std::endl;
 
-    // Create 3 islands in a triangle formation
-    uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));  // Center island
-    uint32_t island2ID =
-        m_islandSystem.createIsland(Vec3(40.0f, 5.0f, 30.0f));  // Right-forward island
-    uint32_t island3ID =
-        m_islandSystem.createIsland(Vec3(-40.0f, -5.0f, 30.0f));  // Left-forward island
+    // **OPTIMIZED ISLAND SPACING** - Calculate safe distances to prevent overlap
+    // Main island: 160-unit radius = 320 units diameter
+    // Secondary islands: 64-unit radius = 128 units diameter  
+    // Safe spacing: 160 + 64 + 100 buffer = 324 units minimum
+    // Using 350 units for aesthetic separation and clear visual distinction
+    
+    float mainRadius = 160.0f;
+    float secondaryRadius = 64.0f;
+    float spacing = 350.0f;  // Safe distance preventing any overlap
+    
+    // Create 3 islands in a triangle formation with proper spacing
+    uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));  // Center island (large)
+    uint32_t island2ID = m_islandSystem.createIsland(Vec3(spacing, 20.0f, spacing * 0.6f));  // Right-forward island
+    uint32_t island3ID = m_islandSystem.createIsland(Vec3(-spacing, -20.0f, spacing * 0.6f));  // Left-forward island
 
     // Track the islands
     m_islandIDs.push_back(island1ID);
     m_islandIDs.push_back(island2ID);
     m_islandIDs.push_back(island3ID);
 
-    // Generate each island - use organic generation for the first island to test dynamic chunk creation
-    // This allows testing organic vs traditional approaches
-    m_islandSystem.generateFloatingIslandOrganic(island1ID, 12345, 24.0f);  // Organic generation with smaller 24-unit radius for testing
-    m_islandSystem.generateFloatingIsland(island2ID, 54321, 32.0f);  // Single chunk
-    m_islandSystem.generateFloatingIsland(island3ID, 98765, 32.0f);  // Single chunk
+    // **ALL ISLANDS USE ORGANIC NOISE-FIRST GENERATION** - Consistent quality across the world
+    std::cout << "[WORLD] Generating all islands with organic noise-first approach..." << std::endl;
+    std::cout << "[SPACING] Island spacing: " << spacing << " units (prevents overlap of " 
+              << mainRadius << "+" << secondaryRadius << "=" << (mainRadius + secondaryRadius) << " unit radii)" << std::endl;
+    
+    m_islandSystem.generateFloatingIslandOrganic(island1ID, 12345, mainRadius);      // Large central island
+    m_islandSystem.generateFloatingIslandOrganic(island2ID, 54321, secondaryRadius); // Medium secondary island  
+    m_islandSystem.generateFloatingIslandOrganic(island3ID, 98765, secondaryRadius); // Medium secondary island
 
     // Log collision mesh generation for each island
     for (uint32_t islandID : m_islandIDs)

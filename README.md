@@ -1,7 +1,7 @@
 # MMORPG Engine Prototype Workspace
 
 This workspace is set up for a modular C++17 MMORPG engine prototype using CMake. It is designed for cross-platform development (Windows, Linux, macOS) and integrates:
-- **bgfx** for rendering
+- **OpenGL** for rendering
 - **Dear ImGui** for dev tools
 - **ENet** for networking
 - **GLFW** for window/input management
@@ -17,7 +17,7 @@ The engine uses a **modular client-server architecture** with:
 
 ## Structure
 - `/engine` — Core engine code with modular systems
-- `/libs` — Third-party libraries (bgfx, ENet, GLFW, Dear ImGui)
+- `/libs` — Third-party libraries (ENet, GLFW, Dear ImGui)
 - `/docs` — Architecture documentation
 - `/tests` — Unit tests (planned)
 
@@ -66,7 +66,7 @@ MMORPGEngine.exe --client <server_address>
 - **Player Movement**: Physics-based movement with network synchronization
 - **Block Interaction**: Real-time block break/place with server validation
 - **Time Effects**: Time manipulation system (keys 1-5, 0, T)
-- **Rendering**: bgfx-based renderer with Dear ImGui dev tools
+- **Rendering**: OpenGL-based renderer with Dear ImGui dev tools
 - **Input System**: WASD+mouse camera controls, space for jump
 
 ### 🔧 Technical Features

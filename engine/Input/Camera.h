@@ -15,14 +15,14 @@ public:
     Mat4 getProjectionMatrix(float aspect); // New clean version
     
     // Position and orientation - now using Vec3!
-    Vec3 position{16.0f, 32.0f, 16.0f}; // Start ON TOP of the island surface!
+    Vec3 position{0.0f, 50.0f, 50.0f}; // Start high up and back to see islands
     Vec3 front{0.0f, 0.0f, -1.0f};
     Vec3 up{0.0f, 1.0f, 0.0f};
     Vec3 right{1.0f, 0.0f, 0.0f};
     
-    // Camera settings - Point forward for first-person gameplay
-    float yaw = 0.0f;     // Point north initially
-    float pitch = 0.0f;   // Look straight ahead for first-person exploration
+    // Camera settings - Point toward origin to see islands
+    float yaw = 0.0f;     // Point north initially  
+    float pitch = -30.0f; // Look down slightly to see islands below
     float speed = 15.0f;  // Faster movement to explore the sphere
     float sensitivity = 0.1f; // Mouse sensitivity
     

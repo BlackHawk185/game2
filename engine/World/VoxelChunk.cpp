@@ -353,15 +353,10 @@ void VoxelChunk::render(const Vec3& worldOffset)
     glFrontFace(GL_CCW);
     glEnable(GL_DEPTH_TEST);
 
-    // Simple lighting setup
-    glEnable(GL_LIGHTING);
-    glEnable(GL_LIGHT0);
-    GLfloat lightPos[] = {1.0f, 1.0f, 1.0f, 0.0f};
-    glLightfv(GL_LIGHT0, GL_POSITION, lightPos);
-
-    glColor3f(0.7f, 0.7f, 0.9f);  // Light blue-gray color
-
-    // Render using immediate mode
+    // Disable lighting to see custom colors clearly
+    glDisable(GL_LIGHTING);
+    
+    // Render using immediate mode with clean face-based coloring
     glBegin(GL_TRIANGLES);
     for (size_t i = 0; i < mesh.indices.size(); i += 3)
     {
@@ -369,13 +364,25 @@ void VoxelChunk::render(const Vec3& worldOffset)
         {
             uint32_t index = mesh.indices[i + j];
             const Vertex& v = mesh.vertices[index];
+            
+            // Simple color based on face normal - clean and fast
+            if (v.ny > 0.8f) {
+                // Top face - bright grass green
+                glColor3f(0.3f, 0.8f, 0.2f);
+            } else if (v.ny < -0.8f) {
+                // Bottom face - dark soil brown
+                glColor3f(0.4f, 0.3f, 0.2f);
+            } else {
+                // Side faces - medium grass green
+                glColor3f(0.2f, 0.6f, 0.1f);
+            }
+            
             glNormal3f(v.nx, v.ny, v.nz);
             glVertex3f(v.x, v.y, v.z);
         }
     }
     glEnd();
 
-    glDisable(GL_LIGHTING);
     glPopMatrix();
 }
 
