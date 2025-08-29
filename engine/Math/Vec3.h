@@ -119,21 +119,3 @@ struct Vec3
         return {std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
     }
 };
-
-struct Mat4
-{
-    float m[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};  // Identity by default
-
-    float* data()
-    {
-        return m;
-    }
-    const float* data() const
-    {
-        return m;
-    }
-
-    static Mat4 lookAt(const Vec3& eye, const Vec3& center, const Vec3& up);
-    static Mat4 perspective(float fov, float aspect, float znear, float zfar);
-    static Mat4 translation(const Vec3& pos);
-};

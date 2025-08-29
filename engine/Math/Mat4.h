@@ -58,6 +58,9 @@ struct Mat4 {
     }
 
     // Static factory methods for common transformations
+    static Mat4 identity() {
+        return Mat4(); // Default constructor creates identity matrix
+    }
     static Mat4 perspective(float fovY, float aspect, float nearPlane, float farPlane) {
         Mat4 result;
         float f = 1.0f / std::tan(fovY * 0.5f);
@@ -86,9 +89,9 @@ struct Mat4 {
     }
 
     static Mat4 lookAt(const Vec3& eye, const Vec3& center, const Vec3& up) {
-        Vec3 f = (center - eye).normalize();
-        Vec3 u = up.normalize();
-        Vec3 s = f.cross(u).normalize();
+        Vec3 f = (center - eye).normalized();
+        Vec3 u = up.normalized();
+        Vec3 s = f.cross(u).normalized();
         u = s.cross(f);
 
         Mat4 result;
@@ -169,4 +172,8 @@ struct Mat4 {
         
         return inv;
     }
+    
+    // Data access for OpenGL
+    const float* data() const { return m; }
+    float* data() { return m; }
 };

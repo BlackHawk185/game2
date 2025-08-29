@@ -1,5 +1,5 @@
-// VBORenderer.h - Simple VBO-based renderer for voxel chunks
-// Modern OpenGL with GLAD loader
+// VBORenderer.h - Modern VBO-based renderer for voxel chunks with shader support
+// Modern OpenGL with GLAD loader and VAO management
 #pragma once
 
 #include <glad/glad.h>
@@ -9,6 +9,8 @@
 
 #include "../World/VoxelChunk.h"
 #include "../Math/Vec3.h"
+#include "../Math/Mat4.h"
+#include "SimpleShader.h"
 
 class VBORenderer
 {
@@ -16,11 +18,16 @@ public:
     VBORenderer();
     ~VBORenderer();
 
-    // Initialize OpenGL VBO extensions
+    // Initialize OpenGL VBO extensions and shader system
     bool initialize();
     void shutdown();
 
-    // Chunk VBO management
+    // Matrix management for modern OpenGL
+    void setProjectionMatrix(const Mat4& projection);
+    void setViewMatrix(const Mat4& view);
+    void setModelMatrix(const Mat4& model);
+
+    // Chunk VBO management with VAO support
     void uploadChunkMesh(VoxelChunk* chunk);
     void renderChunk(VoxelChunk* chunk, const Vec3& worldOffset);
     void deleteChunkVBO(VoxelChunk* chunk);
@@ -44,9 +51,18 @@ public:
 private:
     bool m_initialized;
     RenderStats m_stats;
+    
+    // Simple shader for basic rendering
+    SimpleShader m_shader;
+    
+    // Modern OpenGL state
+    Mat4 m_projectionMatrix;
+    Mat4 m_viewMatrix;
+    Mat4 m_modelMatrix;
 
     // Helper methods
     void setupVertexAttributes();
+    void setupVAO(VoxelChunk* chunk);
 };
 
 // Global VBO renderer instance

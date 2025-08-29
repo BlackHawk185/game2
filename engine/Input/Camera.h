@@ -1,6 +1,7 @@
 // Camera.h - Simple FPS camera for viewing voxel world
 #pragma once
 #include "Math/Vec3.h"
+#include "Math/Mat4.h"
 
 class Camera {
 public:

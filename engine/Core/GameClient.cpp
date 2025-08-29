@@ -276,15 +276,27 @@ void GameClient::render()
     // Set up 3D projection
     {
         PROFILE_SCOPE("Setup 3D projection");
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-
+        
         float aspect = (float) m_windowWidth / (float) m_windowHeight;
         float fov = 45.0f;
         float nearPlane = 0.1f;
         float farPlane = 1000.0f;
 
-        // Manual perspective setup
+        // Create modern projection matrix
+        Mat4 projectionMatrix = Mat4::perspective(fov, aspect, nearPlane, farPlane);
+        Mat4 viewMatrix = m_camera.getViewMatrix();
+        
+        // Set matrices for VBO renderer (modern OpenGL)
+        if (g_vboRenderer) {
+            g_vboRenderer->setProjectionMatrix(projectionMatrix);
+            g_vboRenderer->setViewMatrix(viewMatrix);
+        }
+        
+        // Legacy OpenGL matrix setup for other rendering code
+        glMatrixMode(GL_PROJECTION);
+        glLoadIdentity();
+
+        // Manual perspective setup for legacy code
         float top = nearPlane * tan(fov * 3.14159f / 360.0f);
         float bottom = -top;
         float right = top * aspect;
@@ -294,9 +306,7 @@ void GameClient::render()
         // Set up view matrix
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
-
-        Mat4 viewMatrix = m_camera.getViewMatrix();
-        glMultMatrixf(viewMatrix.data());
+        glMultMatrixf(viewMatrix.m);
 
         // Update frustum culling
         m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);

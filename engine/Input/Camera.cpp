@@ -119,7 +119,7 @@ void Camera::getViewMatrix(float* matrix)
     Mat4 viewMat = getViewMatrix();
     for (int i = 0; i < 16; i++)
     {
-        matrix[i] = viewMat.data()[i];
+        matrix[i] = viewMat.m[i];
     }
 }
 
@@ -131,12 +131,13 @@ Mat4 Camera::getViewMatrix()
 }
 
 // Old array-based interface for compatibility
+// Old array-based interface for compatibility
 void Camera::getProjectionMatrix(float* matrix, float aspect)
 {
     Mat4 projMat = getProjectionMatrix(aspect);
     for (int i = 0; i < 16; i++)
     {
-        matrix[i] = projMat.data()[i];
+        matrix[i] = projMat.m[i];
     }
 }
 

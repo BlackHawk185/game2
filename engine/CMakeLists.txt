@@ -20,6 +20,8 @@ add_library(engine STATIC
     Rendering/VBORenderer.cpp  # RE-ENABLED
     Rendering/ModernRenderer.cpp
     Rendering/TextureManager.cpp
+    Rendering/ShaderManager.cpp
+    Rendering/SimpleShader.cpp  # Simple shader for basic rendering
     
     # Input systems
     Input/Camera.cpp
