@@ -147,9 +147,9 @@ void GameState::createDefaultWorld()
     m_islandIDs.push_back(island2ID);
     m_islandIDs.push_back(island3ID);
 
-    // Generate each island - use multi-chunk for the first island, single chunk for others
-    // This allows testing both approaches
-    m_islandSystem.generateFloatingIslandMultiChunk(island1ID, 12345, 32.0f, 1);  // 3x3x3 chunks
+    // Generate each island - use organic generation for the first island to test dynamic chunk creation
+    // This allows testing organic vs traditional approaches
+    m_islandSystem.generateFloatingIslandOrganic(island1ID, 12345, 24.0f);  // Organic generation with smaller 24-unit radius for testing
     m_islandSystem.generateFloatingIsland(island2ID, 54321, 32.0f);  // Single chunk
     m_islandSystem.generateFloatingIsland(island3ID, 98765, 32.0f);  // Single chunk
 

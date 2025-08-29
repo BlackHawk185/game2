@@ -179,6 +179,89 @@ void IslandChunkSystem::generateFloatingIslandMultiChunk(uint32_t islandID, uint
     std::cout << "Generated multi-chunk island " << islandID << " with " << (2*chunkRadius+1) << "x" << (2*chunkRadius+1) << "x" << (2*chunkRadius+1) << " chunks" << std::endl;
 }
 
+void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_t seed, float radius)
+{
+    FloatingIsland* island = getIsland(islandID);
+    if (!island)
+        return;
+
+    // Start with a center chunk at origin to ensure we have at least one chunk
+    addChunkToIsland(islandID, Vec3(0, 0, 0));
+    
+    const char* noiseEnv = std::getenv("ISLAND_NOISE");
+    bool useNoise = (noiseEnv && (noiseEnv[0]=='1' || noiseEnv[0]=='T' || noiseEnv[0]=='t' || noiseEnv[0]=='Y' || noiseEnv[0]=='y'));
+    
+    std::cout << "[ORGANIC] Generating island " << islandID << " with radius " << radius 
+              << ", useNoise=" << (useNoise ? 1 : 0) << std::endl;
+    
+    int voxelsGenerated = 0;
+    int chunksCreated = 0;
+    
+    // **OPTIMIZED SPHERICAL ITERATION** - only check voxels that could be inside the sphere
+    int radiusInt = static_cast<int>(radius + 1);
+    
+    // Iterate more efficiently: for each Y layer, calculate the circular bounds
+    for (int y = -radiusInt; y <= radiusInt; y++)
+    {
+        float dy = static_cast<float>(y);
+        float maxRadiusAtY = std::sqrt(radius * radius - dy * dy);
+        int maxXZ = static_cast<int>(maxRadiusAtY + 1);
+        
+        // Progress reporting
+        if (y % 10 == 0 || y == -radiusInt)
+        {
+            std::cout << "[ORGANIC] Processing Y layer " << y << "/" << radiusInt 
+                      << " (max radius at this Y: " << maxRadiusAtY << ")" << std::endl;
+        }
+        
+        for (int x = -maxXZ; x <= maxXZ; x++)
+        {
+            for (int z = -maxXZ; z <= maxXZ; z++)
+            {
+                // Calculate distance from island center
+                float dx = static_cast<float>(x);
+                float dz = static_cast<float>(z);
+                float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+                
+                // Basic spherical island shape
+                if (distance <= radius)
+                {
+                    // Track chunks before placement
+                    size_t chunksBefore = island->chunks.size();
+                    
+                    // Use island-relative coordinates for placement
+                    Vec3 islandRelativePos(dx, dy, dz);
+                    setVoxelWithAutoChunk(islandID, islandRelativePos, 1); // Rock/stone
+                    
+                    voxelsGenerated++;
+                    
+                    // Check if a new chunk was created
+                    if (island->chunks.size() > chunksBefore)
+                    {
+                        chunksCreated++;
+                    }
+                }
+            }
+        }
+    }
+    
+    std::cout << "[ORGANIC] Generated island " << islandID << " organically: " 
+              << voxelsGenerated << " voxels across " << island->chunks.size() 
+              << " chunks (" << chunksCreated << " created dynamically)" << std::endl;
+    
+    // **SINGLE MESH GENERATION PASS** - much faster than per-voxel generation
+    std::cout << "[ORGANIC] Building meshes and collision for " << island->chunks.size() << " chunks..." << std::endl;
+    for (auto& [chunkCoord, chunk] : island->chunks)
+    {
+        if (chunk)
+        {
+            chunk->generateMesh();
+            chunk->buildCollisionMesh();
+        }
+    }
+    std::cout << "[ORGANIC] Mesh generation complete!" << std::endl;
+}
+
 uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& worldPosition) const
 {
     const FloatingIsland* island = getIsland(islandID);
@@ -244,6 +327,47 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& worldPos
 
     chunk->setVoxel(x, y, z, voxelType);
     chunk->generateMesh();  // Update visual mesh
+}
+
+void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType)
+{
+    FloatingIsland* island = getIsland(islandID);
+    if (!island)
+        return;
+
+    // Calculate which chunk this position belongs to using grid-aligned coordinates
+    // Use floor division to ensure proper grid alignment
+    int chunkX = static_cast<int>(std::floor(islandRelativePos.x / VoxelChunk::SIZE));
+    int chunkY = static_cast<int>(std::floor(islandRelativePos.y / VoxelChunk::SIZE));
+    int chunkZ = static_cast<int>(std::floor(islandRelativePos.z / VoxelChunk::SIZE));
+    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+
+    // Calculate local position within the chunk (always 0-31)
+    int localX = static_cast<int>(islandRelativePos.x) % VoxelChunk::SIZE;
+    int localY = static_cast<int>(islandRelativePos.y) % VoxelChunk::SIZE;
+    int localZ = static_cast<int>(islandRelativePos.z) % VoxelChunk::SIZE;
+    
+    // Handle negative coordinates properly for modulo
+    if (localX < 0) localX += VoxelChunk::SIZE;
+    if (localY < 0) localY += VoxelChunk::SIZE;
+    if (localZ < 0) localZ += VoxelChunk::SIZE;
+
+    // Find or create the chunk at the grid-aligned coordinate
+    auto it = island->chunks.find(chunkCoord);
+    if (it == island->chunks.end())
+    {
+        // Create new chunk at grid-aligned position
+        addChunkToIsland(islandID, chunkCoord);
+        it = island->chunks.find(chunkCoord);
+    }
+
+    VoxelChunk* chunk = it->second.get();
+    if (!chunk)
+        return;
+
+    // Set voxel in chunk using local coordinates
+    chunk->setVoxel(localX, localY, localZ, voxelType);
+    // NOTE: Don't generate mesh here - do it once at the end for performance
 }
 
 void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks)

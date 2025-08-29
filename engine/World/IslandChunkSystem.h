@@ -86,6 +86,10 @@ class IslandChunkSystem
     // Uses world coordinates - automatically converts to chunk + local coordinates
     uint8_t getVoxelFromIsland(uint32_t islandID, const Vec3& worldPosition) const;
     void setVoxelInIsland(uint32_t islandID, const Vec3& worldPosition, uint8_t voxelType);
+    
+    // **DYNAMIC VOXEL PLACEMENT** (Creates chunks as needed)
+    // Uses island-relative coordinates - automatically creates chunks on grid-aligned boundaries
+    void setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType);
 
     // Physics integration
     void updateIslandPhysics(float deltaTime);
@@ -108,6 +112,9 @@ class IslandChunkSystem
 
     // Multi-chunk generation for larger islands
     void generateFloatingIslandMultiChunk(uint32_t islandID, uint32_t seed, float radius = 16.0f, int chunkRadius = 1);
+    
+    // **ORGANIC ISLAND GENERATION** (Creates chunks dynamically based on island shape)
+    void generateFloatingIslandOrganic(uint32_t islandID, uint32_t seed, float radius = 48.0f);
 
     // Island queries
     Vec3 getIslandCenter(uint32_t islandID) const;    // Get current physics center of island

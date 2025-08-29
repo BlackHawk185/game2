@@ -21,24 +21,19 @@ struct RayHit {
 
 class VoxelRaycaster {
 public:
-    // Cast ray from camera to find block intersections
+    // Cast ray from camera to find block intersections - **INTEGRATED VERSION**
     static RayHit raycast(const Vec3& origin, const Vec3& direction, float maxDistance, IslandChunkSystem* islandSystem);
     
-    // Cast ray using VoxelChunk (temporary compatibility method)
+    // Cast ray using VoxelChunk (deprecated compatibility method)
     static RayHit raycast(const Vec3& origin, const Vec3& direction, float maxDistance, VoxelChunk* voxelChunk);
     
     // Helper to get placement position (adjacent to hit face)
     static Vec3 getPlacementPosition(const RayHit& hit);
     
 private:
-    // DDA (Digital Differential Analyzer) voxel traversal
+    // **INTEGRATED DDA** - Uses IslandChunkSystem infrastructure
     static RayHit performDDA(const Vec3& rayStart, const Vec3& rayDirection, float maxDistance, IslandChunkSystem* islandSystem);
     
-    // DDA for VoxelChunk
+    // **DEPRECATED** - VoxelChunk-specific version (compatibility only)
     static RayHit performDDA(const Vec3& rayStart, const Vec3& rayDirection, float maxDistance, VoxelChunk* voxelChunk);
-    
-    // **NEW ISLAND-CENTRIC HELPERS**
-    static RayHit performLocalDDA(const Vec3& localRayStart, const Vec3& rayDirection, float maxDistance, VoxelChunk* chunk);
-    static bool rayIntersectsAABB(const Vec3& rayStart, const Vec3& rayDir, const Vec3& aabbMin, const Vec3& aabbMax, float maxDist);
-    static uint32_t findIslandIDForChunk(IslandChunkSystem* islandSystem, VoxelChunk* chunk);
 };
