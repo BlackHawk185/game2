@@ -117,6 +117,10 @@ class IslandChunkSystem
     
     // **ORGANIC ISLAND GENERATION** (Creates chunks dynamically based on island shape)
     void generateFloatingIslandOrganic(uint32_t islandID, uint32_t seed, float radius = 48.0f);
+    
+    // **NEW GENERATION APPROACHES** - Noise-first and sphere-first methods
+    void generateWithNoiseFirst(uint32_t islandID, uint32_t seed, float radius, float flatten);
+    void generateWithSphereFirst(uint32_t islandID, float radius);
 
     // Island queries
     Vec3 getIslandCenter(uint32_t islandID) const;    // Get current physics center of island

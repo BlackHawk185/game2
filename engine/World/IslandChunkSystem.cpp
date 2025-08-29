@@ -191,8 +191,45 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     const char* noiseEnv = std::getenv("ISLAND_NOISE");
     bool useNoise = (noiseEnv && (noiseEnv[0]=='1' || noiseEnv[0]=='T' || noiseEnv[0]=='t' || noiseEnv[0]=='Y' || noiseEnv[0]=='y'));
     
+    // **ROBUST FLATTEN LOGGING** - Safer approach to flatten to avoid crashes
+    float flatten = 1.0f;
+    bool flattenEnabled = false;
+    
+    if (useNoise) {
+        flatten = 0.85f; // Safer default than 0.90f
+        
+        // **SAFE FLATTEN PARSING** with extensive logging
+        const char* flattenEnv = std::getenv("ISLAND_FLATTEN");
+        if (flattenEnv) {
+            std::cout << "[FLATTEN] Environment variable found: ISLAND_FLATTEN=" << flattenEnv << std::endl;
+            
+            try {
+                float parsedFlatten = std::stof(flattenEnv);
+                std::cout << "[FLATTEN] Parsed value: " << parsedFlatten << std::endl;
+                
+                // **STRICT BOUNDS CHECKING** to prevent crashes
+                if (parsedFlatten >= 0.5f && parsedFlatten <= 1.0f) {
+                    flatten = parsedFlatten;
+                    flattenEnabled = true;
+                    std::cout << "[FLATTEN] Applied flatten factor: " << flatten << std::endl;
+                } else {
+                    std::cout << "[FLATTEN] WARNING: Value " << parsedFlatten 
+                              << " outside safe range [0.5, 1.0], using default: " << flatten << std::endl;
+                }
+            } catch (const std::exception& e) {
+                std::cout << "[FLATTEN] ERROR: Failed to parse '" << flattenEnv 
+                          << "', using default: " << flatten << " (Error: " << e.what() << ")" << std::endl;
+            }
+        } else {
+            std::cout << "[FLATTEN] No ISLAND_FLATTEN environment variable, using default: " << flatten << std::endl;
+        }
+    }
+    
     std::cout << "[ORGANIC] Generating island " << islandID << " with radius " << radius 
-              << ", useNoise=" << (useNoise ? 1 : 0) << std::endl;
+              << ", useNoise=" << (useNoise ? 1 : 0) 
+              << ", flattenEnabled=" << (flattenEnabled ? 1 : 0)
+              << ", flatten=" << flatten 
+              << ", approach=" << (useNoise ? "NOISE-FIRST" : "SPHERE-FIRST") << std::endl;
     
     int voxelsGenerated = 0;
     int chunksCreated = 0;
@@ -218,13 +255,66 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
         {
             for (int z = -maxXZ; z <= maxXZ; z++)
             {
-                // Calculate distance from island center
+                // Calculate distance from island center (with flatten applied for noise)
                 float dx = static_cast<float>(x);
+                float dy = static_cast<float>(y);
                 float dz = static_cast<float>(z);
-                float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
                 
-                // Basic spherical island shape
-                if (distance <= radius)
+                // **NOISE-FIRST APPROACH** - Use noise as primary shape driver when enabled
+                bool shouldPlaceVoxel = false;
+                
+                if (useNoise) {
+                    // **FLATTEN APPLICATION** with robust error handling
+                    float dyFlattened = dy;
+                    try {
+                        if (flatten != 1.0f && flatten > 0.0f) {
+                            dyFlattened = dy * flatten;
+                        }
+                    } catch (...) {
+                        std::cout << "[FLATTEN] ERROR: Exception during flatten calculation, using original Y" << std::endl;
+                        dyFlattened = dy;
+                    }
+                    
+                    // **RADIAL CONSTRAINT** - Distance from island center
+                    float distanceFromCenter = std::sqrt(dx * dx + dyFlattened * dyFlattened + dz * dz);
+                    if (distanceFromCenter <= radius) {
+                        // **RADIAL FALLOFF** - Density decreases towards edges
+                        float radialFalloff = 1.0f - (distanceFromCenter / radius);
+                        radialFalloff = std::max(0.0f, radialFalloff);
+                        
+                        // **3D NOISE SAMPLING** - Simple multi-octave noise
+                        const float noiseScale = 0.05f;
+                        const float densityThreshold = 0.3f;
+                        const int octaves = 3;
+                        const float persistence = 0.5f;
+                        
+                        float noiseValue = 0.0f;
+                        float amplitude = 1.0f;
+                        float frequency = noiseScale;
+                        
+                        for (int octave = 0; octave < octaves; octave++) {
+                            float sampleX = dx * frequency + seed * 0.1f;
+                            float sampleY = dyFlattened * frequency + seed * 0.2f;
+                            float sampleZ = dz * frequency + seed * 0.3f;
+                            
+                            float octaveNoise = (std::sin(sampleX) * std::cos(sampleY) * std::sin(sampleZ) + 1.0f) * 0.5f;
+                            noiseValue += octaveNoise * amplitude;
+                            
+                            amplitude *= persistence;
+                            frequency *= 2.0f;
+                        }
+                        
+                        // **FINAL DENSITY** - Noise modulated by radial falloff
+                        float finalDensity = noiseValue * radialFalloff;
+                        shouldPlaceVoxel = (finalDensity > densityThreshold);
+                    }
+                } else {
+                    // **SPHERE-FIRST APPROACH** - Traditional spherical generation
+                    float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    shouldPlaceVoxel = (distance <= radius);
+                }
+                
+                if (shouldPlaceVoxel)
                 {
                     // Track chunks before placement
                     size_t chunksBefore = island->chunks.size();
