@@ -45,22 +45,29 @@ bool PhysicsSystem::checkPlayerCollision(const Vec3& playerPos, Vec3& outNormal,
     for (const auto& islandPair : islands)
     {
         const FloatingIsland* island = &islandPair.second;
-        if (!island || !island->mainChunk)
+        if (!island)
             continue;
 
-        // Convert player position to island-local coordinates
-        Vec3 localPlayerPos = playerPos - island->physicsCenter;
-
-        // Verbose per-island logging disabled
-
-        // Check collision with this island's chunk
-        Vec3 collisionNormal;
-        if (checkChunkCollision(island->mainChunk.get(), localPlayerPos, island->physicsCenter,
-                                collisionNormal, playerRadius))
+        // Check collision with all chunks in this island
+        for (const auto& [chunkCoord, chunk] : island->chunks)
         {
-            outNormal = collisionNormal;
-            // Collision detected; keep logs minimal
-            return true;
+            if (!chunk)
+                continue;
+
+            // Calculate chunk world position
+            Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+            
+            // Convert player position to chunk-local coordinates
+            Vec3 localPlayerPos = playerPos - chunkWorldPos;
+
+            // Check collision with this chunk
+            Vec3 collisionNormal;
+            if (checkChunkCollision(chunk.get(), localPlayerPos, chunkWorldPos,
+                                    collisionNormal, playerRadius))
+            {
+                outNormal = collisionNormal;
+                return true;
+            }
         }
     }
 
@@ -78,21 +85,31 @@ bool PhysicsSystem::checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDire
     for (const auto& islandPair : islands)
     {
         const FloatingIsland* island = &islandPair.second;
-        if (!island || !island->mainChunk)
+        if (!island)
             continue;
 
-        // Convert ray to island-local coordinates
-        Vec3 localRayOrigin = rayOrigin - island->physicsCenter;
-
-        // Check ray collision with this island's chunk
-        Vec3 localHitPoint, localHitNormal;
-        if (island->mainChunk->checkRayCollision(localRayOrigin, rayDirection, maxDistance,
-                                                 localHitPoint, localHitNormal))
+        // Check ray collision with all chunks in this island
+        for (const auto& [chunkCoord, chunk] : island->chunks)
         {
-            // Convert back to world coordinates
-            hitPoint = localHitPoint + island->physicsCenter;
-            hitNormal = localHitNormal;
-            return true;
+            if (!chunk)
+                continue;
+
+            // Calculate chunk world position
+            Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+            
+            // Convert ray to chunk-local coordinates
+            Vec3 localRayOrigin = rayOrigin - chunkWorldPos;
+
+            // Check ray collision with this chunk
+            Vec3 localHitPoint, localHitNormal;
+            if (chunk->checkRayCollision(localRayOrigin, rayDirection, maxDistance,
+                                         localHitPoint, localHitNormal))
+            {
+                // Convert back to world coordinates
+                hitPoint = localHitPoint + chunkWorldPos;
+                hitNormal = localHitNormal;
+                return true;
+            }
         }
     }
 

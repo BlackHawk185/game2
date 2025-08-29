@@ -39,6 +39,10 @@ public:
     std::function<void(const HelloWorldMessage&)> onHelloWorld;
     std::function<void(const WorldStateMessage&)> onWorldStateReceived;
     std::function<void(uint32_t, const Vec3&, const uint8_t*, uint32_t)> onCompressedIslandReceived;
+    
+    // NEW: Callback for individual chunk data with coordinates
+    std::function<void(uint32_t, const Vec3&, const Vec3&, const uint8_t*, uint32_t)> onCompressedChunkReceived;
+    
     std::function<void(const VoxelChangeUpdate&)> onVoxelChangeReceived;
     std::function<void(const EntityStateUpdate&)> onEntityStateUpdate;
     

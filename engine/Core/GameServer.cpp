@@ -336,18 +336,26 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
     for (int i = 0; i < 3 && i < islandIDs.size(); i++)
     {
         const FloatingIsland* island = islandSystem->getIsland(islandIDs[i]);
-        if (island && island->mainChunk)
+        if (island)
         {
-            const uint8_t* voxelData = island->mainChunk->getRawVoxelData();
-            uint32_t voxelDataSize = island->mainChunk->getVoxelDataSize();
+            // Send all chunks for this island
+            for (const auto& [chunkCoord, chunk] : island->chunks)
+            {
+                if (chunk)
+                {
+                    const uint8_t* voxelData = chunk->getRawVoxelData();
+                    uint32_t voxelDataSize = chunk->getVoxelDataSize();
 
-            std::cout << "[SERVER] Sending island " << islandIDs[i] << " to client ("
-                      << voxelDataSize << " bytes, "
-                      << island->mainChunk->getCollisionMesh().faces.size() << " collision faces)"
-                      << std::endl;
+                    std::cout << "[SERVER] Sending island " << islandIDs[i] << " chunk " 
+                              << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
+                              << " to client (" << voxelDataSize << " bytes, "
+                              << chunk->getCollisionMesh().faces.size() << " collision faces)"
+                              << std::endl;
 
-            server->sendCompressedIslandToClient(peer, islandIDs[i], worldState.islandPositions[i],
-                                                 voxelData, voxelDataSize);
+                    // Use the new sendCompressedChunkToClient method with chunk coordinates
+                    server->sendCompressedChunkToClient(peer, islandIDs[i], chunkCoord, worldState.islandPositions[i], voxelData, voxelDataSize);
+                }
+            }
         }
     }
 }

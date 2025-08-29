@@ -2,23 +2,49 @@
 #pragma once
 #include <memory>
 #include <unordered_map>
+#include <map>
 #include <vector>
+#include <cmath>
 
 #include "Math/Vec3.h"
-
-// Forward declarations
-class VoxelChunk;
+#include "VoxelChunk.h"
 
 // An Island is a collection of chunks that move together as one physics body
 struct FloatingIsland
 {
-    uint32_t physicsBodyHandle;             // Our internal handle for the physics body
-    Vec3 physicsCenter{0, 0, 0};            // Center of mass for physics
-    Vec3 velocity{0, 0, 0};                 // Island velocity for physics simulation
-    Vec3 acceleration{0, 0, 0};             // Island acceleration (gravity, wind, etc.)
-    std::unique_ptr<VoxelChunk> mainChunk;  // For now, just one main chunk per island
-    uint32_t islandID;                      // Unique island identifier
+    uint32_t physicsBodyHandle;                                      // Our internal handle for the physics body
+    Vec3 physicsCenter{0, 0, 0};                                     // Center of mass for physics
+    Vec3 velocity{0, 0, 0};                                          // Island velocity for physics simulation
+    Vec3 acceleration{0, 0, 0};                                      // Island acceleration (gravity, wind, etc.)
+    std::map<Vec3, std::unique_ptr<VoxelChunk>> chunks;              // Multi-chunk support: chunkCoord -> VoxelChunk
+    uint32_t islandID;                                               // Unique island identifier
     bool needsPhysicsUpdate = false;
+
+    // Helper functions for chunk coordinate conversion
+    static Vec3 worldPosToChunkCoord(const Vec3& worldPos) {
+        return Vec3(
+            static_cast<int>(std::floor(worldPos.x / VoxelChunk::SIZE)),
+            static_cast<int>(std::floor(worldPos.y / VoxelChunk::SIZE)),
+            static_cast<int>(std::floor(worldPos.z / VoxelChunk::SIZE))
+        );
+    }
+
+    static Vec3 worldPosToLocalPos(const Vec3& worldPos) {
+        Vec3 chunkCoord = worldPosToChunkCoord(worldPos);
+        return Vec3(
+            worldPos.x - (chunkCoord.x * VoxelChunk::SIZE),
+            worldPos.y - (chunkCoord.y * VoxelChunk::SIZE),
+            worldPos.z - (chunkCoord.z * VoxelChunk::SIZE)
+        );
+    }
+
+    static Vec3 chunkCoordToWorldPos(const Vec3& chunkCoord) {
+        return Vec3(
+            chunkCoord.x * VoxelChunk::SIZE,
+            chunkCoord.y * VoxelChunk::SIZE,
+            chunkCoord.z * VoxelChunk::SIZE
+        );
+    }
 };
 
 // A chunk within an island - has LOCAL coordinates relative to island center
@@ -52,12 +78,14 @@ class IslandChunkSystem
     const FloatingIsland* getIsland(uint32_t islandID) const;
 
     // Chunk management within islands
-    void addChunkToIsland(uint32_t islandID, const Vec3& localPosition);
-    void removeChunkFromIsland(uint32_t islandID, const Vec3& localPosition);
+    void addChunkToIsland(uint32_t islandID, const Vec3& chunkCoord);
+    void removeChunkFromIsland(uint32_t islandID, const Vec3& chunkCoord);
+    VoxelChunk* getChunkFromIsland(uint32_t islandID, const Vec3& chunkCoord);
 
     // **ISLAND-CENTRIC VOXEL ACCESS** (Only way to access voxels)
-    uint8_t getVoxelFromIsland(uint32_t islandID, const Vec3& localPosition) const;
-    void setVoxelInIsland(uint32_t islandID, const Vec3& localPosition, uint8_t voxelType);
+    // Uses world coordinates - automatically converts to chunk + local coordinates
+    uint8_t getVoxelFromIsland(uint32_t islandID, const Vec3& worldPosition) const;
+    void setVoxelInIsland(uint32_t islandID, const Vec3& worldPosition, uint8_t voxelType);
 
     // Physics integration
     void updateIslandPhysics(float deltaTime);
@@ -76,7 +104,10 @@ class IslandChunkSystem
     // Rendering interface
     void getAllChunks(std::vector<VoxelChunk*>& outChunks);
     void getVisibleChunks(const Vec3& viewPosition, std::vector<VoxelChunk*>& outChunks);
-    void renderAllIslands();  // New: Render all islands with proper positioning
+    void renderAllIslands();  // Render all islands with proper positioning
+
+    // Multi-chunk generation for larger islands
+    void generateFloatingIslandMultiChunk(uint32_t islandID, uint32_t seed, float radius = 16.0f, int chunkRadius = 1);
 
     // Island queries
     Vec3 getIslandCenter(uint32_t islandID) const;    // Get current physics center of island

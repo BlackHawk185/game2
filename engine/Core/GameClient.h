@@ -158,6 +158,11 @@ private:
     void handleCompressedIslandReceived(uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize);
     
     /**
+     * Handle received compressed chunk data from server
+     */
+    void handleCompressedChunkReceived(uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t dataSize);
+    
+    /**
      * Handle received voxel change updates from server
      */
     void handleVoxelChangeReceived(const VoxelChangeUpdate& update);

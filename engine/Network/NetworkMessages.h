@@ -18,10 +18,11 @@ enum NetworkMessageType : uint8_t {
     PLAYER_POSITION_UPDATE = 3,
     CHAT_MESSAGE = 4,
     WORLD_STATE = 5,
-    COMPRESSED_ISLAND_DATA = 6,
-    VOXEL_CHANGE_REQUEST = 7,
-    VOXEL_CHANGE_UPDATE = 8,
-    ENTITY_STATE_UPDATE = 9
+    COMPRESSED_ISLAND_DATA = 6,        // Legacy: Single chunk per island
+    COMPRESSED_CHUNK_DATA = 7,         // NEW: Individual chunk with coordinates
+    VOXEL_CHANGE_REQUEST = 8,          // Updated numbering
+    VOXEL_CHANGE_UPDATE = 9,
+    ENTITY_STATE_UPDATE = 10
 };
 
 // Simple hello world message
@@ -73,8 +74,20 @@ struct PACKED CompressedIslandHeader {
     // Compressed voxel data follows this header (variable length)
 };
 
+// NEW: Individual chunk data with coordinates for multi-chunk islands
+struct PACKED CompressedChunkHeader {
+    uint8_t type = COMPRESSED_CHUNK_DATA;
+    uint32_t islandID;              // Which island this chunk belongs to
+    Vec3 chunkCoord;                // Chunk coordinate within the island (0,0,0), (1,0,0), etc.
+    Vec3 islandPosition;            // Island's physics center for positioning
+    uint32_t originalSize;          // Uncompressed voxel data size (should be 32*32*32 = 32768)
+    uint32_t compressedSize;        // Size of the compressed data that follows
+    // Compressed voxel data follows this header (variable length)
+};
+
 // Maximum size for compressed data (conservative estimate)
 constexpr uint32_t MAX_COMPRESSED_ISLAND_SIZE = 16384; // 16KB max compressed size
+constexpr uint32_t MAX_COMPRESSED_CHUNK_SIZE = 16384;  // 16KB max compressed chunk size
 
 // Voxel change request from client to server
 struct PACKED VoxelChangeRequest {

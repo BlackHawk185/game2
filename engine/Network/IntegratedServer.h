@@ -32,6 +32,10 @@ public:
     void broadcastPlayerPosition(uint32_t playerId, const Vec3& position, const Vec3& velocity);
     void sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState);
     void sendCompressedIslandToClient(ENetPeer* client, uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t voxelDataSize);
+    
+    // NEW: Send individual chunk with coordinates for multi-chunk islands
+    void sendCompressedChunkToClient(ENetPeer* client, uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t voxelDataSize);
+    
     void broadcastVoxelChange(uint32_t islandID, const Vec3& localPos, uint8_t voxelType, uint32_t authorPlayerId);
     void broadcastEntityState(const EntityStateUpdate& entityState);
     void sendToClient(ENetPeer* client, const void* data, size_t size);

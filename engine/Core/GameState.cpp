@@ -147,39 +147,55 @@ void GameState::createDefaultWorld()
     m_islandIDs.push_back(island2ID);
     m_islandIDs.push_back(island3ID);
 
-    // Generate each island with different seeds for variety
-    m_islandSystem.generateFloatingIsland(island1ID, 12345, 32.0f);
-    m_islandSystem.generateFloatingIsland(island2ID, 54321, 32.0f);
-    m_islandSystem.generateFloatingIsland(island3ID, 98765, 32.0f);
+    // Generate each island - use multi-chunk for the first island, single chunk for others
+    // This allows testing both approaches
+    m_islandSystem.generateFloatingIslandMultiChunk(island1ID, 12345, 32.0f, 1);  // 3x3x3 chunks
+    m_islandSystem.generateFloatingIsland(island2ID, 54321, 32.0f);  // Single chunk
+    m_islandSystem.generateFloatingIsland(island3ID, 98765, 32.0f);  // Single chunk
 
     // Log collision mesh generation for each island
     for (uint32_t islandID : m_islandIDs)
     {
         const FloatingIsland* island = m_islandSystem.getIsland(islandID);
-        if (island && island->mainChunk)
+        if (island)
         {
-            // Count solid voxels before mesh generation
+            // Count solid voxels across all chunks in this island
             int solidVoxels = 0;
-            for (int x = 0; x < 32; x++)
+            int totalChunks = 0;
+            
+            for (const auto& [chunkCoord, chunk] : island->chunks)
             {
-                for (int y = 0; y < 32; y++)
+                if (chunk)
                 {
-                    for (int z = 0; z < 32; z++)
+                    totalChunks++;
+                    for (int x = 0; x < 32; x++)
                     {
-                        if (island->mainChunk->getVoxel(x, y, z) > 0)
-                            solidVoxels++;
+                        for (int y = 0; y < 32; y++)
+                        {
+                            for (int z = 0; z < 32; z++)
+                            {
+                                if (chunk->getVoxel(x, y, z) > 0)
+                                    solidVoxels++;
+                            }
+                        }
                     }
+                    
+                    // Generate mesh and build collision mesh for each chunk
+                    const_cast<VoxelChunk*>(chunk.get())->generateMesh();
+                    const_cast<VoxelChunk*>(chunk.get())->buildCollisionMesh();
                 }
             }
-            std::cout << "[SERVER] Island " << islandID << " has " << solidVoxels << " solid voxels"
-                      << std::endl;
-
-            // Generate mesh and build collision mesh before logging
-            const_cast<VoxelChunk*>(island->mainChunk.get())->generateMesh();
-            const_cast<VoxelChunk*>(island->mainChunk.get())->buildCollisionMesh();
-            std::cout << "[SERVER] Generated island " << islandID << " with collision mesh ("
-                      << island->mainChunk->getCollisionMesh().faces.size() << " faces)"
-                      << std::endl;
+            
+            std::cout << "[SERVER] Island " << islandID << " has " << totalChunks << " chunks with " << solidVoxels << " solid voxels total" << std::endl;
+            
+            // Log collision mesh info from first chunk (for backward compatibility)
+            if (!island->chunks.empty())
+            {
+                const auto& firstChunk = island->chunks.begin()->second;
+                std::cout << "[SERVER] Generated island " << islandID << " with collision mesh ("
+                          << firstChunk->getCollisionMesh().faces.size() << " faces in first chunk)"
+                          << std::endl;
+            }
         }
     }
     Vec3 islandCenter = m_islandSystem.getIslandCenter(island1ID);

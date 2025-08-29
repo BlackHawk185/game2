@@ -213,14 +213,14 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
 
                 if (availableDataSize >= static_cast<size_t>(header.compressedSize))
                 {
-                    // Decompress the voxel data
+                    // Decompress the voxel data using LZ4
                     std::vector<uint8_t> decompressedData(static_cast<size_t>(header.originalSize));
 
-                    if (VoxelCompression::decompressRLE(compressedData, header.compressedSize,
+                    if (VoxelCompression::decompressLZ4(compressedData, header.compressedSize,
                                                         decompressedData.data(),
                                                         header.originalSize))
                     {
-                        // Removed verbose debug output
+                        std::cout << "LZ4 decompression: " << header.compressedSize << " -> " << header.originalSize << " bytes" << std::endl;
 
                         if (onCompressedIslandReceived)
                         {
@@ -239,6 +239,54 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
                     std::cerr << "Incomplete island data packet. Expected: "
                               << header.compressedSize << ", Available: " << availableDataSize
                               << std::endl;
+                }
+            }
+            break;
+        }
+
+        case NetworkMessageType::COMPRESSED_CHUNK_DATA:
+        {
+            if (packet->dataLength >= sizeof(CompressedChunkHeader))
+            {
+                CompressedChunkHeader header = *(CompressedChunkHeader*) packet->data;
+
+                std::cout << "Received chunk (" << header.chunkCoord.x << "," << header.chunkCoord.y 
+                          << "," << header.chunkCoord.z << ") for island " << header.islandID << std::endl;
+
+                // The compressed data starts after the header
+                const uint8_t* compressedData =
+                    reinterpret_cast<const uint8_t*>(packet->data) + sizeof(CompressedChunkHeader);
+                size_t availableDataSize =
+                    static_cast<size_t>(packet->dataLength) - sizeof(CompressedChunkHeader);
+
+                if (availableDataSize >= static_cast<size_t>(header.compressedSize))
+                {
+                    // Decompress the voxel data using LZ4
+                    std::vector<uint8_t> decompressedData(static_cast<size_t>(header.originalSize));
+
+                    if (VoxelCompression::decompressLZ4(compressedData, header.compressedSize,
+                                                        decompressedData.data(),
+                                                        header.originalSize))
+                    {
+                        std::cout << "LZ4 decompression: " << header.compressedSize << " -> " << header.originalSize << " bytes" << std::endl;
+
+                        if (onCompressedChunkReceived)
+                        {
+                            onCompressedChunkReceived(header.islandID, header.chunkCoord, header.islandPosition,
+                                                      decompressedData.data(), header.originalSize);
+                        }
+                    }
+                    else
+                    {
+                        std::cerr << "Failed to decompress chunk (" << header.chunkCoord.x << "," 
+                                  << header.chunkCoord.y << "," << header.chunkCoord.z 
+                                  << ") for island " << header.islandID << std::endl;
+                    }
+                }
+                else
+                {
+                    std::cerr << "Incomplete chunk data packet. Expected: " << header.compressedSize 
+                              << ", Available: " << availableDataSize << std::endl;
                 }
             }
             break;

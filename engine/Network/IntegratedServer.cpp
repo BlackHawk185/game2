@@ -229,6 +229,53 @@ void IntegratedServer::sendCompressedIslandToClient(ENetPeer* client, uint32_t i
     sendToClient(client, combinedPacket.data(), combinedPacket.size());
 }
 
+// NEW: Send individual chunk with coordinates for multi-chunk islands
+void IntegratedServer::sendCompressedChunkToClient(ENetPeer* client, uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t voxelDataSize)
+{
+    if (!client || !voxelData || voxelDataSize == 0)
+    {
+        std::cerr << "Invalid parameters for compressed chunk transmission" << std::endl;
+        return;
+    }
+
+    // Compress the voxel data using LZ4
+    std::vector<uint8_t> compressedData;
+    uint32_t compressedSize = VoxelCompression::compressLZ4(voxelData, voxelDataSize, compressedData);
+
+    if (compressedSize == 0 || compressedData.empty())
+    {
+        std::cerr << "Failed to compress chunk data for island " << islandID 
+                  << " chunk (" << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z << ")" << std::endl;
+        return;
+    }
+
+    std::cout << "LZ4 compression: " << voxelDataSize << " -> " << compressedSize << " bytes (" 
+              << (100.0f * compressedSize / voxelDataSize) << "%)" << std::endl;
+    std::cout << "Compressed chunk (" << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
+              << ") for island " << islandID << ": " << voxelDataSize << " -> " << compressedSize 
+              << " bytes (" << (100.0f * compressedSize / voxelDataSize) << "% ratio)" << std::endl;
+
+    // Create header
+    CompressedChunkHeader header;
+    header.islandID = islandID;
+    header.chunkCoord = chunkCoord;
+    header.islandPosition = islandPosition;
+    header.originalSize = voxelDataSize;
+    header.compressedSize = compressedSize;
+
+    // Create combined packet: header + compressed data
+    std::vector<uint8_t> combinedPacket(sizeof(header) + compressedSize);
+
+    // Copy header to the beginning
+    std::memcpy(combinedPacket.data(), &header, sizeof(header));
+
+    // Copy compressed data after header
+    std::memcpy(combinedPacket.data() + sizeof(header), compressedData.data(), compressedSize);
+
+    // Send as single packet
+    sendToClient(client, combinedPacket.data(), combinedPacket.size());
+}
+
 void IntegratedServer::sendToClient(ENetPeer* client, const void* data, size_t size)
 {
     ENetPacket* packet = enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE);

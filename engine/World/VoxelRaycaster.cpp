@@ -390,9 +390,13 @@ uint32_t VoxelRaycaster::findIslandIDForChunk(IslandChunkSystem* islandSystem, V
     const auto& islands = islandSystem->getIslands();
     for (const auto& [islandID, island] : islands)
     {
-        if (island.mainChunk.get() == chunk)
+        // Check all chunks in this island
+        for (const auto& [chunkCoord, islandChunk] : island.chunks)
         {
-            return islandID;
+            if (islandChunk.get() == chunk)
+            {
+                return islandID;
+            }
         }
     }
 

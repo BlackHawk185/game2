@@ -56,6 +56,24 @@ struct Vec3
         return *this;
     }
 
+    // Comparison operators for use in std::map
+    bool operator<(const Vec3& other) const
+    {
+        if (x != other.x) return x < other.x;
+        if (y != other.y) return y < other.y;
+        return z < other.z;
+    }
+    
+    bool operator==(const Vec3& other) const
+    {
+        return x == other.x && y == other.y && z == other.z;
+    }
+    
+    bool operator!=(const Vec3& other) const
+    {
+        return !(*this == other);
+    }
+
     // Vector operations
     float dot(const Vec3& other) const
     {

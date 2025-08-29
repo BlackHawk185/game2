@@ -34,6 +34,10 @@ GameClient::GameClient()
                                                     const uint8_t* voxelData, uint32_t dataSize)
         { this->handleCompressedIslandReceived(islandID, position, voxelData, dataSize); };
 
+        client->onCompressedChunkReceived = [this](uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition,
+                                                   const uint8_t* voxelData, uint32_t dataSize)
+        { this->handleCompressedChunkReceived(islandID, chunkCoord, islandPosition, voxelData, dataSize); };
+
         client->onVoxelChangeReceived = [this](const VoxelChangeUpdate& update)
         { this->handleVoxelChangeReceived(update); };
 
@@ -715,26 +719,24 @@ void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& p
     FloatingIsland* island = islandSystem->getIsland(localIslandID);
     if (island)
     {
-        // Removed verbose debug output
-
         // Create the main chunk if it doesn't exist (client islands don't auto-generate chunks)
-        if (!island->mainChunk)
+        // For backward compatibility, use the origin chunk (0,0,0)
+        Vec3 originChunk(0, 0, 0);
+        if (island->chunks.find(originChunk) == island->chunks.end())
         {
-            // Removed verbose debug output
-            island->mainChunk = std::make_unique<VoxelChunk>();
+            islandSystem->addChunkToIsland(localIslandID, originChunk);
         }
 
-        if (island->mainChunk)
+        VoxelChunk* chunk = islandSystem->getChunkFromIsland(localIslandID, originChunk);
+        if (chunk)
         {
-            // Removed verbose debug output
-
             // Apply the voxel data directly - this replaces any procedural generation
-            island->mainChunk->setRawVoxelData(voxelData, dataSize);
-            island->mainChunk->generateMesh();        // Regenerate the mesh with the new data
-            island->mainChunk->buildCollisionMesh();  // Build collision faces from vertices
+            chunk->setRawVoxelData(voxelData, dataSize);
+            chunk->generateMesh();        // Regenerate the mesh with the new data
+            chunk->buildCollisionMesh();  // Build collision faces from vertices
 
             std::cout << "[CLIENT] Received and built collision mesh for island " << islandID
-                      << " (" << island->mainChunk->getCollisionMesh().faces.size() << " faces)"
+                      << " (" << chunk->getCollisionMesh().faces.size() << " faces)"
                       << std::endl;
         }
         else
@@ -745,6 +747,65 @@ void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& p
     else
     {
         std::cerr << "Failed to retrieve island with local ID: " << localIslandID << std::endl;
+    }
+}
+
+void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t dataSize)
+{
+    if (!m_gameState)
+    {
+        std::cerr << "Cannot handle chunk data: No game state initialized" << std::endl;
+        return;
+    }
+
+    std::cout << "[CLIENT] Received chunk (" << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
+              << ") for island " << islandID << " at position (" << islandPosition.x << "," 
+              << islandPosition.y << "," << islandPosition.z << ")" << std::endl;
+
+    auto* islandSystem = m_gameState->getIslandSystem();
+    if (!islandSystem)
+    {
+        std::cerr << "No island system available" << std::endl;
+        return;
+    }
+
+    // Create or get the island 
+    FloatingIsland* island = islandSystem->getIsland(islandID);
+    if (!island)
+    {
+        // Create the island if it doesn't exist
+        uint32_t localIslandID = islandSystem->createIsland(islandPosition);
+        island = islandSystem->getIsland(localIslandID);
+        
+        if (!island)
+        {
+            std::cerr << "Failed to create island " << islandID << std::endl;
+            return;
+        }
+    }
+
+    // Add chunk to island if it doesn't exist
+    VoxelChunk* chunk = islandSystem->getChunkFromIsland(islandID, chunkCoord);
+    if (!chunk)
+    {
+        islandSystem->addChunkToIsland(islandID, chunkCoord);
+        chunk = islandSystem->getChunkFromIsland(islandID, chunkCoord);
+    }
+
+    if (chunk)
+    {
+        // Apply the voxel data directly
+        chunk->setRawVoxelData(voxelData, dataSize);
+        chunk->generateMesh();        // Regenerate the mesh with the new data
+        chunk->buildCollisionMesh();  // Build collision faces from vertices
+
+        std::cout << "[CLIENT] Built chunk (" << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
+                  << ") with " << chunk->getCollisionMesh().faces.size() << " collision faces" << std::endl;
+    }
+    else
+    {
+        std::cerr << "Failed to create chunk " << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
+                  << " for island " << islandID << std::endl;
     }
 }
 
