@@ -268,9 +268,6 @@ typedef void (APIENTRY *PFNGLUNIFORM1FPROC)(GLint location, GLfloat v0);
 typedef void (APIENTRY *PFNGLUNIFORM3FPROC)(GLint location, GLfloat v0, GLfloat v1, GLfloat v2);
 typedef void (APIENTRY *PFNGLUNIFORMMATRIX4FVPROC)(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
 
-typedef void (APIENTRY *PFNGLDRAWARRAYSPROC)(GLenum mode, GLint first, GLsizei count);
-typedef void (APIENTRY *PFNGLDRAWELEMENTSPROC)(GLenum mode, GLsizei count, GLenum type, const void *indices);
-
 /* Function declarations */
 GLAPI void APIENTRY glClear(GLbitfield mask);
 GLAPI void APIENTRY glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
@@ -319,10 +316,6 @@ GLAPI GLint APIENTRY glGetUniformLocation(GLuint program, const GLchar *name);
 GLAPI void APIENTRY glUniform1f(GLint location, GLfloat v0);
 GLAPI void APIENTRY glUniform3f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2);
 GLAPI void APIENTRY glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
-
-/* Drawing functions */
-GLAPI void APIENTRY glDrawArrays(GLenum mode, GLint first, GLsizei count);
-GLAPI void APIENTRY glDrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices);
 
 /* Initialization function */
 int gladLoadGL(void);

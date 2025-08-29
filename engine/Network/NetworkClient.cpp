@@ -220,8 +220,6 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
                                                         decompressedData.data(),
                                                         header.originalSize))
                     {
-                        std::cout << "LZ4 decompression: " << header.compressedSize << " -> " << header.originalSize << " bytes" << std::endl;
-
                         if (onCompressedIslandReceived)
                         {
                             onCompressedIslandReceived(header.islandID, header.position,
@@ -265,8 +263,6 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
                                                         decompressedData.data(),
                                                         header.originalSize))
                     {
-                        std::cout << "LZ4 decompression: " << header.compressedSize << " -> " << header.originalSize << " bytes" << std::endl;
-
                         if (onCompressedChunkReceived)
                         {
                             onCompressedChunkReceived(header.islandID, header.chunkCoord, header.islandPosition,

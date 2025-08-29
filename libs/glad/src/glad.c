@@ -42,9 +42,6 @@ PFNGLUNIFORM1FPROC glad_glUniform1f = NULL;
 PFNGLUNIFORM3FPROC glad_glUniform3f = NULL;
 PFNGLUNIFORMMATRIX4FVPROC glad_glUniformMatrix4fv = NULL;
 
-PFNGLDRAWARRAYSPROC glad_glDrawArrays = NULL;
-PFNGLDRAWELEMENTSPROC glad_glDrawElements = NULL;
-
 /* Function pointer types */
 
 static void* get_proc(const char* namez) {
@@ -98,10 +95,6 @@ int gladLoadGL(void) {
     glad_glUniform1f = (PFNGLUNIFORM1FPROC)get_proc("glUniform1f");
     glad_glUniform3f = (PFNGLUNIFORM3FPROC)get_proc("glUniform3f");
     glad_glUniformMatrix4fv = (PFNGLUNIFORMMATRIX4FVPROC)get_proc("glUniformMatrix4fv");
-    
-    /* Load drawing functions */
-    glad_glDrawArrays = (PFNGLDRAWARRAYSPROC)get_proc("glDrawArrays");
-    glad_glDrawElements = (PFNGLDRAWELEMENTSPROC)get_proc("glDrawElements");
     
     /* Check if essential functions loaded */
     if (!glad_glGenBuffers || !glad_glBindBuffer || !glad_glBufferData) {
@@ -228,12 +221,4 @@ void glUniform3f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
 
 void glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
     glad_glUniformMatrix4fv(location, count, transpose, value);
-}
-
-void glDrawArrays(GLenum mode, GLint first, GLsizei count) {
-    glad_glDrawArrays(mode, first, count);
-}
-
-void glDrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices) {
-    glad_glDrawElements(mode, count, type, indices);
 }
