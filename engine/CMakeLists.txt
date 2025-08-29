@@ -16,6 +16,8 @@ add_library(engine STATIC
     # Rendering systems
     Rendering/Renderer.cpp
     Rendering/VoxelRenderer.cpp
+    Rendering/VBORenderer.cpp
+    Rendering/ModernRenderer.cpp
     
     # Input systems
     Input/Camera.cpp

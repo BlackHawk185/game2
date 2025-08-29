@@ -142,27 +142,39 @@ void VoxelRenderer::renderVoxelFaces(const VoxelChunk& chunk, int x, int y, int 
         // Render the face (immediate mode for now - will optimize later)
         glBegin(GL_QUADS);
 
-        // Set color based on face direction for visual debugging
+        // Set natural grass-like colors with height variation and subtle noise
+        float heightFactor = (worldPos.y + 50.0f) / 100.0f; // Normalize height for color variation
+        heightFactor = std::max(0.0f, std::min(1.0f, heightFactor)); // Clamp to [0,1]
+        
+        // Simple noise using world position
+        float noise = sinf(worldPos.x * 0.1f) * cosf(worldPos.z * 0.1f) * 0.1f + 
+                      sinf(worldPos.x * 0.3f + worldPos.z * 0.3f) * 0.05f;
+        
+        // Base grass colors
+        float baseR = 0.2f + noise;
+        float baseG = 0.6f + heightFactor * 0.3f + noise;
+        float baseB = 0.1f + noise * 0.5f;
+        
         switch (face)
         {
-            case 0:
-                glColor3f(0.8f, 0.4f, 0.4f);
-                break;  // Left - red
-            case 1:
-                glColor3f(0.4f, 0.8f, 0.4f);
-                break;  // Right - green
-            case 2:
-                glColor3f(0.4f, 0.4f, 0.8f);
-                break;  // Bottom - blue
-            case 3:
-                glColor3f(0.9f, 0.9f, 0.4f);
-                break;  // Top - yellow
-            case 4:
-                glColor3f(0.8f, 0.4f, 0.8f);
-                break;  // Back - magenta
-            case 5:
-                glColor3f(0.4f, 0.8f, 0.8f);
-                break;  // Front - cyan
+            case 0:  // Left - slightly darker
+                glColor3f(baseR * 0.8f, baseG * 0.8f, baseB * 0.8f);
+                break;
+            case 1:  // Right - normal brightness
+                glColor3f(baseR, baseG, baseB);
+                break;
+            case 2:  // Bottom - much darker (soil/rock)
+                glColor3f(0.4f + noise * 0.2f, 0.3f + noise * 0.1f, 0.2f + noise * 0.1f);
+                break;
+            case 3:  // Top - brightest (grass top)
+                glColor3f(baseR * 1.2f, baseG * 1.1f, baseB * 1.3f);
+                break;
+            case 4:  // Back - slightly darker
+                glColor3f(baseR * 0.9f, baseG * 0.9f, baseB * 0.9f);
+                break;
+            case 5:  // Front - normal brightness
+                glColor3f(baseR, baseG, baseB);
+                break;
         }
 
         // Generate face vertices based on direction

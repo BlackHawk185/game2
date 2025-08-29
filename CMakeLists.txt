@@ -35,7 +35,7 @@ target_include_directories(test_lz4 PRIVATE
 
 # Third-party libraries
 add_subdirectory(libs)
- # bgfx and imgui are not CMake projects, so do not use add_subdirectory. Link manually in engine/CMakeLists.txt.
+# Some libraries like imgui are not standard CMake projects, so link manually in engine/CMakeLists.txt.
 # Manual linking: see engine/CMakeLists.txt for instructions.
 
 # Link libraries in engine/CMakeLists.txt as needed
