@@ -36,7 +36,7 @@ struct CollisionMesh
 class VoxelChunk
 {
    public:
-    static constexpr int SIZE = 32;
+    static constexpr int SIZE = 16;  // Changed from 32 to 16 for smaller chunks
     static constexpr int VOLUME = SIZE * SIZE * SIZE;
 
     VoxelChunk();

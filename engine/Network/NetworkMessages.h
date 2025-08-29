@@ -80,7 +80,7 @@ struct PACKED CompressedChunkHeader {
     uint32_t islandID;              // Which island this chunk belongs to
     Vec3 chunkCoord;                // Chunk coordinate within the island (0,0,0), (1,0,0), etc.
     Vec3 islandPosition;            // Island's physics center for positioning
-    uint32_t originalSize;          // Uncompressed voxel data size (should be 32*32*32 = 32768)
+    uint32_t originalSize;          // Uncompressed voxel data size (should be 16*16*16 = 4096)
     uint32_t compressedSize;        // Size of the compressed data that follows
     // Compressed voxel data follows this header (variable length)
 };

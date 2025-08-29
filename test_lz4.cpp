@@ -8,7 +8,7 @@ int main() {
     std::cout << "Testing LZ4 compression integration..." << std::endl;
     
     // Test data similar to voxel chunk
-    const uint32_t CHUNK_SIZE = 32 * 32 * 32;
+    const uint32_t CHUNK_SIZE = 16 * 16 * 16; // Updated to 16x16x16 chunks
     std::vector<uint8_t> originalData(CHUNK_SIZE);
     
     // Fill with pattern similar to voxel data (mostly air with some blocks)

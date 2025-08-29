@@ -376,7 +376,7 @@ uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& isl
     int y = static_cast<int>(localPos.y);
     int z = static_cast<int>(localPos.z);
 
-    // Check bounds (should be 0-31 for 32x32x32 chunks)
+    // Check bounds (should be 0-15 for 16x16x16 chunks)
     if (x < 0 || x >= VoxelChunk::SIZE || y < 0 || y >= VoxelChunk::SIZE || z < 0 || z >= VoxelChunk::SIZE)
         return 0;
 
@@ -411,7 +411,7 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
     int y = static_cast<int>(localPos.y);
     int z = static_cast<int>(localPos.z);
 
-    // Check bounds (should be 0-31 for 32x32x32 chunks)
+    // Check bounds (should be 0-15 for 16x16x16 chunks)
     if (x < 0 || x >= VoxelChunk::SIZE || y < 0 || y >= VoxelChunk::SIZE || z < 0 || z >= VoxelChunk::SIZE)
         return;
 

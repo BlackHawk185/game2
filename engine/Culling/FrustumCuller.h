@@ -32,7 +32,7 @@ public:
     void updateFromCamera(const Camera& camera, float aspect, float fovDegrees = 75.0f);
     
     // Culling tests
-    bool shouldCullChunk(const Vec3& chunkCenter, float chunkRadius = 27.7f) const;
+    bool shouldCullChunk(const Vec3& chunkCenter, float chunkRadius = 13.86f) const;  // Updated for 16x16x16 chunks
     bool shouldCullAABB(const Vec3& center, const Vec3& halfSize) const;
     bool shouldCullSphere(const Vec3& center, float radius) const;
     

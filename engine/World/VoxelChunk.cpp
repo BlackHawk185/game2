@@ -49,7 +49,36 @@ void VoxelChunk::setVoxel(int x, int y, int z, uint8_t type)
 void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
 {
     if (size != VOLUME)
+    {
+        std::cout << "[CHUNK] Size mismatch: Expected " << VOLUME << " bytes (16x16x16), got " << size << " bytes" << std::endl;
+        
+        // TEMPORARY FIX: Handle legacy 32x32x32 chunks by extracting the 16x16x16 corner
+        if (size == 32768) // 32*32*32 = 32768
+        {
+            std::cout << "[CHUNK] Converting 32x32x32 chunk to 16x16x16 by extracting corner" << std::endl;
+            
+            // Extract the first 16x16x16 corner from the 32x32x32 data
+            for (int z = 0; z < SIZE; z++)
+            {
+                for (int y = 0; y < SIZE; y++)
+                {
+                    for (int x = 0; x < SIZE; x++)
+                    {
+                        // Calculate index in 32x32x32 array
+                        int oldIndex = x + y * 32 + z * 32 * 32;
+                        // Calculate index in 16x16x16 array
+                        int newIndex = x + y * SIZE + z * SIZE * SIZE;
+                        voxels[newIndex] = data[oldIndex];
+                    }
+                }
+            }
+            meshDirty = true;
+            collisionMesh.needsUpdate = true;
+            return;
+        }
+        
         return;
+    }
     std::copy(data, data + size, voxels.begin());
     meshDirty = true;
     collisionMesh.needsUpdate = true;

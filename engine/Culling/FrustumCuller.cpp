@@ -21,7 +21,7 @@ void Frustum::updateFromCamera(const Camera& camera, float aspect, float fovDegr
 
     // Calculate frustum dimensions at near and far planes
     float nearPlane = 0.1f;
-    float farPlane = 1000.0f;
+    float farPlane = 4000.0f;  // Increased from 1000 to 4000 for better visibility range
 
     float nearHeight = 2.0f * tanf(halfFov) * nearPlane;
     float nearWidth = nearHeight * aspect;
