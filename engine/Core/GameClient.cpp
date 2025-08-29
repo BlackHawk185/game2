@@ -495,8 +495,8 @@ void GameClient::processBlockInteraction(float deltaTime)
 
     // Update raycast timer for performance
     m_inputState.raycastTimer += deltaTime;
-    if (m_inputState.raycastTimer > 0.1f)
-    {  // 10 FPS raycasting
+    if (m_inputState.raycastTimer > 0.05f)
+    {  // 20 FPS raycasting for more responsive block selection
         m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
             m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
         m_inputState.raycastTimer = 0.0f;
@@ -528,7 +528,9 @@ void GameClient::processBlockInteraction(float deltaTime)
             // Clear the cached target block immediately to remove the yellow outline
             m_inputState.cachedTargetBlock = RayHit();
 
-            // Reset raycast timer to prevent immediate re-raycast
+            // **FIXED**: Force immediate raycast to update block selection after breaking
+            m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
+                m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
             m_inputState.raycastTimer = 0.0f;
         }
     }
@@ -564,7 +566,9 @@ void GameClient::processBlockInteraction(float deltaTime)
                 // Clear the cached target block to refresh the selection
                 m_inputState.cachedTargetBlock = RayHit();
 
-                // Reset raycast timer to prevent immediate re-raycast
+                // **FIXED**: Force immediate raycast to update block selection after placing
+                m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
+                    m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
                 m_inputState.raycastTimer = 0.0f;
             }
         }
@@ -822,15 +826,11 @@ void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update)
     // Apply the authoritative voxel change from server
     m_gameState->setVoxel(update.islandID, update.localPos, update.voxelType);
 
-    // Clear cached target block if it was affected by this update
-    if (m_inputState.cachedTargetBlock.hit &&
-        m_inputState.cachedTargetBlock.islandID == update.islandID &&
-        m_inputState.cachedTargetBlock.localBlockPos.x == update.localPos.x &&
-        m_inputState.cachedTargetBlock.localBlockPos.y == update.localPos.y &&
-        m_inputState.cachedTargetBlock.localBlockPos.z == update.localPos.z)
-    {
-        m_inputState.cachedTargetBlock = RayHit();
-    }
+    // **FIXED**: Always force immediate raycast update when server sends voxel changes
+    // This ensures block selection is immediately accurate after server updates
+    m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
+        m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
+    m_inputState.raycastTimer = 0.0f;
 
     // The setVoxel call should automatically trigger mesh regeneration in GameState
 }

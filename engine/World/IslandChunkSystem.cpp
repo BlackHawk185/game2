@@ -262,15 +262,15 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     std::cout << "[ORGANIC] Mesh generation complete!" << std::endl;
 }
 
-uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& worldPosition) const
+uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& islandRelativePosition) const
 {
     const FloatingIsland* island = getIsland(islandID);
     if (!island)
         return 0;
 
-    // Convert world position to chunk coordinate and local position
-    Vec3 chunkCoord = FloatingIsland::worldPosToChunkCoord(worldPosition);
-    Vec3 localPos = FloatingIsland::worldPosToLocalPos(worldPosition);
+    // Convert island-relative position to chunk coordinate and local voxel position
+    Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(islandRelativePosition);
+    Vec3 localPos = FloatingIsland::islandPosToLocalPos(islandRelativePosition);
 
     // Find the chunk
     auto it = island->chunks.find(chunkCoord);
@@ -293,15 +293,15 @@ uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& wor
     return chunk->getVoxel(x, y, z);
 }
 
-void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& worldPosition, uint8_t voxelType)
+void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRelativePosition, uint8_t voxelType)
 {
     FloatingIsland* island = getIsland(islandID);
     if (!island)
         return;
 
-    // Convert world position to chunk coordinate and local position
-    Vec3 chunkCoord = FloatingIsland::worldPosToChunkCoord(worldPosition);
-    Vec3 localPos = FloatingIsland::worldPosToLocalPos(worldPosition);
+    // Convert island-relative position to chunk coordinate and local position
+    Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(islandRelativePosition);
+    Vec3 localPos = FloatingIsland::islandPosToLocalPos(islandRelativePosition);
 
     // Find or create the chunk
     auto it = island->chunks.find(chunkCoord);

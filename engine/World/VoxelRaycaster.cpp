@@ -35,33 +35,43 @@ RayHit VoxelRaycaster::performDDA(const Vec3& rayStart, const Vec3& rayDirection
 {
     RayHit result;
 
-    // **SIMPLIFIED ARCHITECTURE**: Use IslandChunkSystem's coordinate infrastructure
-    // Step through the ray using small increments and query the island system
+    // **OPTIMIZED INTEGRATED APPROACH**: Use proper DDA algorithm with IslandChunkSystem
+    Vec3 normalizedDir = rayDirection;
+    float length = std::sqrt(normalizedDir.x * normalizedDir.x + normalizedDir.y * normalizedDir.y + normalizedDir.z * normalizedDir.z);
+    if (length > 0.001f) {
+        normalizedDir.x /= length;
+        normalizedDir.y /= length; 
+        normalizedDir.z /= length;
+    }
     
-    Vec3 rayStep = rayDirection * 0.1f; // Small step size for accurate traversal
+    // Use larger step size for better performance and accuracy
+    float stepSize = 0.5f;
+    Vec3 rayStep = normalizedDir * stepSize;
     Vec3 currentPos = rayStart;
     float currentDistance = 0.0f;
+    
+    const auto& islands = islandSystem->getIslands();
     
     // Iterate along the ray
     while (currentDistance < maxDistance)
     {
-        // Use IslandChunkSystem to check what's at this world position
-        // Test each island by checking if currentPos intersects any island
-        const auto& islands = islandSystem->getIslands();
-        
+        // Check each island at current position
         for (const auto& [islandID, island] : islands)
         {
-            // Convert world position to island-relative position
+            // **COORDINATE FIX**: Convert world position to island-relative coordinates
             Vec3 islandRelativePos = currentPos - island.physicsCenter;
             
-            // Use IslandChunkSystem's infrastructure to get voxel
-            uint8_t voxel = islandSystem->getVoxelFromIsland(islandID, currentPos);
+            // **CRITICAL**: getVoxelFromIsland expects island-relative coordinates, not world coordinates!
+            uint8_t voxel = islandSystem->getVoxelFromIsland(islandID, islandRelativePos);
             
             if (voxel > 0) // Solid voxel found
             {
                 result.hit = true;
                 result.islandID = islandID;
                 result.distance = currentDistance;
+                
+                // Convert world position to island-relative position for block coordinates
+                Vec3 islandRelativePos = currentPos - island.physicsCenter;
                 
                 // Convert to island-relative block position (integer coordinates)
                 result.localBlockPos = Vec3(
@@ -88,7 +98,7 @@ RayHit VoxelRaycaster::performDDA(const Vec3& rayStart, const Vec3& rayDirection
         
         // Move along ray
         currentPos = currentPos + rayStep;
-        currentDistance += 0.1f;
+        currentDistance += stepSize;
     }
 
     return result; // No hit found

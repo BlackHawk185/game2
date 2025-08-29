@@ -20,21 +20,21 @@ struct FloatingIsland
     uint32_t islandID;                                               // Unique island identifier
     bool needsPhysicsUpdate = false;
 
-    // Helper functions for chunk coordinate conversion
-    static Vec3 worldPosToChunkCoord(const Vec3& worldPos) {
+    // Helper functions for chunk coordinate conversion (operates on island-relative coordinates)
+    static Vec3 islandPosToChunkCoord(const Vec3& islandRelativePos) {
         return Vec3(
-            static_cast<int>(std::floor(worldPos.x / VoxelChunk::SIZE)),
-            static_cast<int>(std::floor(worldPos.y / VoxelChunk::SIZE)),
-            static_cast<int>(std::floor(worldPos.z / VoxelChunk::SIZE))
+            static_cast<int>(std::floor(islandRelativePos.x / VoxelChunk::SIZE)),
+            static_cast<int>(std::floor(islandRelativePos.y / VoxelChunk::SIZE)),
+            static_cast<int>(std::floor(islandRelativePos.z / VoxelChunk::SIZE))
         );
     }
 
-    static Vec3 worldPosToLocalPos(const Vec3& worldPos) {
-        Vec3 chunkCoord = worldPosToChunkCoord(worldPos);
+    static Vec3 islandPosToLocalPos(const Vec3& islandRelativePos) {
+        Vec3 chunkCoord = islandPosToChunkCoord(islandRelativePos);
         return Vec3(
-            worldPos.x - (chunkCoord.x * VoxelChunk::SIZE),
-            worldPos.y - (chunkCoord.y * VoxelChunk::SIZE),
-            worldPos.z - (chunkCoord.z * VoxelChunk::SIZE)
+            islandRelativePos.x - (chunkCoord.x * VoxelChunk::SIZE),
+            islandRelativePos.y - (chunkCoord.y * VoxelChunk::SIZE),
+            islandRelativePos.z - (chunkCoord.z * VoxelChunk::SIZE)
         );
     }
 
@@ -84,8 +84,10 @@ class IslandChunkSystem
 
     // **ISLAND-CENTRIC VOXEL ACCESS** (Only way to access voxels)
     // Uses world coordinates - automatically converts to chunk + local coordinates
-    uint8_t getVoxelFromIsland(uint32_t islandID, const Vec3& worldPosition) const;
-    void setVoxelInIsland(uint32_t islandID, const Vec3& worldPosition, uint8_t voxelType);
+    // Get a specific voxel from an island using island-relative coordinates (for raycasting and collision detection)
+    uint8_t getVoxelFromIsland(uint32_t islandID, const Vec3& islandRelativePosition) const;
+    // Set a specific voxel in an island using island-relative coordinates (for block placement and breaking)
+    void setVoxelInIsland(uint32_t islandID, const Vec3& islandRelativePosition, uint8_t voxelType);
     
     // **DYNAMIC VOXEL PLACEMENT** (Creates chunks as needed)
     // Uses island-relative coordinates - automatically creates chunks on grid-aligned boundaries
