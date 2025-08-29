@@ -94,5 +94,6 @@ target_link_libraries(engine PUBLIC
     enet
     lz4
     stb
+    glad
     OpenGL::GL
 )

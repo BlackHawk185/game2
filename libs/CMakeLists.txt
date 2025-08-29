@@ -35,4 +35,13 @@ add_library(stb STATIC
 # Set up STB target properties
 target_include_directories(stb PUBLIC stb)
 
+# GLAD OpenGL loader
+add_library(glad STATIC
+    glad/src/glad.c
+)
+
+# Set up GLAD target properties
+target_include_directories(glad PUBLIC glad/include)
+target_link_libraries(glad PUBLIC glfw)
+
 # This target will be linked by the engine
