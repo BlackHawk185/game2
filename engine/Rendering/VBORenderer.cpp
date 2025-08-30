@@ -4,6 +4,11 @@
 #include "../Core/Profiler.h"
 #include <iostream>
 
+// Define missing OpenGL constants that should be in GLAD
+#ifndef GL_TEXTURE0
+#define GL_TEXTURE0 0x84C0
+#endif
+
 // Global instances
 VBORenderer* g_vboRenderer = nullptr;
 
@@ -51,13 +56,13 @@ bool VBORenderer::initialize()
         g_textureManager = new TextureManager();
     }
     
-    // Load grass texture from file (working directory is build/bin)
-    GLuint grassTexture = g_textureManager->loadTexture("C:/Users/steve-17/Desktop/game2/textures/grass.png", false, true);
+    // Load dirt texture from file (working directory is build/bin)
+    GLuint grassTexture = g_textureManager->loadTexture("C:/Users/steve-17/Desktop/game2/textures/dirt.png", false, true);
     if (grassTexture == 0) {
-        std::cout << "ERROR: Could not load grass.png texture!" << std::endl;
+        std::cout << "ERROR: Could not load dirt.png texture!" << std::endl;
         return false;
     } else {
-        std::cout << "Loaded grass texture from file (ID: " << grassTexture << ")" << std::endl;
+        std::cout << "Loaded dirt texture from file (ID: " << grassTexture << ")" << std::endl;
     }
 
     m_initialized = true;
@@ -117,12 +122,12 @@ void VBORenderer::setupVAO(VoxelChunk* chunk)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
     glEnableVertexAttribArray(0);
     
-    // Normal attribute (location 1)
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(3 * sizeof(float)));
+    // Texture coordinate attribute (location 1) - matches shader
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(1);
     
-    // Texture coordinate attribute (location 2)
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(6 * sizeof(float)));
+    // Normal attribute (location 2) - matches shader
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(2);
     
     // Unbind VAO
@@ -206,11 +211,21 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     m_shader.setMatrix4("uModel", modelMatrix);
     m_shader.setMatrix4("uView", m_viewMatrix);
     m_shader.setMatrix4("uProjection", m_projectionMatrix);
-    // Note: texture sampler uniform not needed for basic rendering
     
-    // Bind texture
-    GLuint grassTexture = g_textureManager->getTexture("grass.png");
-    glBindTexture(GL_TEXTURE_2D, grassTexture);
+    // Bind texture (default texture unit 0 is active by default)
+    GLuint grassTexture = g_textureManager->getTexture("dirt.png");
+    if (grassTexture != 0) {
+        glBindTexture(GL_TEXTURE_2D, grassTexture);
+        // Set texture sampler uniform to use texture unit 0
+        m_shader.setInt("uTexture", 0);
+        // Debug: print texture ID occasionally
+        static int debugCounter = 0;
+        if (debugCounter++ % 10000 == 0) {
+            std::cout << "Using texture ID: " << grassTexture << " for dirt.png" << std::endl;
+        }
+    } else {
+        std::cout << "WARNING: dirt.png texture not found in TextureManager!" << std::endl;
+    }
     
     // Bind VAO and render
     glBindVertexArray(mesh.VAO);

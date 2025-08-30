@@ -40,10 +40,19 @@ void main()
 {
     vec4 texColor = texture(uTexture, TexCoord);
     
-    // Simple lighting based on normal
-    float light = max(dot(Normal, vec3(0.0, 1.0, 0.0)), 0.3);
+    // Check if texture is valid (not all black/white)
+    if (texColor.rgb == vec3(0.0, 0.0, 0.0) || texColor.a < 0.1) {
+        // Fallback to bright magenta if texture is missing/invalid
+        texColor = vec4(1.0, 0.0, 1.0, 1.0);
+    }
     
-    FragColor = vec4(texColor.rgb * light, texColor.a);
+    // Very gentle lighting - preserve almost all texture detail
+    float light = max(dot(Normal, vec3(0.0, 1.0, 0.0)), 0.85);
+    
+    // Keep most of the original texture, just add subtle shading
+    vec3 finalColor = texColor.rgb * (0.8 + 0.2 * light);
+    
+    FragColor = vec4(finalColor, texColor.a);
 }
 )";
 
