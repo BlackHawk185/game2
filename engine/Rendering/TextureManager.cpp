@@ -1,4 +1,5 @@
 // TextureManager.cpp - Implementation of texture loading and management
+#include <glad/glad.h>
 #include "TextureManager.h"
 #include "stb_image.h"
 #include <iostream>
@@ -93,7 +94,7 @@ GLuint TextureManager::createTexture(const unsigned char* data, int width, int h
     // Determine format
     GLenum format;
     switch (channels) {
-        case 1: format = GL_LUMINANCE; break;
+        case 1: format = GL_RED; break;
         case 3: format = GL_RGB; break;
         case 4: format = GL_RGBA; break;
         default:

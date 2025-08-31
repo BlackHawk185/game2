@@ -11,9 +11,20 @@ uniform vec3 uLightPos;         // Light position
 uniform vec3 uLightColor;       // Light color
 uniform vec3 uViewPos;          // Camera position
 uniform float uAmbientStrength; // Ambient light strength
+uniform float uExposure;        // Exposure control for tone mapping
 
 // Output color
 out vec4 FragColor;
+
+// ACES tone mapping function - makes colors look cinematic
+vec3 acesToneMapping(vec3 color) {
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0);
+}
 
 void main() {
     // Sample texture
@@ -38,6 +49,15 @@ void main() {
     
     // Combine lighting with texture
     vec3 result = (ambient + diffuse + specular) * texColor.rgb;
+    
+    // Apply exposure control
+    result *= uExposure;
+    
+    // Apply ACES tone mapping for cinematic look
+    result = acesToneMapping(result);
+    
+    // Apply gamma correction (convert from linear to sRGB)
+    result = pow(result, vec3(1.0/2.2));
     
     // Output final color
     FragColor = vec4(result, texColor.a);

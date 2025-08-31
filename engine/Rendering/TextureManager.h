@@ -1,11 +1,11 @@
 // TextureManager.h - Handles loading and managing textures
 #pragma once
 
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <GL/gl.h>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
+
+using GLuint = unsigned int;
 
 class TextureManager
 {

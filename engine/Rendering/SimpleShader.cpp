@@ -161,9 +161,7 @@ void SimpleShader::setInt(const std::string& name, int value)
 {
     GLint location = getUniformLocation(name);
     if (location != -1) {
-        // Some minimal GL headers in this project do not expose glUniform1i.
-        // Using glUniform1f here has worked in practice for sampler uniforms.
-        glUniform1f(location, static_cast<float>(value));
+        glUniform1i(location, value);
     }
 }
 

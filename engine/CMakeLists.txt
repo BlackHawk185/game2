@@ -21,7 +21,10 @@ add_library(engine STATIC
     Rendering/ModernRenderer.cpp
     Rendering/TextureManager.cpp
     Rendering/ShaderManager.cpp
-    Rendering/SimpleShader.cpp  # Simple shader for basic rendering
+    Rendering/SimpleShader.cpp  # Simple shader (legacy)
+    Rendering/LitShader.cpp     # Blinn-Phong lit shader with gamma
+    Rendering/ShadowPass.cpp    # Shadow pass
+    Rendering/SSAO.cpp          # SSAO post-process
     
     # Input systems
     Input/Camera.cpp

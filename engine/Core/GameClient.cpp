@@ -1,4 +1,4 @@
-// GameClient.cpp - Client-side rendering and input implementation
+﻿// GameClient.cpp - Client-side rendering and input implementation
 #include "GameClient.h"
 
 #include <GL/gl.h>
@@ -15,6 +15,7 @@
 #include "../Network/NetworkMessages.h"
 #include "../Rendering/Renderer.h"
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED
+#include "../Rendering/ShadowPass.h"
 #include "../Time/TimeEffects.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data
 
@@ -237,6 +238,14 @@ void GameClient::shutdown()
 
     glfwTerminate();
 
+    // Cleanup shadow pass
+    if (g_shadowPass)
+    {
+        g_shadowPass->shutdown();
+        delete g_shadowPass;
+        g_shadowPass = nullptr;
+    }
+
     m_initialized = false;
     // Removed verbose debug output
 }
@@ -285,6 +294,7 @@ void GameClient::render()
         // Create modern projection matrix
         Mat4 projectionMatrix = Mat4::perspective(fov, aspect, nearPlane, farPlane);
         Mat4 viewMatrix = m_camera.getViewMatrix();
+        if (g_vboRenderer) { g_vboRenderer->setCameraPosition(m_camera.position); }
         
         // Set matrices for VBO renderer (modern OpenGL)
         if (g_vboRenderer) {
@@ -310,6 +320,23 @@ void GameClient::render()
 
         // Update frustum culling
         m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);
+
+        // Shadow pass scaffold: compute light matrices and prepare depth map region
+        if (g_shadowPass)
+        {
+            Vec3 sunDir(0.5f, -0.8f, 0.3f);
+            float extent = 64.0f;     // shadow coverage around camera
+            float nearL = 1.0f;
+            float farL = 256.0f;
+            g_shadowPass->computeLightMatrices(sunDir, m_camera.position, extent, nearL, farL);
+
+            if (m_gameState && m_gameState->getIslandSystem())
+            {
+                std::vector<std::pair<VoxelChunk*, Vec3>> chunkPairs;
+                m_gameState->getIslandSystem()->getAllChunksWithPositions(chunkPairs);
+                g_shadowPass->renderDepth(chunkPairs);
+            }
+        }
     }
 
     // Render world (only if we have local game state)
@@ -382,6 +409,13 @@ bool GameClient::initializeGraphics()
         return false;
     }
     std::cout << "VBO renderer initialized successfully" << std::endl;
+
+    // Initialize shadow pass scaffold
+    if (!g_shadowPass)
+    {
+        g_shadowPass = new ShadowPass();
+        g_shadowPass->initialize(1024);
+    }
 
     // Initialize ImGui
     IMGUI_CHECKVERSION();
@@ -724,7 +758,7 @@ void GameClient::renderWaitingScreen()
     // TODO: Replace with proper ImGui or text rendering system
     glColor3f(1.0f, 1.0f, 1.0f);
     // For now, just clear to a different color to show we're in remote mode
-    glClearColor(0.1f, 0.1f, 0.3f, 1.0f);  // Dark blue background
+    glClearColor(0.85f, 0.92f, 1.0f, 1.0f);  // Ultra light blue background (waiting screen)
 }
 
 void GameClient::renderUI()

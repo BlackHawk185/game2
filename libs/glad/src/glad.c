@@ -41,6 +41,13 @@ PFNGLGETUNIFORMLOCATIONPROC glad_glGetUniformLocation = NULL;
 PFNGLUNIFORM1FPROC glad_glUniform1f = NULL;
 PFNGLUNIFORM3FPROC glad_glUniform3f = NULL;
 PFNGLUNIFORMMATRIX4FVPROC glad_glUniformMatrix4fv = NULL;
+PFNGLUNIFORM1IPROC glad_glUniform1i = NULL;
+PFNGLACTIVETEXTUREPROC glad_glActiveTexture = NULL;
+PFNGLGENFRAMEBUFFERSPROC glad_glGenFramebuffers = NULL;
+PFNGLDELETEFRAMEBUFFERSPROC glad_glDeleteFramebuffers = NULL;
+PFNGLBINDFRAMEBUFFERPROC glad_glBindFramebuffer = NULL;
+PFNGLFRAMEBUFFERTEXTURE2DPROC glad_glFramebufferTexture2D = NULL;
+PFNGLCHECKFRAMEBUFFERSTATUSPROC glad_glCheckFramebufferStatus = NULL;
 
 /* Function pointer types */
 
@@ -95,6 +102,13 @@ int gladLoadGL(void) {
     glad_glUniform1f = (PFNGLUNIFORM1FPROC)get_proc("glUniform1f");
     glad_glUniform3f = (PFNGLUNIFORM3FPROC)get_proc("glUniform3f");
     glad_glUniformMatrix4fv = (PFNGLUNIFORMMATRIX4FVPROC)get_proc("glUniformMatrix4fv");
+    glad_glUniform1i = (PFNGLUNIFORM1IPROC)get_proc("glUniform1i");
+    glad_glActiveTexture = (PFNGLACTIVETEXTUREPROC)get_proc("glActiveTexture");
+    glad_glGenFramebuffers = (PFNGLGENFRAMEBUFFERSPROC)get_proc("glGenFramebuffers");
+    glad_glDeleteFramebuffers = (PFNGLDELETEFRAMEBUFFERSPROC)get_proc("glDeleteFramebuffers");
+    glad_glBindFramebuffer = (PFNGLBINDFRAMEBUFFERPROC)get_proc("glBindFramebuffer");
+    glad_glFramebufferTexture2D = (PFNGLFRAMEBUFFERTEXTURE2DPROC)get_proc("glFramebufferTexture2D");
+    glad_glCheckFramebufferStatus = (PFNGLCHECKFRAMEBUFFERSTATUSPROC)get_proc("glCheckFramebufferStatus");
     
     /* Check if essential functions loaded */
     if (!glad_glGenBuffers || !glad_glBindBuffer || !glad_glBufferData) {
@@ -221,4 +235,33 @@ void glUniform3f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
 
 void glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
     glad_glUniformMatrix4fv(location, count, transpose, value);
+}
+
+void glUniform1i(GLint location, GLint v0) {
+    if (glad_glUniform1i) glad_glUniform1i(location, v0);
+}
+
+void glActiveTexture(GLenum texture) {
+    if (glad_glActiveTexture) glad_glActiveTexture(texture);
+}
+
+void glGenFramebuffers(GLsizei n, GLuint *framebuffers) {
+    if (glad_glGenFramebuffers) glad_glGenFramebuffers(n, framebuffers);
+}
+
+void glDeleteFramebuffers(GLsizei n, const GLuint *framebuffers) {
+    if (glad_glDeleteFramebuffers) glad_glDeleteFramebuffers(n, framebuffers);
+}
+
+void glBindFramebuffer(GLenum target, GLuint framebuffer) {
+    if (glad_glBindFramebuffer) glad_glBindFramebuffer(target, framebuffer);
+}
+
+void glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) {
+    if (glad_glFramebufferTexture2D) glad_glFramebufferTexture2D(target, attachment, textarget, texture, level);
+}
+
+GLenum glCheckFramebufferStatus(GLenum target) {
+    if (glad_glCheckFramebufferStatus) return glad_glCheckFramebufferStatus(target);
+    return 0;
 }

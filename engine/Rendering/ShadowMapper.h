@@ -1,8 +1,8 @@
 #pragma once
 
-#include <glad/glad.h>
 #include "../Math/Mat4.h"
 #include "../Math/Vec3.h"
+using GLuint = unsigned int;
 
 class ShadowMapper {
 public:

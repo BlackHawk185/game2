@@ -465,6 +465,20 @@ void IslandChunkSystem::getVisibleChunks(const Vec3& viewPosition,
     getAllChunks(outChunks);
 }
 
+void IslandChunkSystem::getAllChunksWithPositions(std::vector<std::pair<VoxelChunk*, Vec3>>& out)
+{
+    out.clear();
+    for (auto& [id, island] : m_islands)
+    {
+        for (auto& [chunkCoord, chunk] : island.chunks)
+        {
+            if (!chunk) continue;
+            Vec3 chunkWorldPos = island.physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+            out.emplace_back(chunk.get(), chunkWorldPos);
+        }
+    }
+}
+
 void IslandChunkSystem::renderAllIslands()
 {
     PROFILE_SCOPE("IslandChunkSystem::renderAllIslands");
@@ -477,6 +491,9 @@ void IslandChunkSystem::renderAllIslands()
     
     // Start batch rendering for all chunks
     g_vboRenderer->beginBatch();
+    
+    // Render sky background first (behind everything)
+    g_vboRenderer->renderSkyBackground();
     
     // Render each island at its physics center position
     for (auto& [id, island] : m_islands)

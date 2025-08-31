@@ -44,6 +44,46 @@ typedef char GLchar;
 typedef ptrdiff_t GLintptr;
 typedef ptrdiff_t GLsizeiptr;
 
+#ifndef GL_TEXTURE_2D
+#define GL_TEXTURE_2D                    0x0DE1
+#endif
+#ifndef GL_TEXTURE0
+#define GL_TEXTURE0                      0x84C0
+#endif
+#ifndef GL_TEXTURE_MIN_FILTER
+#define GL_TEXTURE_MIN_FILTER            0x2801
+#endif
+#ifndef GL_TEXTURE_MAG_FILTER
+#define GL_TEXTURE_MAG_FILTER            0x2800
+#endif
+#ifndef GL_TEXTURE_WRAP_S
+#define GL_TEXTURE_WRAP_S                0x2802
+#endif
+#ifndef GL_TEXTURE_WRAP_T
+#define GL_TEXTURE_WRAP_T                0x2803
+#endif
+#ifndef GL_DEPTH_COMPONENT
+#define GL_DEPTH_COMPONENT               0x1902
+#endif
+#ifndef GL_DEPTH_COMPONENT24
+#define GL_DEPTH_COMPONENT24             0x81A6
+#endif
+#ifndef GL_FRAMEBUFFER
+#define GL_FRAMEBUFFER                   0x8D40
+#endif
+#ifndef GL_FRAMEBUFFER_BINDING
+#define GL_FRAMEBUFFER_BINDING           0x8CA6
+#endif
+#ifndef GL_FRAMEBUFFER_COMPLETE
+#define GL_FRAMEBUFFER_COMPLETE          0x8CD5
+#endif
+#ifndef GL_DEPTH_ATTACHMENT
+#define GL_DEPTH_ATTACHMENT              0x8D00
+#endif
+#ifndef GL_CLAMP
+#define GL_CLAMP                         0x2900
+#endif
+
 #define GL_DEPTH_BUFFER_BIT               0x00000100
 #define GL_STENCIL_BUFFER_BIT             0x00000400
 #define GL_COLOR_BUFFER_BIT               0x00004000
@@ -268,6 +308,15 @@ typedef void (APIENTRY *PFNGLUNIFORM1FPROC)(GLint location, GLfloat v0);
 typedef void (APIENTRY *PFNGLUNIFORM3FPROC)(GLint location, GLfloat v0, GLfloat v1, GLfloat v2);
 typedef void (APIENTRY *PFNGLUNIFORMMATRIX4FVPROC)(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
 
+/* Additional 3.0+ function pointer typedefs */
+typedef void (APIENTRY *PFNGLUNIFORM1IPROC)(GLint location, GLint v0);
+typedef void (APIENTRY *PFNGLACTIVETEXTUREPROC)(GLenum texture);
+typedef void (APIENTRY *PFNGLGENFRAMEBUFFERSPROC)(GLsizei n, GLuint *framebuffers);
+typedef void (APIENTRY *PFNGLDELETEFRAMEBUFFERSPROC)(GLsizei n, const GLuint *framebuffers);
+typedef void (APIENTRY *PFNGLBINDFRAMEBUFFERPROC)(GLenum target, GLuint framebuffer);
+typedef void (APIENTRY *PFNGLFRAMEBUFFERTEXTURE2DPROC)(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+typedef GLenum (APIENTRY *PFNGLCHECKFRAMEBUFFERSTATUSPROC)(GLenum target);
+
 /* Function declarations */
 GLAPI void APIENTRY glClear(GLbitfield mask);
 GLAPI void APIENTRY glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
@@ -275,6 +324,8 @@ GLAPI void APIENTRY glEnable(GLenum cap);
 GLAPI void APIENTRY glDisable(GLenum cap);
 GLAPI void APIENTRY glDepthFunc(GLenum func);
 GLAPI void APIENTRY glViewport(GLint x, GLint y, GLsizei width, GLsizei height);
+GLAPI void APIENTRY glCullFace(GLenum mode);
+GLAPI void APIENTRY glFrontFace(GLenum mode);
 
 /* VBO functions */
 GLAPI void APIENTRY glGenBuffers(GLsizei n, GLuint *buffers);
@@ -316,6 +367,34 @@ GLAPI GLint APIENTRY glGetUniformLocation(GLuint program, const GLchar *name);
 GLAPI void APIENTRY glUniform1f(GLint location, GLfloat v0);
 GLAPI void APIENTRY glUniform3f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2);
 GLAPI void APIENTRY glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
+GLAPI void APIENTRY glUniform1i(GLint location, GLint v0);
+
+/* Texture unit */
+GLAPI void APIENTRY glActiveTexture(GLenum texture);
+
+/* Framebuffer objects */
+GLAPI void APIENTRY glGenFramebuffers(GLsizei n, GLuint *framebuffers);
+GLAPI void APIENTRY glDeleteFramebuffers(GLsizei n, const GLuint *framebuffers);
+GLAPI void APIENTRY glBindFramebuffer(GLenum target, GLuint framebuffer);
+GLAPI void APIENTRY glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+GLAPI GLenum APIENTRY glCheckFramebufferStatus(GLenum target);
+
+/* Draw/read buffer controls */
+GLAPI void APIENTRY glDrawBuffer(GLenum buf);
+GLAPI void APIENTRY glReadBuffer(GLenum src);
+
+/* Fixed-function helpers used by the engine */
+GLAPI void APIENTRY glGenTextures(GLsizei n, GLuint *textures);
+GLAPI void APIENTRY glDeleteTextures(GLsizei n, const GLuint *textures);
+GLAPI void APIENTRY glBindTexture(GLenum target, GLuint texture);
+GLAPI void APIENTRY glTexImage2D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels);
+GLAPI void APIENTRY glTexParameteri(GLenum target, GLenum pname, GLint param);
+GLAPI void APIENTRY glGetIntegerv(GLenum pname, GLint *data);
+GLAPI void APIENTRY glGetBooleanv(GLenum pname, GLboolean *data);
+GLAPI void APIENTRY glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+GLAPI void APIENTRY glDepthMask(GLboolean flag);
+GLAPI void APIENTRY glClearDepth(GLdouble depth);
+GLAPI void APIENTRY glDrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices);
 
 /* Initialization function */
 int gladLoadGL(void);

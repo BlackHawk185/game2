@@ -106,6 +106,8 @@ class IslandChunkSystem
 
     // Rendering interface
     void getAllChunks(std::vector<VoxelChunk*>& outChunks);
+    // Retrieve all chunks with their world positions (island physics center + chunk local)
+    void getAllChunksWithPositions(std::vector<std::pair<VoxelChunk*, Vec3>>& out);
     void getVisibleChunks(const Vec3& viewPosition, std::vector<VoxelChunk*>& outChunks);
     void renderAllIslands();  // Render all islands with proper positioning
 

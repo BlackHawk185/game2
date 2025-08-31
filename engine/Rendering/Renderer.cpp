@@ -16,7 +16,8 @@ bool Renderer::initialize()
 
 void Renderer::clear()
 {
-    glClearColor(0.5f, 0.8f, 1.0f, 1.0f);
+    // Use deep sky color for background (dramatic blue sky)
+    glClearColor(0.1f, 0.3f, 0.9f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
