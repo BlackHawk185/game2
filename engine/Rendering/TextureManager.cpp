@@ -32,6 +32,7 @@ GLuint TextureManager::loadTexture(const std::string& filepath, bool generateMip
     }
     
     // Load image data
+    stbi_set_flip_vertically_on_load(false);
     int width, height, channels;
     unsigned char* data = stbi_load(filepath.c_str(), &width, &height, &channels, 0);
     
@@ -119,11 +120,7 @@ GLuint TextureManager::createTexture(const unsigned char* data, int width, int h
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     
-    // Generate mipmaps if requested
-    if (!pixelArt) {
-        // Note: glGenerateMipmap requires OpenGL 3.0+, fallback for older versions
-        // For now we'll skip mipmaps to keep compatibility
-    }
+    // Mipmaps disabled in this build profile to avoid missing GL loader symbols
     
     glBindTexture(GL_TEXTURE_2D, 0);
     

@@ -4,8 +4,15 @@
 #include <iomanip>
 #include <algorithm>
 
-// Global profiler instance
-Profiler g_profiler;
+// Global profiler instance: provide a never-destroyed singleton to avoid
+// shutdown order issues with STL internals during process teardown.
+static Profiler* GetProfilerSingleton()
+{
+    static Profiler* s_instance = new Profiler();
+    return s_instance;
+}
+
+Profiler& g_profiler = *GetProfilerSingleton();
 
 Profiler::Profiler()
 {
@@ -14,12 +21,11 @@ Profiler::Profiler()
 
 Profiler::~Profiler()
 {
-    // Final report on shutdown
-    if (m_enabled)
-    {
-        std::cout << "\n=== PROFILER FINAL REPORT ===" << std::endl;
-        reportToConsole();
-    }
+    // Disable profiler immediately to prevent any race conditions during shutdown
+    m_enabled = false;
+    
+    // Skip final report during global destruction to avoid iterator issues
+    // The profiler will have already reported during normal operation
 }
 
 void Profiler::recordTime(const std::string& name, double timeMs)
@@ -93,6 +99,10 @@ void Profiler::clearAll()
 
 void Profiler::reportToConsole()
 {
+    // Early exit if profiler is disabled (e.g., during shutdown)
+    if (!m_enabled)
+        return;
+        
     std::lock_guard<std::mutex> lock(m_profileMutex);
     
     if (m_profiles.empty())
@@ -100,12 +110,22 @@ void Profiler::reportToConsole()
 
     // Sort profiles by total time (descending)
     std::vector<std::pair<std::string, ProfileData*>> sortedProfiles;
-    for (auto& pair : m_profiles)
+    
+    // Use try-catch to handle potential iterator issues during shutdown
+    try
     {
-        if (pair.second.sampleCount > 0)
+        for (auto& pair : m_profiles)
         {
-            sortedProfiles.push_back({pair.first, &pair.second});
+            if (pair.second.sampleCount > 0)
+            {
+                sortedProfiles.push_back({pair.first, &pair.second});
+            }
         }
+    }
+    catch (...)
+    {
+        // If we get an iterator exception (e.g., during shutdown), just return
+        return;
     }
     
     std::sort(sortedProfiles.begin(), sortedProfiles.end(),
@@ -169,6 +189,13 @@ void ProfileScope::stop()
 {
     if (!m_active)
         return;
+
+    // Check if profiler is still enabled (avoid recording during shutdown)
+    if (!g_profiler.isEnabled())
+    {
+        m_active = false;
+        return;
+    }
 
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration<double, std::milli>(endTime - m_startTime);

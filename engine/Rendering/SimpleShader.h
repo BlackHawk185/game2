@@ -1,9 +1,12 @@
 #pragma once
 
-#include <glad/glad.h>
 #include <string>
 #include "../Math/Mat4.h"
 #include "../Math/Vec3.h"
+
+// Avoid leaking OpenGL headers in this public header to prevent include order issues.
+// Use a lightweight alias for GLuint and include the actual GL headers in the .cpp.
+using GLuint = unsigned int;
 
 class SimpleShader {
 public:
@@ -28,5 +31,5 @@ private:
     
     bool compileShader(GLuint shader, const char* source);
     bool linkProgram();
-    GLint getUniformLocation(const std::string& name);
+    int getUniformLocation(const std::string& name);
 };

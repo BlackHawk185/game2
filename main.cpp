@@ -28,6 +28,8 @@ void printHelp()
 #include "engine/Threading/JobSystem.h"
 #include "engine/Time/TimeEffects.h"
 #include "engine/Time/TimeManager.h"
+#include "engine/Core/DebugDiagnostics.h"
+#include "engine/Core/Profiler.h"
 
 // Global systems (external declarations - defined in engine library)
 extern JobSystem g_jobSystem;
@@ -43,6 +45,9 @@ enum class RunMode
 
 int main(int argc, char* argv[])
 {
+    // Install debug diagnostics early (only meaningful on MSVC Debug builds)
+    DebugDiagnostics::Install();
+
     // Check for help first (before any initialization)
     for (int i = 1; i < argc; i++)
     {
@@ -255,7 +260,9 @@ int main(int argc, char* argv[])
         }
     }
 
-    // Removed verbose debug output
+    // Disable profiler early in teardown to avoid any late-use
+    g_profiler.setEnabled(false);
+    g_profiler.clearAll();
 
     delete g_timeEffects;
     delete g_timeManager;

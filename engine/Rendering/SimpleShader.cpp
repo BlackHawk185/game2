@@ -1,4 +1,5 @@
 #include "SimpleShader.h"
+#include <glad/glad.h>
 #include <iostream>
 #include <unordered_map>
 
@@ -25,7 +26,7 @@ void main()
 }
 )";
 
-// Simple fragment shader for textured voxels
+// Simple fragment shader for textured voxels with dynamic lighting
 static const char* FRAGMENT_SHADER_SOURCE = R"(
 #version 330 core
 
@@ -33,6 +34,8 @@ in vec2 TexCoord;
 in vec3 Normal;
 
 uniform sampler2D uTexture;
+uniform vec3 uSunDirection;  // Dynamic sun direction from day/night cycle
+uniform float uTimeOfDay;   // 0.0 = midnight, 0.5 = noon, 1.0 = midnight
 
 out vec4 FragColor;
 
@@ -46,11 +49,18 @@ void main()
         texColor = vec4(1.0, 0.0, 1.0, 1.0);
     }
     
-    // Very gentle lighting - preserve almost all texture detail
-    float light = max(dot(Normal, vec3(0.0, 1.0, 0.0)), 0.85);
+    // Calculate directional lighting from sun
+    float sunDot = dot(normalize(Normal), normalize(-uSunDirection));
+    float directionalLight = max(sunDot, 0.0);
     
-    // Keep most of the original texture, just add subtle shading
-    vec3 finalColor = texColor.rgb * (0.8 + 0.2 * light);
+    // Add ambient light that varies with time of day
+    float ambientStrength = mix(0.2, 0.4, sin(uTimeOfDay * 3.14159)); // Varies 0.2-0.4
+    
+    // Combine directional and ambient lighting
+    float totalLight = ambientStrength + (0.6 * directionalLight);
+    
+    // Apply simple shadows: faces not facing the sun are darker
+    vec3 finalColor = texColor.rgb * totalLight;
     
     FragColor = vec4(finalColor, texColor.a);
 }
@@ -151,7 +161,8 @@ void SimpleShader::setInt(const std::string& name, int value)
 {
     GLint location = getUniformLocation(name);
     if (location != -1) {
-        // Use glUniform1f as a workaround for missing glUniform1i
+        // Some minimal GL headers in this project do not expose glUniform1i.
+        // Using glUniform1f here has worked in practice for sampler uniforms.
         glUniform1f(location, static_cast<float>(value));
     }
 }
@@ -191,7 +202,7 @@ bool SimpleShader::linkProgram()
     return true;
 }
 
-GLint SimpleShader::getUniformLocation(const std::string& name)
+int SimpleShader::getUniformLocation(const std::string& name)
 {
     static std::unordered_map<std::string, GLint> locationCache;
     

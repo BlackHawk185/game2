@@ -1,9 +1,7 @@
-// VBORenderer.h - Modern VBO-based renderer for voxel chunks with shader support
-// Modern OpenGL with GLAD loader and VAO management
+// VBORenderer.h - Modern VBO-based renderer with directional shadows
+// Features: VAO/VBO mesh management, shader-based lighting, batch rendering
 #pragma once
 
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
 #include <vector>
 #include <unordered_map>
 

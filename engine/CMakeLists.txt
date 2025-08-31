@@ -5,6 +5,7 @@ add_library(engine STATIC
     Core/GameServer.cpp
     Core/GameClient.cpp
     Core/Profiler.cpp
+    Core/DebugDiagnostics.cpp
     
     # World systems
     World/VoxelChunk.cpp
@@ -16,7 +17,6 @@ add_library(engine STATIC
     
     # Rendering systems
     Rendering/Renderer.cpp
-    Rendering/VoxelRenderer.cpp
     Rendering/VBORenderer.cpp  # RE-ENABLED
     Rendering/ModernRenderer.cpp
     Rendering/TextureManager.cpp

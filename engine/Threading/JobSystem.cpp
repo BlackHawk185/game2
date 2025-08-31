@@ -11,7 +11,20 @@ JobSystem::JobSystem() = default;
 
 JobSystem::~JobSystem()
 {
-    shutdown();
+    // During global destruction, avoid complex cleanup that might
+    // interfere with STL container destruction order
+    try {
+        if (m_initialized.load()) {
+            // Signal shutdown quickly
+            m_shutdown.store(true);
+            m_workCondition.notify_all();
+            
+            // Don't wait for threads during global destruction
+            // The OS will clean them up
+        }
+    } catch (...) {
+        // Ignore any exceptions during global destruction
+    }
 }
 
 bool JobSystem::initialize(uint32_t workerCount)
@@ -47,37 +60,43 @@ void JobSystem::shutdown()
     if (!m_initialized.load())
         return;
 
-    // Signal shutdown and wake all workers
-    m_shutdown.store(true);
-    m_workCondition.notify_all();
+    try {
+        // Signal shutdown and wake all workers
+        m_shutdown.store(true);
+        m_workCondition.notify_all();
 
-    // Wait for all workers to complete
-    for (auto& worker : m_workers)
-    {
-        if (worker.joinable())
+        // Wait for all workers to complete
+        for (auto& worker : m_workers)
         {
-            worker.join();
+            if (worker.joinable())
+            {
+                worker.join();
+            }
         }
-    }
 
-    m_workers.clear();
-    m_initialized.store(false);
+        m_workers.clear();
+        m_initialized.store(false);
 
-    // Clear remaining work
-    {
-        std::lock_guard<std::mutex> lock(m_workMutex);
-        while (!m_workQueue.empty())
+        // Clear remaining work
         {
-            m_workQueue.pop();
+            std::lock_guard<std::mutex> lock(m_workMutex);
+            while (!m_workQueue.empty())
+            {
+                m_workQueue.pop();
+            }
         }
-    }
 
-    {
-        std::lock_guard<std::mutex> lock(m_completedMutex);
-        while (!m_completedQueue.empty())
         {
-            m_completedQueue.pop();
+            std::lock_guard<std::mutex> lock(m_completedMutex);
+            while (!m_completedQueue.empty())
+            {
+                m_completedQueue.pop();
+            }
         }
+    } catch (...) {
+        // During global destruction, STL containers might be in inconsistent state
+        // Just mark as not initialized and let the OS clean up
+        m_initialized.store(false);
     }
 }
 

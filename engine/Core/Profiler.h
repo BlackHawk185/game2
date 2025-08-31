@@ -85,8 +85,8 @@ public:
     void stop();
 };
 
-// Global profiler instance
-extern Profiler g_profiler;
+// Global profiler instance (never destroyed; avoids shutdown-order issues)
+extern Profiler& g_profiler;
 
 // Convenient macros for profiling
 #define PROFILE_SCOPE(name) ProfileScope _prof_scope(name)

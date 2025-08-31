@@ -1,9 +1,7 @@
-// Renderer.cpp - Minimal OpenGL renderer
+// Renderer.cpp - Minimal OpenGL renderer (lightweight facade)
 #include "Renderer.h"
-#define WIN32_LEAN_AND_MEAN
-#include <GL/gl.h>
-#include <windows.h>
 
+#include <glad/glad.h>
 #include <iostream>
 
 unsigned int Renderer::voxelShaderProgram = 0;
@@ -12,8 +10,7 @@ unsigned int Renderer::projMatrixLocation = 0;
 
 bool Renderer::initialize()
 {
-    // Removed verbose debug output
-    glEnable(GL_DEPTH_TEST);
+    // Keep this minimal; low-level GL state is configured by the active renderer
     return true;
 }
 
@@ -23,14 +20,14 @@ void Renderer::clear()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
-void Renderer::setViewMatrix(float* viewMatrix)
+void Renderer::setViewMatrix(float* /*viewMatrix*/)
 {
-    // Simple implementation
+    // No-op in facade; modern path uses VBORenderer matrices
 }
 
-void Renderer::setProjectionMatrix(float* projMatrix)
+void Renderer::setProjectionMatrix(float* /*projMatrix*/)
 {
-    // Simple implementation
+    // No-op in facade; modern path uses VBORenderer matrices
 }
 
 unsigned int Renderer::getVoxelShader()
@@ -40,10 +37,10 @@ unsigned int Renderer::getVoxelShader()
 
 void Renderer::shutdown()
 {
-    std::cout << "Renderer shutdown" << std::endl;
+    // Nothing to do currently
 }
 
-unsigned int Renderer::createShader(const char* vertexSource, const char* fragmentSource)
+unsigned int Renderer::createShader(const char* /*vertexSource*/, const char* /*fragmentSource*/)
 {
     return 0;
 }

@@ -24,7 +24,6 @@
       "type": "shell",
       "command": "./build/bin/MMORPGEngine.exe",
       "group": "test",
-      "dependsOn": "Build",
       "problemMatcher": []
     }
   ]

@@ -1,8 +1,10 @@
 // VBORenderer.cpp - Modern VBO implementation with GLAD (shader support disabled temporarily)
 #include "VBORenderer.h"
+#include <glad/glad.h>
 #include "TextureManager.h"
 #include "../Core/Profiler.h"
 #include <iostream>
+#include <filesystem>
 
 // Define missing OpenGL constants that should be in GLAD
 #ifndef GL_TEXTURE0
@@ -56,13 +58,39 @@ bool VBORenderer::initialize()
         g_textureManager = new TextureManager();
     }
     
-    // Load dirt texture from file (working directory is build/bin)
-    GLuint grassTexture = g_textureManager->loadTexture("C:/Users/steve-17/Desktop/game2/textures/dirt.png", false, true);
+    // Locate and load dirt texture from common project-relative paths
+    auto findTexturePath = [](const std::string& name) -> std::string {
+        const char* candidates[] = {
+            "textures/",            // run from project root
+            "../textures/",         // run from build/bin
+            "../../textures/",      // alternative build layout
+            "../../../textures/"     // deeper nesting
+        };
+        for (const auto& dir : candidates) {
+            std::filesystem::path p = std::filesystem::path(dir) / name;
+            if (std::filesystem::exists(p)) {
+                return p.string();
+            }
+        }
+        // Fallback to original absolute path if present
+        std::filesystem::path fallback("C:/Users/steve-17/Desktop/game2/textures/");
+        fallback /= name;
+        if (std::filesystem::exists(fallback)) {
+            return fallback.string();
+        }
+        return {};
+    };
+
+    std::string dirtPath = findTexturePath("dirt.png");
+    GLuint grassTexture = 0;
+    if (!dirtPath.empty()) {
+        grassTexture = g_textureManager->loadTexture(dirtPath, false, true);
+    }
     if (grassTexture == 0) {
         std::cout << "ERROR: Could not load dirt.png texture!" << std::endl;
         return false;
     } else {
-        std::cout << "Loaded dirt texture from file (ID: " << grassTexture << ")" << std::endl;
+        std::cout << "Loaded dirt texture (ID: " << grassTexture << ") from '" << dirtPath << "'" << std::endl;
     }
 
     m_initialized = true;
@@ -211,6 +239,11 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     m_shader.setMatrix4("uModel", modelMatrix);
     m_shader.setMatrix4("uView", m_viewMatrix);
     m_shader.setMatrix4("uProjection", m_projectionMatrix);
+    
+    // Set fixed directional lighting (Phase 1: Basic shadows working)
+    // Sun direction: slightly from above and to the side for good shadow contrast
+    m_shader.setVector3("uSunDirection", Vec3(0.5f, -0.8f, 0.3f)); 
+    m_shader.setFloat("uTimeOfDay", 0.5f); // Noon lighting
     
     // Bind texture (default texture unit 0 is active by default)
     GLuint grassTexture = g_textureManager->getTexture("dirt.png");
