@@ -98,4 +98,5 @@ target_link_libraries(engine PUBLIC
     stb
     glad
     OpenGL::GL
+    glm::glm
 )

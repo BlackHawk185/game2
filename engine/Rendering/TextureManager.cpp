@@ -1,5 +1,6 @@
 // TextureManager.cpp - Implementation of texture loading and management
 #include "TextureManager.h"
+#include <GL/gl.h>
 #include "stb_image.h"
 #include <iostream>
 #include <filesystem>

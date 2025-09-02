@@ -15,6 +15,8 @@
 #include "../Network/NetworkMessages.h"
 #include "../Rendering/Renderer.h"
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include "../Time/TimeEffects.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data
 
@@ -282,9 +284,9 @@ void GameClient::render()
         float nearPlane = 0.1f;
         float farPlane = 1000.0f;
 
-        // Create modern projection matrix
-        Mat4 projectionMatrix = Mat4::perspective(fov, aspect, nearPlane, farPlane);
-        Mat4 viewMatrix = m_camera.getViewMatrix();
+        // Create modern projection matrix (glm expects radians)
+        glm::mat4 projectionMatrix = glm::perspective(fov * 3.14159265358979323846f / 180.0f, aspect, nearPlane, farPlane);
+        glm::mat4 viewMatrix = m_camera.getViewMatrix();
         
         // Set matrices for VBO renderer (modern OpenGL)
         if (g_vboRenderer) {
@@ -306,7 +308,7 @@ void GameClient::render()
         // Set up view matrix
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
-        glMultMatrixf(viewMatrix.m);
+        glMultMatrixf(glm::value_ptr(viewMatrix));
 
         // Update frustum culling
         m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);

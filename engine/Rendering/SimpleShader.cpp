@@ -1,5 +1,7 @@
 #include "SimpleShader.h"
 #include <glad/glad.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <iostream>
 #include <unordered_map>
 
@@ -133,11 +135,11 @@ void SimpleShader::cleanup()
     }
 }
 
-void SimpleShader::setMatrix4(const std::string& name, const Mat4& matrix)
+void SimpleShader::setMatrix4(const std::string& name, const glm::mat4& matrix)
 {
     GLint location = getUniformLocation(name);
     if (location != -1) {
-        glUniformMatrix4fv(location, 1, GL_FALSE, matrix.data());
+        glUniformMatrix4fv(location, 1, GL_FALSE, glm::value_ptr(matrix));
     }
 }
 

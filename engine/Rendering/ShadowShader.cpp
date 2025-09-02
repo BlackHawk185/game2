@@ -122,17 +122,17 @@ void ShadowShader::use()
     }
 }
 
-void ShadowShader::setLightSpaceMatrix(const Mat4& lightSpaceMatrix)
+void ShadowShader::setLightSpaceMatrix(const glm::mat4& lightSpaceMatrix)
 {
     if (m_initialized && m_lightSpaceMatrixLoc != -1) {
-        glUniformMatrix4fv(m_lightSpaceMatrixLoc, 1, GL_FALSE, lightSpaceMatrix.data());
+        glUniformMatrix4fv(m_lightSpaceMatrixLoc, 1, GL_FALSE, glm::value_ptr(lightSpaceMatrix));
     }
 }
 
-void ShadowShader::setModelMatrix(const Mat4& model)
+void ShadowShader::setModelMatrix(const glm::mat4& model)
 {
     if (m_initialized && m_modelMatrixLoc != -1) {
-        glUniformMatrix4fv(m_modelMatrixLoc, 1, GL_FALSE, model.data());
+        glUniformMatrix4fv(m_modelMatrixLoc, 1, GL_FALSE, glm::value_ptr(model));
     }
 }
 

@@ -1,7 +1,8 @@
 #pragma once
 
 #include <glad/glad.h>
-#include "../Math/Mat4.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 class ShadowShader {
 public:
@@ -12,8 +13,8 @@ public:
     void cleanup();
     void use();
     
-    void setLightSpaceMatrix(const Mat4& lightSpaceMatrix);
-    void setModelMatrix(const Mat4& model);
+    void setLightSpaceMatrix(const glm::mat4& lightSpaceMatrix);
+    void setModelMatrix(const glm::mat4& model);
 
 private:
     GLuint m_program;

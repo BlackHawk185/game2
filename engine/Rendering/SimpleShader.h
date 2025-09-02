@@ -1,7 +1,8 @@
 #pragma once
 
 #include <string>
-#include "../Math/Mat4.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include "../Math/Vec3.h"
 
 // Avoid leaking OpenGL headers in this public header to prevent include order issues.
@@ -17,7 +18,7 @@ public:
     void use();
     void cleanup();
     
-    void setMatrix4(const std::string& name, const Mat4& matrix);
+    void setMatrix4(const std::string& name, const glm::mat4& matrix);
     void setVector3(const std::string& name, const Vec3& vector);
     void setFloat(const std::string& name, float value);
     void setInt(const std::string& name, int value);

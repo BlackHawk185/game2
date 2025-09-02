@@ -105,7 +105,7 @@ void ShadowMapper::beginShadowPass(const Vec3& lightDirection, const Vec3& scene
     float near_plane = 1.0f;
     float far_plane = sceneRadius * 2.0f;
     
-    m_lightProjection = Mat4::ortho(left, right, bottom, top, near_plane, far_plane);
+    m_lightProjection = glm::ortho(left, right, bottom, top, near_plane, far_plane);
     
     // Create view matrix looking from light position towards scene center
     Vec3 lightPos = sceneCenter - (lightDirection * sceneRadius);
@@ -116,7 +116,9 @@ void ShadowMapper::beginShadowPass(const Vec3& lightDirection, const Vec3& scene
         up = Vec3(1.0f, 0.0f, 0.0f);
     }
     
-    m_lightView = Mat4::lookAt(lightPos, sceneCenter, up);
+    m_lightView = glm::lookAt(glm::vec3(lightPos.x, lightPos.y, lightPos.z),
+                              glm::vec3(sceneCenter.x, sceneCenter.y, sceneCenter.z),
+                              glm::vec3(up.x, up.y, up.z));
     m_lightSpaceMatrix = m_lightProjection * m_lightView;
     
     // Bind shadow map framebuffer and set viewport
@@ -161,7 +163,7 @@ void ShadowMapper::beginShadowPass(const Vec3& lightDirection)
     beginShadowPass(lightDirection, Vec3(0, 0, 0), 100.0f);
 }
 
-void ShadowMapper::setModelMatrix(const Mat4& model)
+void ShadowMapper::setModelMatrix(const glm::mat4& model)
 {
     // This would typically set a uniform in the depth shader
     // For now, we'll assume the caller handles model matrix setting

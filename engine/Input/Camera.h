@@ -1,7 +1,9 @@
 // Camera.h - Simple FPS camera for viewing voxel world
 #pragma once
 #include "Math/Vec3.h"
-#include "Math/Mat4.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 class Camera {
 public:
@@ -11,9 +13,9 @@ public:
     void processInput(void* window, float deltaTime); // GLFWwindow* 
     
     void getViewMatrix(float* matrix);
-    Mat4 getViewMatrix();  // New clean version
+    glm::mat4 getViewMatrix();
     void getProjectionMatrix(float* matrix, float aspect);
-    Mat4 getProjectionMatrix(float aspect); // New clean version
+    glm::mat4 getProjectionMatrix(float aspect);
     
     // Position and orientation - now using Vec3!
     Vec3 position{0.0f, 50.0f, 50.0f}; // Start high up and back to see islands

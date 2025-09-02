@@ -116,37 +116,35 @@ void Camera::processInput(void* window, float deltaTime)
 // Old array-based interface for compatibility
 void Camera::getViewMatrix(float* matrix)
 {
-    Mat4 viewMat = getViewMatrix();
-    for (int i = 0; i < 16; i++)
-    {
-        matrix[i] = viewMat.m[i];
-    }
+    glm::mat4 viewMat = getViewMatrix();
+    const float* p = glm::value_ptr(viewMat);
+    for (int i = 0; i < 16; ++i) matrix[i] = p[i];
 }
 
 // New clean Vec3-based view matrix
-Mat4 Camera::getViewMatrix()
+glm::mat4 Camera::getViewMatrix()
 {
     Vec3 center = position + front;
-    return Mat4::lookAt(position, center, up);
+    return glm::lookAt(
+        glm::vec3(position.x, position.y, position.z),
+        glm::vec3(center.x, center.y, center.z),
+        glm::vec3(up.x, up.y, up.z));
 }
 
 // Old array-based interface for compatibility
 // Old array-based interface for compatibility
 void Camera::getProjectionMatrix(float* matrix, float aspect)
 {
-    Mat4 projMat = getProjectionMatrix(aspect);
-    for (int i = 0; i < 16; i++)
-    {
-        matrix[i] = projMat.m[i];
-    }
+    glm::mat4 projMat = getProjectionMatrix(aspect);
+    const float* p = glm::value_ptr(projMat);
+    for (int i = 0; i < 16; ++i) matrix[i] = p[i];
 }
 
 // New clean Vec3-based projection matrix
-Mat4 Camera::getProjectionMatrix(float aspect)
+glm::mat4 Camera::getProjectionMatrix(float aspect)
 {
-    // Use float PI to avoid double->float conversion warnings
-    float fov = 45.0f * PI_F / 180.0f;  // Convert to radians
-    return Mat4::perspective(fov, aspect, 0.1f, 1000.0f);
+    float fov = 45.0f * PI_F / 180.0f;  // radians
+    return glm::perspective(fov, aspect, 0.1f, 1000.0f);
 }
 
 void Camera::update(float deltaTime)

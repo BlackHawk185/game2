@@ -6,6 +6,17 @@
 #include <iostream>
 #include <filesystem>
 
+// Provide missing fixed-function symbols and prototypes when using a minimal GL loader
+#ifndef GL_TEXTURE_2D
+#define GL_TEXTURE_2D 0x0DE1
+#endif
+
+extern "C" {
+    void APIENTRY glCullFace(GLenum mode);
+    void APIENTRY glBindTexture(GLenum target, GLuint texture);
+    void APIENTRY glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
+}
+
 // Define missing OpenGL constants that should be in GLAD
 #ifndef GL_TEXTURE0
 #define GL_TEXTURE0 0x84C0
@@ -16,9 +27,9 @@ VBORenderer* g_vboRenderer = nullptr;
 
 VBORenderer::VBORenderer()
     : m_initialized(false)
-    , m_projectionMatrix(Mat4::identity())
-    , m_viewMatrix(Mat4::identity())
-    , m_modelMatrix(Mat4::identity())
+    , m_projectionMatrix(1.0f)
+    , m_viewMatrix(1.0f)
+    , m_modelMatrix(1.0f)
 {
     std::cout << "VBORenderer constructor" << std::endl;
 }
@@ -112,17 +123,17 @@ void VBORenderer::shutdown()
     m_initialized = false;
 }
 
-void VBORenderer::setProjectionMatrix(const Mat4& projection)
+void VBORenderer::setProjectionMatrix(const glm::mat4& projection)
 {
     m_projectionMatrix = projection;
 }
 
-void VBORenderer::setViewMatrix(const Mat4& view)
+void VBORenderer::setViewMatrix(const glm::mat4& view)
 {
     m_viewMatrix = view;
 }
 
-void VBORenderer::setModelMatrix(const Mat4& model)
+void VBORenderer::setModelMatrix(const glm::mat4& model)
 {
     m_modelMatrix = model;
 }
@@ -233,7 +244,7 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     m_shader.use();
     
     // Create model matrix with world offset
-    Mat4 modelMatrix = Mat4::translate(worldOffset);
+    glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
     
     // Set shader uniforms
     m_shader.setMatrix4("uModel", modelMatrix);

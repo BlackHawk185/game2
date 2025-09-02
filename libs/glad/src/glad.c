@@ -3,8 +3,10 @@
  */
 
 #include <glad/glad.h>
-#include <GLFW/glfw3.h>
 #include <stdio.h>
+
+/* Forward declare glfwGetProcAddress to avoid including GLFW headers which pull in <GL/gl.h> */
+void* glfwGetProcAddress(const char* namez);
 
 /* Function pointers */
 PFNGLGENBUFFERSPROC glad_glGenBuffers = NULL;

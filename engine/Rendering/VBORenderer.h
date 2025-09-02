@@ -7,7 +7,9 @@
 
 #include "../World/VoxelChunk.h"
 #include "../Math/Vec3.h"
-#include "../Math/Mat4.h"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include "SimpleShader.h"
 
 class VBORenderer
@@ -21,9 +23,9 @@ public:
     void shutdown();
 
     // Matrix management for modern OpenGL
-    void setProjectionMatrix(const Mat4& projection);
-    void setViewMatrix(const Mat4& view);
-    void setModelMatrix(const Mat4& model);
+    void setProjectionMatrix(const glm::mat4& projection);
+    void setViewMatrix(const glm::mat4& view);
+    void setModelMatrix(const glm::mat4& model);
 
     // Chunk VBO management with VAO support
     void uploadChunkMesh(VoxelChunk* chunk);
@@ -54,9 +56,9 @@ private:
     SimpleShader m_shader;
     
     // Modern OpenGL state
-    Mat4 m_projectionMatrix;
-    Mat4 m_viewMatrix;
-    Mat4 m_modelMatrix;
+    glm::mat4 m_projectionMatrix;
+    glm::mat4 m_viewMatrix;
+    glm::mat4 m_modelMatrix;
 
     // Helper methods
     void setupVertexAttributes();
