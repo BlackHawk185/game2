@@ -1,5 +1,5 @@
 #include "ShadowMapper.h"
-#include <glad/glad.h>
+#include <glad/gl.h>
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -21,12 +21,6 @@ bool ShadowMapper::initialize(int shadowMapSize)
 {
     if (m_initialized) {
         return true;
-    }
-
-    // Ensure GLAD is loaded (should already be done by VBORenderer)
-    if (!gladLoadGL()) {
-        std::cerr << "GLAD not loaded for shadow mapping!" << std::endl;
-        return false;
     }
 
     m_shadowMapSize = shadowMapSize;

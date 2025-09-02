@@ -100,3 +100,6 @@ target_link_libraries(engine PUBLIC
     OpenGL::GL
     glm::glm
 )
+
+# Ensure GLFW does not include a GL header (glad provides it)
+target_compile_definitions(engine PUBLIC GLFW_INCLUDE_NONE)

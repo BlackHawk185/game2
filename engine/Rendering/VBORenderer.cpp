@@ -1,21 +1,10 @@
 // VBORenderer.cpp - Modern VBO implementation with GLAD (shader support disabled temporarily)
 #include "VBORenderer.h"
-#include <glad/glad.h>
+#include <glad/gl.h>
 #include "TextureManager.h"
 #include "../Core/Profiler.h"
 #include <iostream>
 #include <filesystem>
-
-// Provide missing fixed-function symbols and prototypes when using a minimal GL loader
-#ifndef GL_TEXTURE_2D
-#define GL_TEXTURE_2D 0x0DE1
-#endif
-
-extern "C" {
-    void APIENTRY glCullFace(GLenum mode);
-    void APIENTRY glBindTexture(GLenum target, GLuint texture);
-    void APIENTRY glDrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
-}
 
 // Define missing OpenGL constants that should be in GLAD
 #ifndef GL_TEXTURE0
@@ -46,12 +35,6 @@ bool VBORenderer::initialize()
     }
 
     std::cout << "VBORenderer::initialize - using GLAD loader and simple shader..." << std::endl;
-    
-    // Initialize GLAD
-    if (!gladLoadGL()) {
-        std::cout << "Failed to initialize GLAD" << std::endl;
-        return false;
-    }
     
     // Initialize simple shader
     if (!m_shader.initialize()) {

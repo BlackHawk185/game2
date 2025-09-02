@@ -35,16 +35,18 @@ add_library(stb STATIC
 # Set up STB target properties
 target_include_directories(stb PUBLIC stb)
 
-# GLAD OpenGL loader
-add_library(glad STATIC
-    glad/src/glad.c
-)
-
-# Set up GLAD target properties
-target_include_directories(glad PUBLIC glad/include)
-target_link_libraries(glad PUBLIC glfw)
-
 # This target will be linked by the engine
+
+# glad2: OpenGL 4.6 Core loader
+include(FetchContent)
+FetchContent_Declare(
+    glad2
+    GIT_REPOSITORY https://github.com/Dav1dde/glad.git
+    GIT_TAG v2.0.6
+)
+FetchContent_MakeAvailable(glad2)
+include(${glad2_SOURCE_DIR}/cmake/GladConfig.cmake)
+glad_add_library(glad REPRODUCIBLE LANGUAGE C API gl:core=4.6 EXTENSIONS GL_KHR_debug)
 
 # Header-only GLM (math library)
 include(FetchContent)

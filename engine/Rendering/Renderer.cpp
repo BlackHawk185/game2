@@ -1,7 +1,7 @@
 // Renderer.cpp - Minimal OpenGL renderer (lightweight facade)
 #include "Renderer.h"
 
-#include <glad/glad.h>
+#include <glad/gl.h>
 #include <iostream>
 
 unsigned int Renderer::voxelShaderProgram = 0;

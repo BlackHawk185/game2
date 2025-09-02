@@ -1,6 +1,6 @@
 // TextureManager.cpp - Implementation of texture loading and management
 #include "TextureManager.h"
-#include <GL/gl.h>
+#include <glad/gl.h>
 #include "stb_image.h"
 #include <iostream>
 #include <filesystem>
@@ -91,20 +91,20 @@ GLuint TextureManager::createTexture(const unsigned char* data, int width, int h
     glGenTextures(1, &textureID);
     glBindTexture(GL_TEXTURE_2D, textureID);
     
-    // Determine format
-    GLenum format;
-    switch (channels) {
-        case 1: format = GL_LUMINANCE; break;
-        case 3: format = GL_RGB; break;
-        case 4: format = GL_RGBA; break;
-        default:
-            std::cerr << "Unsupported number of channels: " << channels << std::endl;
-            glDeleteTextures(1, &textureID);
-            return 0;
+    // Determine internal and external formats for core profile
+    GLenum internalFormat = GL_RGBA8;
+    GLenum format = GL_RGBA;
+    if (channels == 1) { internalFormat = GL_R8;   format = GL_RED; }
+    else if (channels == 3) { internalFormat = GL_RGB8; format = GL_RGB; }
+    else if (channels == 4) { internalFormat = GL_RGBA8; format = GL_RGBA; }
+    else {
+        std::cerr << "Unsupported number of channels: " << channels << std::endl;
+        glDeleteTextures(1, &textureID);
+        return 0;
     }
-    
+
     // Upload texture data
-    glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
+    glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, GL_UNSIGNED_BYTE, data);
     
     // Set texture parameters
     if (pixelArt) {

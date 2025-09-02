@@ -1,8 +1,9 @@
 // GameClient.cpp - Client-side rendering and input implementation
 #include "GameClient.h"
 
-#include <GL/gl.h>
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <glad/gl.h>
 #include <imgui.h>
 
 #include <iostream>
@@ -294,22 +295,6 @@ void GameClient::render()
             g_vboRenderer->setViewMatrix(viewMatrix);
         }
         
-        // Legacy OpenGL matrix setup for other rendering code
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-
-        // Manual perspective setup for legacy code
-        float top = nearPlane * tan(fov * 3.14159f / 360.0f);
-        float bottom = -top;
-        float right = top * aspect;
-        float left = -right;
-        glFrustum(left, right, bottom, top, nearPlane, farPlane);
-
-        // Set up view matrix
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
-        glMultMatrixf(glm::value_ptr(viewMatrix));
-
         // Update frustum culling
         m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);
     }
@@ -342,6 +327,12 @@ bool GameClient::initializeWindow()
         return false;
     }
 
+    // Request OpenGL 4.6 Core context
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+
     // Create window
     m_window =
         glfwCreateWindow(m_windowWidth, m_windowHeight, "MMORPG Engine - Client", nullptr, nullptr);
@@ -353,6 +344,15 @@ bool GameClient::initializeWindow()
     }
 
     glfwMakeContextCurrent(m_window);
+
+    // Load OpenGL via glad2
+    if (gladLoadGL(glfwGetProcAddress) == 0)
+    {
+        std::cerr << "Failed to initialize glad (OpenGL 4.6)" << std::endl;
+        glfwDestroyWindow(m_window);
+        glfwTerminate();
+        return false;
+    }
 
     // Set callbacks
     glfwSetWindowUserPointer(m_window, this);
@@ -662,69 +662,14 @@ void GameClient::renderWorld()
         m_gameState->getIslandSystem()->renderAllIslands();
     }
 
-    // Render block highlighter
-    if (m_inputState.cachedTargetBlock.hit)
-    {
-        PROFILE_SCOPE("renderBlockHighlighter");
-        auto* island =
-            m_gameState->getIslandSystem()->getIsland(m_inputState.cachedTargetBlock.islandID);
-        if (island)
-        {
-            Vec3 islandPhysicsPos = island->physicsCenter;
-
-            // Draw wireframe box around targeted block
-            glDisable(GL_DEPTH_TEST);
-            glDisable(GL_LIGHTING);
-            glColor3f(1.0f, 1.0f, 0.0f);  // Yellow highlight
-            glLineWidth(2.0f);
-
-            float x = islandPhysicsPos.x + m_inputState.cachedTargetBlock.localBlockPos.x;
-            float y = islandPhysicsPos.y + m_inputState.cachedTargetBlock.localBlockPos.y;
-            float z = islandPhysicsPos.z + m_inputState.cachedTargetBlock.localBlockPos.z;
-
-            glBegin(GL_LINES);
-            // Bottom face
-            glVertex3f(x, y, z);
-            glVertex3f(x + 1, y, z);
-            glVertex3f(x + 1, y, z);
-            glVertex3f(x + 1, y, z + 1);
-            glVertex3f(x + 1, y, z + 1);
-            glVertex3f(x, y, z + 1);
-            glVertex3f(x, y, z + 1);
-            glVertex3f(x, y, z);
-
-            // Top face
-            glVertex3f(x, y + 1, z);
-            glVertex3f(x + 1, y + 1, z);
-            glVertex3f(x + 1, y + 1, z);
-            glVertex3f(x + 1, y + 1, z + 1);
-            glVertex3f(x + 1, y + 1, z + 1);
-            glVertex3f(x, y + 1, z + 1);
-            glVertex3f(x, y + 1, z + 1);
-            glVertex3f(x, y + 1, z);
-
-            // Vertical edges
-            glVertex3f(x, y, z);
-            glVertex3f(x, y + 1, z);
-            glVertex3f(x + 1, y, z);
-            glVertex3f(x + 1, y + 1, z);
-            glVertex3f(x + 1, y, z + 1);
-            glVertex3f(x + 1, y + 1, z + 1);
-            glVertex3f(x, y, z + 1);
-            glVertex3f(x, y + 1, z + 1);
-            glEnd();
-
-            glEnable(GL_DEPTH_TEST);
-            glColor3f(1.0f, 1.0f, 1.0f);  // Reset color
-        }
-    }
+    // Render block highlighter (disabled in core profile; reimplement with modern pipeline if needed)
+    (void)0;
 }
 
 void GameClient::renderWaitingScreen()
 {
     // Simple text rendering for waiting screen
     // TODO: Replace with proper ImGui or text rendering system
-    glColor3f(1.0f, 1.0f, 1.0f);
     // For now, just clear to a different color to show we're in remote mode
     glClearColor(0.1f, 0.1f, 0.3f, 1.0f);  // Dark blue background
 }
