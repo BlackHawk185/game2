@@ -5,39 +5,78 @@
 #include <iostream>
 #include <unordered_map>
 
-// Simple vertex shader for voxel rendering
+// Enhanced vertex shader for voxel rendering with light mapping and UBO
 static const char* VERTEX_SHADER_SOURCE = R"(
-#version 330 core
+#version 460 core
 
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec2 aTexCoord;
 layout (location = 2) in vec3 aNormal;
+layout (location = 3) in vec2 aLightMapUV;  // Light map texture coordinates
+layout (location = 4) in float aAmbientOcclusion;  // Per-vertex ambient occlusion
+
+// UBO for batch rendering multiple chunks with different lighting
+layout (std140, binding = 0) uniform ChunkLightingData {
+    mat4 uChunkTransforms[64];    // Transform matrices for up to 64 chunks
+    vec4 uChunkLightColors[64];   // Per-chunk light tinting (rgb + intensity)
+    vec4 uChunkAmbientData[64];   // Per-chunk ambient (rgb + occlusion strength)
+    vec2 uChunkLightMapOffsets[64]; // UV offsets for light map atlasing
+    int uNumChunks;               // Number of active chunks
+};
 
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
+uniform int uChunkIndex;  // Which chunk this vertex belongs to
 
 out vec2 TexCoord;
 out vec3 Normal;
+out vec2 LightMapUV;
+out float AmbientOcclusion;
+out vec4 ChunkLightColor;     // Pass chunk-specific lighting data
+out vec4 ChunkAmbientData;    // Pass chunk-specific ambient data
 
 void main()
 {
-    gl_Position = uProjection * uView * uModel * vec4(aPosition, 1.0);
+    // Use chunk-specific transform if available, otherwise use uniform transform
+    mat4 finalTransform = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
+                         uChunkTransforms[uChunkIndex] : uModel;
+    
+    gl_Position = uProjection * uView * finalTransform * vec4(aPosition, 1.0);
     TexCoord = aTexCoord;
     Normal = aNormal;
+    
+    // Apply chunk-specific light map UV offset for atlasing
+    vec2 uvOffset = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
+                   uChunkLightMapOffsets[uChunkIndex] : vec2(0.0);
+    LightMapUV = aLightMapUV + uvOffset;
+    
+    AmbientOcclusion = aAmbientOcclusion;
+    
+    // Pass chunk-specific lighting data to fragment shader
+    ChunkLightColor = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
+                     uChunkLightColors[uChunkIndex] : vec4(1.0, 1.0, 1.0, 1.0);
+    ChunkAmbientData = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
+                      uChunkAmbientData[uChunkIndex] : vec4(0.3, 0.3, 0.3, 1.0);
 }
 )";
 
-// Simple fragment shader for textured voxels with dynamic lighting
+// Enhanced fragment shader with UBO support and light propagation
 static const char* FRAGMENT_SHADER_SOURCE = R"(
-#version 330 core
+#version 460 core
 
 in vec2 TexCoord;
 in vec3 Normal;
+in vec2 LightMapUV;
+in float AmbientOcclusion;
+in vec4 ChunkLightColor;
+in vec4 ChunkAmbientData;
 
 uniform sampler2D uTexture;
-uniform vec3 uSunDirection;  // Dynamic sun direction from day/night cycle
-uniform float uTimeOfDay;   // 0.0 = midnight, 0.5 = noon, 1.0 = midnight
+uniform sampler2D uLightMap;        // Light map texture (precomputed lighting)
+uniform vec3 uSunDirection;         // Dynamic sun direction from day/night cycle
+uniform float uTimeOfDay;          // 0.0 = midnight, 0.5 = noon, 1.0 = midnight
+uniform float uLightMapStrength;   // Strength of light map influence [0.0-1.0]
 
 out vec4 FragColor;
 
@@ -51,25 +90,45 @@ void main()
         texColor = vec4(1.0, 0.0, 1.0, 1.0);
     }
     
-    // Calculate directional lighting from sun
+    // Sample light map for precomputed lighting
+    vec3 lightMapColor = texture(uLightMap, LightMapUV).rgb;
+    
+    // Calculate traditional directional lighting from sun (as backup/blend)
     float sunDot = dot(normalize(Normal), normalize(-uSunDirection));
     float directionalLight = max(sunDot, 0.0);
     
-    // Add ambient light that varies with time of day
-    float ambientStrength = mix(0.2, 0.4, sin(uTimeOfDay * 3.14159)); // Varies 0.2-0.4
+    // Use chunk-specific ambient data
+    float ambientStrength = mix(ChunkAmbientData.a * 0.2, ChunkAmbientData.a * 0.4, 
+                               sin(uTimeOfDay * 3.14159)); // Varies based on chunk data
     
-    // Combine directional and ambient lighting
-    float totalLight = ambientStrength + (0.6 * directionalLight);
+    // Traditional lighting with chunk-specific color tinting
+    float traditionalLight = ambientStrength + (0.6 * directionalLight);
     
-    // Apply simple shadows: faces not facing the sun are darker
-    vec3 finalColor = texColor.rgb * totalLight;
+    // Blend light map with traditional lighting
+    float finalLightIntensity = mix(traditionalLight, length(lightMapColor), uLightMapStrength);
+    
+    // Apply ambient occlusion with chunk-specific strength
+    finalLightIntensity *= mix(1.0, AmbientOcclusion, ChunkAmbientData.a);
+    
+    // Apply chunk-specific light color tinting
+    vec3 chunkTintedLight = ChunkLightColor.rgb * ChunkLightColor.a * finalLightIntensity;
+    
+    // Apply lighting to texture
+    vec3 finalColor = texColor.rgb * chunkTintedLight;
+    
+    // Add light map color tinting for colored lighting effects with chunk influence
+    finalColor = mix(finalColor, finalColor * lightMapColor * ChunkLightColor.rgb, 
+                    uLightMapStrength * 0.3);
+    
+    // Mix with chunk ambient color for inter-chunk light propagation
+    finalColor = mix(finalColor, finalColor * ChunkAmbientData.rgb, 0.1);
     
     FragColor = vec4(finalColor, texColor.a);
 }
 )";
 
 SimpleShader::SimpleShader()
-    : m_program(0), m_vertexShader(0), m_fragmentShader(0)
+    : m_program(0), m_vertexShader(0), m_fragmentShader(0), m_uboHandle(0)
 {
 }
 
@@ -106,7 +165,13 @@ bool SimpleShader::initialize()
         return false;
     }
     
-    std::cout << "Simple shader initialized successfully" << std::endl;
+    // Initialize UBO for chunk lighting data
+    if (!initializeUBO()) {
+        std::cerr << "Failed to initialize UBO" << std::endl;
+        return false;
+    }
+    
+    std::cout << "Simple shader initialized successfully with UBO support" << std::endl;
     return true;
 }
 
@@ -114,24 +179,6 @@ void SimpleShader::use()
 {
     if (m_program != 0) {
         glUseProgram(m_program);
-    }
-}
-
-void SimpleShader::cleanup()
-{
-    if (m_program != 0) {
-        glDeleteProgram(m_program);
-        m_program = 0;
-    }
-    
-    if (m_vertexShader != 0) {
-        glDeleteShader(m_vertexShader);
-        m_vertexShader = 0;
-    }
-    
-    if (m_fragmentShader != 0) {
-        glDeleteShader(m_fragmentShader);
-        m_fragmentShader = 0;
     }
 }
 
@@ -219,4 +266,85 @@ int SimpleShader::getUniformLocation(const std::string& name)
     }
     
     return location;
+}
+
+// UBO implementation
+bool SimpleShader::initializeUBO()
+{
+    // Generate UBO
+    glGenBuffers(1, &m_uboHandle);
+    glBindBuffer(GL_UNIFORM_BUFFER, m_uboHandle);
+    
+    // Allocate memory for UBO (size of ChunkLightingData struct)
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(ChunkLightingData), nullptr, GL_DYNAMIC_DRAW);
+    
+    // Bind UBO to binding point 0 (matching the shader layout)
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, m_uboHandle);
+    
+    // Get uniform block index and bind it
+    GLuint blockIndex = glGetUniformBlockIndex(m_program, "ChunkLightingData");
+    if (blockIndex == GL_INVALID_INDEX) {
+        std::cerr << "Warning: ChunkLightingData uniform block not found in shader" << std::endl;
+        return true; // Continue without UBO support
+    }
+    
+    glUniformBlockBinding(m_program, blockIndex, 0);
+    
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    return true;
+}
+
+void SimpleShader::updateChunkLightingData(const ChunkLightingData& data)
+{
+    if (m_uboHandle == 0) return;
+    
+    glBindBuffer(GL_UNIFORM_BUFFER, m_uboHandle);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(ChunkLightingData), &data);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void SimpleShader::updateChunkLightingData(int chunkIndex, const glm::mat4& transform, const Vec3& lightColor, const Vec3& ambientColor, float ambientStrength)
+{
+    // Create a temporary ChunkLightingData structure and update the specified chunk
+    static ChunkLightingData data; // Static to persist between calls and avoid reallocation
+    
+    if (chunkIndex >= 0 && chunkIndex < 64) {
+        // Set transform matrix
+        data.transforms[chunkIndex] = transform;
+        
+        data.lightColors[chunkIndex] = glm::vec4(lightColor.x, lightColor.y, lightColor.z, 1.0f);
+        data.ambientData[chunkIndex] = glm::vec4(ambientColor.x, ambientColor.y, ambientColor.z, ambientStrength);
+        data.lightMapOffsets[chunkIndex] = glm::vec2(0.0f, 0.0f); // Default offset
+        data.numChunks = std::max(data.numChunks, chunkIndex + 1);
+        
+        updateChunkLightingData(data);
+    }
+}
+
+void SimpleShader::setChunkIndex(int chunkIndex)
+{
+    setInt("uChunkIndex", chunkIndex);
+}
+
+void SimpleShader::cleanup()
+{
+    if (m_uboHandle != 0) {
+        glDeleteBuffers(1, &m_uboHandle);
+        m_uboHandle = 0;
+    }
+    
+    if (m_program != 0) {
+        glDeleteProgram(m_program);
+        m_program = 0;
+    }
+    
+    if (m_vertexShader != 0) {
+        glDeleteShader(m_vertexShader);
+        m_vertexShader = 0;
+    }
+    
+    if (m_fragmentShader != 0) {
+        glDeleteShader(m_fragmentShader);
+        m_fragmentShader = 0;
+    }
 }

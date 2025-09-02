@@ -1,16 +1,21 @@
-// VoxelChunk.h - 32x32x32 dynamic physics-enabled voxel chunks
+// VoxelChunk.h - 16x16x16 dynamic physics-enabled voxel chunks with light mapping
 #pragma once
-#include <array>
-#include <memory>
-#include <vector>
 
-#include "Math/Vec3.h"  // Include Vec3 instead of forward declaration
+#include "../Math/Vec3.h"
+#include <array>
+#include <vector>
+#include <cstdint>
+
+// Forward declaration for OpenGL types
+using GLuint = uint32_t;
 
 struct Vertex
 {
     float x, y, z;     // Position
     float nx, ny, nz;  // Normal
     float u, v;        // Texture coordinates
+    float lu, lv;      // Light map coordinates
+    float ao;          // Ambient occlusion (0.0 = fully occluded, 1.0 = no occlusion)
 };
 
 struct VoxelMesh
@@ -19,6 +24,22 @@ struct VoxelMesh
     std::vector<uint32_t> indices;
     uint32_t VAO, VBO, EBO;  // OpenGL handles
     bool needsUpdate = true;
+};
+
+// Light mapping data for the chunk
+struct ChunkLightMap 
+{
+    static constexpr int LIGHTMAP_SIZE = 32;
+    uint32_t textureHandle = 0;  // OpenGL texture handle
+    std::array<uint8_t, LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3> data;  // RGB data (32x32 = 3072 bytes)
+    bool needsUpdate = true;
+    
+    ~ChunkLightMap() {
+        if (textureHandle != 0) {
+            // Note: glDeleteTextures should only be called from OpenGL context
+            // This will be handled by proper cleanup in VoxelChunk destructor
+        }
+    }
 };
 
 struct CollisionFace
@@ -36,7 +57,7 @@ struct CollisionMesh
 class VoxelChunk
 {
    public:
-    static constexpr int SIZE = 16;  // Changed from 32 to 16 for smaller chunks
+    static constexpr int SIZE = 16;  // 16x16x16 chunks
     static constexpr int VOLUME = SIZE * SIZE * SIZE;
 
     VoxelChunk();
@@ -51,15 +72,14 @@ class VoxelChunk
     {
         return voxels.data();
     }
-    uint32_t getVoxelDataSize() const
-    {
-        return VOLUME;
-    }
+    
+    // Network serialization helpers
     void setRawVoxelData(const uint8_t* data, uint32_t size);
+    uint32_t getVoxelDataSize() const { return VOLUME; }
 
-    // Dynamic mesh generation for physics
+    // Mesh generation and management
     void generateMesh();
-    void updatePhysicsMesh();  // Convert to collision mesh
+    void updatePhysicsMesh();
 
     // Rendering
     void render();                                        // Render at origin (0,0,0)
@@ -90,6 +110,11 @@ class VoxelChunk
     VoxelMesh& getMesh() { return mesh; }
     const VoxelMesh& getMesh() const { return mesh; }
     
+    // Light mapping access
+    ChunkLightMap& getLightMap() { return lightMap; }
+    const ChunkLightMap& getLightMap() const { return lightMap; }
+    void updateLightMapTexture();  // Create/update OpenGL texture from light map data
+    
     void buildCollisionMesh();
     bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
                            Vec3& hitPoint, Vec3& hitNormal) const;
@@ -101,6 +126,7 @@ class VoxelChunk
     std::array<uint8_t, VOLUME> voxels;
     VoxelMesh mesh;
     CollisionMesh collisionMesh;
+    ChunkLightMap lightMap;  // NEW: Light mapping data
     bool meshDirty = true;
     uint32_t physicsBodyID = 0;  // Physics body ID
 
@@ -112,8 +138,18 @@ class VoxelChunk
                  float z, int face, uint8_t blockType);
     void addCollisionQuad(float x, float y, float z, int face);
     bool isVoxelSolid(int x, int y, int z) const;
+    
+    // Greedy meshing implementation
+    void generateGreedyMesh();
+    void generateGreedyQuads(int direction, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices);
+    bool canMergeVoxels(uint8_t voxel1, uint8_t voxel2) const;
+    void addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, 
+                       int x, int y, int z, int width, int height, int direction, uint8_t blockType);
+    
+    // Light mapping utilities
+    float computeAmbientOcclusion(int x, int y, int z, int face) const;
+    void generateLightMap();  // Generate light map using simple raytracing
+    
     std::vector<Vec3>
         collisionMeshVertices;  // Collision mesh: stores positions of exposed faces for physics
 };
-
-

@@ -10,6 +10,7 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <glad/gl.h>  // For OpenGL light map texture functions
 
 #include "Threading/JobSystem.h"
 #include "../Core/Profiler.h"
@@ -29,6 +30,11 @@ VoxelChunk::VoxelChunk()
     mesh.VBO = 0;
     mesh.EBO = 0;
     mesh.needsUpdate = true;
+    
+    // Initialize light map
+    lightMap.textureHandle = 0;
+    // Fill with default lighting (mid-gray = normal lighting)
+    std::fill(lightMap.data.begin(), lightMap.data.end(), 128);
 }
 
 VoxelChunk::~VoxelChunk()
@@ -192,6 +198,28 @@ void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& i
         v.nz = normals[face].z;
         v.u = texCoords[i][0];
         v.v = texCoords[i][1];
+        
+        // Light mapping: Map world position to light map UVs (32x32 texture)
+        // For now, use simple planar mapping based on face orientation
+        switch (face)
+        {
+            case 0: case 1: // +Z/-Z faces: use X,Y
+                v.lu = (pos.x) / SIZE;
+                v.lv = (pos.y) / SIZE;
+                break;
+            case 2: case 3: // +Y/-Y faces: use X,Z
+                v.lu = (pos.x) / SIZE;
+                v.lv = (pos.z) / SIZE;
+                break;
+            case 4: case 5: // +X/-X faces: use Z,Y
+                v.lu = (pos.z) / SIZE;
+                v.lv = (pos.y) / SIZE;
+                break;
+        }
+        
+        // Basic ambient occlusion: compute based on neighboring voxels
+        v.ao = computeAmbientOcclusion(static_cast<int>(pos.x), static_cast<int>(pos.y), static_cast<int>(pos.z), face);
+        
         vertices.push_back(v);
     }
 
@@ -210,39 +238,16 @@ void VoxelChunk::generateMesh()
     mesh.indices.clear();
     collisionMeshVertices.clear();
 
-    // Single-pass generation: iterate through voxels once, generate both render and collision
-    // meshes
-    for (int x = 0; x < SIZE; ++x)
-    {
-        for (int y = 0; y < SIZE; ++y)
-        {
-            for (int z = 0; z < SIZE; ++z)
-            {
-                uint8_t blockType = getVoxel(x, y, z);
-                if (blockType == 0)
-                    continue;  // Skip air blocks
-
-                // Check each face and add quads for exposed faces
-                for (int face = 0; face < 6; ++face)
-                {
-                    if (shouldRenderFace(x, y, z, face))
-                    {
-                        // Add to render mesh
-                        addQuad(mesh.vertices, mesh.indices, static_cast<float>(x),
-                                static_cast<float>(y), static_cast<float>(z), face, blockType);
-
-                        // Add to collision mesh
-                        addCollisionQuad(static_cast<float>(x), static_cast<float>(y),
-                                         static_cast<float>(z), face);
-                    }
-                }
-            }
-        }
-    }
-
+    // Use greedy meshing for optimal performance
+    generateGreedyMesh();
+    
     mesh.needsUpdate = true;
     collisionMesh.needsUpdate = true;
     meshDirty = false;
+    
+    // Generate light map for this chunk (CPU data only)
+    generateLightMap();
+    // Note: updateLightMapTexture() will be called during rendering when OpenGL context is available
 }
 
 void VoxelChunk::updatePhysicsMesh()
@@ -563,5 +568,505 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
 
     meshDirty = true;
     collisionMesh.needsUpdate = true;
+}
+
+// Light mapping utilities
+float VoxelChunk::computeAmbientOcclusion(int x, int y, int z, int face) const
+{
+    // Simple ambient occlusion calculation based on neighboring voxels
+    // Higher values = more occlusion (darker), range [0.0, 1.0]
+    
+    static const int faceOffsets[6][3] = {
+        {0, 0, 1},   // +Z (front)
+        {0, 0, -1},  // -Z (back)
+        {0, 1, 0},   // +Y (top)
+        {0, -1, 0},  // -Y (bottom)
+        {1, 0, 0},   // +X (right)
+        {-1, 0, 0}   // -X (left)
+    };
+    
+    // Get the face normal to determine which neighbors to check
+    int fx = faceOffsets[face][0];
+    int fy = faceOffsets[face][1];
+    int fz = faceOffsets[face][2];
+    
+    // Check 8 neighboring positions around this face
+    float occlusion = 0.0f;
+    int sampleCount = 0;
+    
+    // Create a 3x3 grid of offsets perpendicular to the face normal
+    for (int du = -1; du <= 1; du++)
+    {
+        for (int dv = -1; dv <= 1; dv++)
+        {
+            if (du == 0 && dv == 0) continue; // Skip center
+            
+            int checkX = x, checkY = y, checkZ = z;
+            
+            // Map du,dv to world space based on face orientation
+            if (face <= 1) // Z faces: map to X,Y
+            {
+                checkX += du;
+                checkY += dv;
+            }
+            else if (face <= 3) // Y faces: map to X,Z
+            {
+                checkX += du;
+                checkZ += dv;
+            }
+            else // X faces: map to Z,Y
+            {
+                checkZ += du;
+                checkY += dv;
+            }
+            
+            // Also offset by face direction to check the neighboring voxels
+            checkX += fx;
+            checkY += fy;
+            checkZ += fz;
+            
+            // Sample the voxel at this position
+            if (getVoxel(checkX, checkY, checkZ) != 0)
+            {
+                occlusion += 0.15f; // Each solid neighbor adds occlusion
+            }
+            sampleCount++;
+        }
+    }
+    
+    // Return ambient lighting factor (1.0 = bright, 0.0 = dark)
+    // Clamp to reasonable range for subtle effect
+    return std::max(0.3f, 1.0f - occlusion);
+}
+
+void VoxelChunk::generateLightMap()
+{
+    // Simple light map generation using basic raytracing
+    // For each texel in the 32x32 light map, cast rays to determine lighting
+    
+    const int LIGHTMAP_SIZE = 32;
+    const Vec3 sunDirection = Vec3(0.4f, -1.0f, 0.3f).normalized(); // Default sun direction
+    const float sunIntensity = 0.8f;
+    const float ambientIntensity = 0.3f;
+    
+    for (int u = 0; u < LIGHTMAP_SIZE; u++)
+    {
+        for (int v = 0; v < LIGHTMAP_SIZE; v++)
+        {
+            // Map light map UV to world space (chunk local coordinates)
+            float worldX = (static_cast<float>(u) / LIGHTMAP_SIZE) * SIZE;
+            float worldY = (static_cast<float>(v) / LIGHTMAP_SIZE) * SIZE;
+            
+            // Sample multiple positions in the chunk to get representative lighting
+            float totalLight = 0.0f;
+            int sampleCount = 0;
+            
+            // Sample at multiple Z levels
+            for (int z = 0; z < SIZE; z += 4) // Sample every 4 voxels
+            {
+                int x = static_cast<int>(worldX);
+                int y = static_cast<int>(worldY);
+                
+                // Skip if this position has a solid voxel
+                if (getVoxel(x, y, z) != 0) continue;
+                
+                // Cast ray from this position toward the sun
+                Vec3 rayStart = Vec3(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
+                Vec3 rayDir = Vec3(0.0f, 0.0f, 0.0f) - sunDirection; // Ray toward sun
+                
+                // Simple ray marching to check for shadows
+                bool hitSolid = false;
+                float rayLength = 0.0f;
+                const float maxRayLength = SIZE * 2.0f;
+                const float stepSize = 0.5f;
+                
+                while (rayLength < maxRayLength && !hitSolid)
+                {
+                    Vec3 rayPos = rayStart + rayDir * rayLength;
+                    int checkX = static_cast<int>(rayPos.x);
+                    int checkY = static_cast<int>(rayPos.y);
+                    int checkZ = static_cast<int>(rayPos.z);
+                    
+                    if (getVoxel(checkX, checkY, checkZ) != 0)
+                    {
+                        hitSolid = true;
+                    }
+                    
+                    rayLength += stepSize;
+                }
+                
+                // Calculate lighting for this sample
+                float light = ambientIntensity;
+                if (!hitSolid)
+                {
+                    light += sunIntensity; // Direct sunlight
+                }
+                
+                totalLight += light;
+                sampleCount++;
+            }
+            
+            // Average the lighting samples
+            float finalLight = (sampleCount > 0) ? (totalLight / sampleCount) : ambientIntensity;
+            finalLight = std::min(1.0f, std::max(0.0f, finalLight)); // Clamp [0,1]
+            
+            // Convert to RGB (for now, grayscale lighting)
+            uint8_t lightValue = static_cast<uint8_t>(finalLight * 255.0f);
+            
+            int index = (v * LIGHTMAP_SIZE + u) * 3;
+            lightMap.data[index + 0] = lightValue; // R
+            lightMap.data[index + 1] = lightValue; // G  
+            lightMap.data[index + 2] = lightValue; // B
+        }
+    }
+}
+
+void VoxelChunk::updateLightMapTexture()
+{
+    // Safety check: Only create textures when we have an OpenGL context
+    // This should only be called from the rendering thread
+    
+    // Generate OpenGL texture if it doesn't exist
+    if (lightMap.textureHandle == 0)
+    {
+        glGenTextures(1, &lightMap.textureHandle);
+        
+        // Check for OpenGL errors
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR)
+        {
+            std::cerr << "Failed to generate light map texture, OpenGL error: " << error << std::endl;
+            return;
+        }
+    }
+    
+    // Upload light map data to GPU
+    glBindTexture(GL_TEXTURE_2D, lightMap.textureHandle);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 32, 32, 0, GL_RGB, GL_UNSIGNED_BYTE, lightMap.data.data());
+    
+    // Set texture parameters for light maps
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    
+    glBindTexture(GL_TEXTURE_2D, 0);
+    
+    // Check for any OpenGL errors
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR)
+    {
+        std::cerr << "OpenGL error in updateLightMapTexture: " << error << std::endl;
+    }
+}
+
+// ========================================
+// GREEDY MESHING IMPLEMENTATION
+// ========================================
+
+void VoxelChunk::generateGreedyMesh()
+{
+    PROFILE_SCOPE("VoxelChunk::generateGreedyMesh");
+    
+    // Generate quads for each of the 6 directions (faces)
+    for (int direction = 0; direction < 6; ++direction)
+    {
+        generateGreedyQuads(direction, mesh.vertices, mesh.indices);
+    }
+}
+
+void VoxelChunk::generateGreedyQuads(int direction, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices)
+{
+    // Direction mapping:
+    // 0: +X (right), 1: -X (left), 2: +Y (up), 3: -Y (down), 4: +Z (forward), 5: -Z (back)
+    
+    const int dx[] = {1, -1, 0, 0, 0, 0};
+    const int dy[] = {0, 0, 1, -1, 0, 0};
+    const int dz[] = {0, 0, 0, 0, 1, -1};
+    
+    // For each direction, we have a different slicing plane
+    int u, v, w;  // u,v = plane coordinates, w = depth coordinate
+    int uMax, vMax, wMax;
+    
+    switch (direction)
+    {
+        case 0: case 1: // X faces
+            u = 1; v = 2; w = 0; // u=Y, v=Z, w=X
+            uMax = SIZE; vMax = SIZE; wMax = SIZE;
+            break;
+        case 2: case 3: // Y faces  
+            u = 0; v = 2; w = 1; // u=X, v=Z, w=Y
+            uMax = SIZE; vMax = SIZE; wMax = SIZE;
+            break;
+        case 4: case 5: // Z faces
+            u = 0; v = 1; w = 2; // u=X, v=Y, w=Z
+            uMax = SIZE; vMax = SIZE; wMax = SIZE;
+            break;
+        default:
+            return;
+    }
+    
+    // Temporary mask to track which voxels need quads
+    std::vector<uint8_t> mask(SIZE * SIZE);
+    
+    // Slice through the chunk in the w direction
+    for (int wPos = 0; wPos < wMax; ++wPos)
+    {
+        // Reset mask for this slice
+        std::fill(mask.begin(), mask.end(), 0);
+        
+        // Build mask for this slice
+        for (int vPos = 0; vPos < vMax; ++vPos)
+        {
+            for (int uPos = 0; uPos < uMax; ++uPos)
+            {
+                int x, y, z;
+                switch (direction)
+                {
+                    case 0: case 1: x = wPos; y = uPos; z = vPos; break;
+                    case 2: case 3: x = uPos; y = wPos; z = vPos; break;
+                    case 4: case 5: x = uPos; y = vPos; z = wPos; break;
+                }
+                
+                uint8_t currentVoxel = getVoxel(x, y, z);
+                uint8_t neighborVoxel = getVoxel(x + dx[direction], y + dy[direction], z + dz[direction]);
+                
+                // Check if this face should be rendered
+                if (currentVoxel != 0 && (neighborVoxel == 0 || !canMergeVoxels(currentVoxel, neighborVoxel)))
+                {
+                    mask[uPos + vPos * SIZE] = currentVoxel;
+                }
+            }
+        }
+        
+        // Generate quads from mask using greedy algorithm
+        for (int vPos = 0; vPos < vMax; ++vPos)
+        {
+            for (int uPos = 0; uPos < uMax; )
+            {
+                uint8_t blockType = mask[uPos + vPos * SIZE];
+                if (blockType == 0)
+                {
+                    ++uPos;
+                    continue;
+                }
+                
+                // Find width of this quad
+                int width = 1;
+                while (uPos + width < uMax && 
+                       mask[uPos + width + vPos * SIZE] == blockType)
+                {
+                    ++width;
+                }
+                
+                // Find height of this quad
+                int height = 1;
+                bool canExtendHeight = true;
+                while (vPos + height < vMax && canExtendHeight)
+                {
+                    for (int i = 0; i < width; ++i)
+                    {
+                        if (mask[uPos + i + (vPos + height) * SIZE] != blockType)
+                        {
+                            canExtendHeight = false;
+                            break;
+                        }
+                    }
+                    if (canExtendHeight)
+                        ++height;
+                }
+                
+                // Clear the mask area we just processed
+                for (int h = 0; h < height; ++h)
+                {
+                    for (int w = 0; w < width; ++w)
+                    {
+                        mask[uPos + w + (vPos + h) * SIZE] = 0;
+                    }
+                }
+                
+                // Add the merged quad
+                int x, y, z;
+                switch (direction)
+                {
+                    case 0: case 1: x = wPos; y = uPos; z = vPos; break;
+                    case 2: case 3: x = uPos; y = wPos; z = vPos; break;
+                    case 4: case 5: x = uPos; y = vPos; z = wPos; break;
+                }
+                
+                addGreedyQuad(vertices, indices, x, y, z, width, height, direction, blockType);
+                
+                // Also add to collision mesh (simplified - could be optimized further)
+                for (int h = 0; h < height; ++h)
+                {
+                    for (int w = 0; w < width; ++w)
+                    {
+                        int cx, cy, cz;
+                        switch (direction)
+                        {
+                            case 0: case 1: cx = x; cy = y + w; cz = z + h; break;
+                            case 2: case 3: cx = x + w; cy = y; cz = z + h; break;
+                            case 4: case 5: cx = x + w; cy = y + h; cz = z; break;
+                        }
+                        addCollisionQuad(static_cast<float>(cx), static_cast<float>(cy), static_cast<float>(cz), direction);
+                    }
+                }
+                
+                uPos += width;
+            }
+        }
+    }
+}
+
+bool VoxelChunk::canMergeVoxels(uint8_t voxel1, uint8_t voxel2) const
+{
+    // For now, only merge identical block types
+    // Could be extended to merge similar materials later
+    return voxel1 == voxel2;
+}
+
+void VoxelChunk::addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, 
+                               int x, int y, int z, int width, int height, int direction, uint8_t blockType)
+{
+    // Calculate vertices for the merged quad
+    Vec3 quadVertices[4];
+    Vec3 normal;
+    
+    // Calculate normal and base vertices based on direction
+    switch (direction)
+    {
+        case 0: // +X face (right)
+            normal = Vec3(1, 0, 0);
+            quadVertices[0] = Vec3(x + 1, y, z);
+            quadVertices[1] = Vec3(x + 1, y + width, z);
+            quadVertices[2] = Vec3(x + 1, y + width, z + height);
+            quadVertices[3] = Vec3(x + 1, y, z + height);
+            break;
+        case 1: // -X face (left)
+            normal = Vec3(-1, 0, 0);
+            quadVertices[0] = Vec3(x, y, z);
+            quadVertices[1] = Vec3(x, y, z + height);
+            quadVertices[2] = Vec3(x, y + width, z + height);
+            quadVertices[3] = Vec3(x, y + width, z);
+            break;
+        case 2: // +Y face (up)
+            normal = Vec3(0, 1, 0);
+            quadVertices[0] = Vec3(x, y + 1, z);
+            quadVertices[1] = Vec3(x, y + 1, z + height);
+            quadVertices[2] = Vec3(x + width, y + 1, z + height);
+            quadVertices[3] = Vec3(x + width, y + 1, z);
+            break;
+        case 3: // -Y face (down)
+            normal = Vec3(0, -1, 0);
+            quadVertices[0] = Vec3(x, y, z);
+            quadVertices[1] = Vec3(x + width, y, z);
+            quadVertices[2] = Vec3(x + width, y, z + height);
+            quadVertices[3] = Vec3(x, y, z + height);
+            break;
+        case 4: // +Z face (forward)
+            normal = Vec3(0, 0, 1);
+            quadVertices[0] = Vec3(x, y, z + 1);
+            quadVertices[1] = Vec3(x + width, y, z + 1);
+            quadVertices[2] = Vec3(x + width, y + height, z + 1);
+            quadVertices[3] = Vec3(x, y + height, z + 1);
+            break;
+        case 5: // -Z face (back)
+            normal = Vec3(0, 0, -1);
+            quadVertices[0] = Vec3(x, y, z);
+            quadVertices[1] = Vec3(x, y + height, z);
+            quadVertices[2] = Vec3(x + width, y + height, z);
+            quadVertices[3] = Vec3(x + width, y, z);
+            break;
+        default:
+            return;
+    }
+    
+    // Calculate texture coordinates (tiled across the merged quad for proper scaling)
+    // Need to match the texture coordinates with the actual quad vertex ordering
+    float texCoords[4][2];
+    
+    switch (direction)
+    {
+        case 0: // +X face (right): vertices go Y=0→width, Z=0→height
+            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
+            texCoords[1][0] = static_cast<float>(width); texCoords[1][1] = 0.0f;
+            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
+            texCoords[3][0] = 0.0f; texCoords[3][1] = static_cast<float>(height);
+            break;
+        case 1: // -X face (left): vertices go Z=0→height, Y=0→width  
+            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
+            texCoords[1][0] = 0.0f; texCoords[1][1] = static_cast<float>(height);
+            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
+            texCoords[3][0] = static_cast<float>(width); texCoords[3][1] = 0.0f;
+            break;
+        case 2: // +Y face (up): vertices go Z=0→height, X=0→width
+            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
+            texCoords[1][0] = 0.0f; texCoords[1][1] = static_cast<float>(height);
+            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
+            texCoords[3][0] = static_cast<float>(width); texCoords[3][1] = 0.0f;
+            break;
+        case 3: // -Y face (down): vertices go X=0→width, Z=0→height
+            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
+            texCoords[1][0] = static_cast<float>(width); texCoords[1][1] = 0.0f;
+            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
+            texCoords[3][0] = 0.0f; texCoords[3][1] = static_cast<float>(height);
+            break;
+        case 4: // +Z face (forward): vertices go X=0→width, Y=0→height
+            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
+            texCoords[1][0] = static_cast<float>(width); texCoords[1][1] = 0.0f;
+            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
+            texCoords[3][0] = 0.0f; texCoords[3][1] = static_cast<float>(height);
+            break;
+        case 5: // -Z face (back): vertices go Y=0→height, X=0→width
+            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
+            texCoords[1][0] = 0.0f; texCoords[1][1] = static_cast<float>(height);
+            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
+            texCoords[3][0] = static_cast<float>(width); texCoords[3][1] = 0.0f;
+            break;
+        default:
+            // Fallback to default
+            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
+            texCoords[1][0] = 1.0f; texCoords[1][1] = 0.0f;
+            texCoords[2][0] = 1.0f; texCoords[2][1] = 1.0f;
+            texCoords[3][0] = 0.0f; texCoords[3][1] = 1.0f;
+            break;
+    }
+    
+    // Calculate light map coordinates (center of the merged quad)
+    float centerX = x + width * 0.5f;
+    float centerY = y + height * 0.5f;
+    float centerZ = z + 0.5f; // Simplified for now
+    
+    float lightMapU = (centerX / static_cast<float>(SIZE));
+    float lightMapV = (centerY / static_cast<float>(SIZE));
+    
+    // Add vertices
+    uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
+    for (int i = 0; i < 4; ++i)
+    {
+        Vertex vertex;
+        vertex.x = quadVertices[i].x;
+        vertex.y = quadVertices[i].y;
+        vertex.z = quadVertices[i].z;
+        vertex.nx = normal.x;
+        vertex.ny = normal.y;
+        vertex.nz = normal.z;
+        vertex.u = texCoords[i][0];
+        vertex.v = texCoords[i][1];
+        vertex.lu = lightMapU;
+        vertex.lv = lightMapV;
+        vertex.ao = computeAmbientOcclusion(x, y, z, direction);
+        
+        vertices.push_back(vertex);
+    }
+    
+    // Add indices (two triangles)
+    indices.push_back(baseIndex);
+    indices.push_back(baseIndex + 1);
+    indices.push_back(baseIndex + 2);
+    
+    indices.push_back(baseIndex);
+    indices.push_back(baseIndex + 2);
+    indices.push_back(baseIndex + 3);
 }
 

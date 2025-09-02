@@ -9,6 +9,16 @@
 // Use a lightweight alias for GLuint and include the actual GL headers in the .cpp.
 using GLuint = unsigned int;
 
+// Structure for chunk lighting data in UBO
+struct ChunkLightingData {
+    glm::mat4 transforms[64];        // Transform matrices for up to 64 chunks
+    glm::vec4 lightColors[64];       // Per-chunk light tinting (rgb + intensity)
+    glm::vec4 ambientData[64];       // Per-chunk ambient (rgb + occlusion strength)
+    glm::vec2 lightMapOffsets[64];   // UV offsets for light map atlasing
+    int numChunks;                   // Number of active chunks
+    int padding[3];                  // Align to 16 bytes
+};
+
 class SimpleShader {
 public:
     SimpleShader();
@@ -23,12 +33,19 @@ public:
     void setFloat(const std::string& name, float value);
     void setInt(const std::string& name, int value);
     
+    // UBO management
+    bool initializeUBO();
+    void updateChunkLightingData(const ChunkLightingData& data);
+    void updateChunkLightingData(int chunkIndex, const glm::mat4& transform, const Vec3& lightColor, const Vec3& ambientColor, float ambientStrength);
+    void setChunkIndex(int chunkIndex);
+    
     bool isValid() const { return m_program != 0; }
 
 private:
     GLuint m_program;
     GLuint m_vertexShader;
     GLuint m_fragmentShader;
+    GLuint m_uboHandle;              // UBO handle for chunk lighting data
     
     bool compileShader(GLuint shader, const char* source);
     bool linkProgram();

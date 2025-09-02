@@ -4,7 +4,7 @@
 
 // Simple vertex shader for shadow mapping (depth only)
 static const char* SHADOW_VERTEX_SHADER_SOURCE = R"(
-#version 330 core
+#version 460 core
 
 layout (location = 0) in vec3 aPos;
 
@@ -19,7 +19,7 @@ void main()
 
 // Simple fragment shader for shadow mapping (depth only)
 static const char* SHADOW_FRAGMENT_SHADER_SOURCE = R"(
-#version 330 core
+#version 460 core
 
 void main()
 {

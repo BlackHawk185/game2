@@ -1,7 +1,6 @@
 // Camera.cpp - FPS Camera with Vec3 math system
 #include "Camera.h"
 
-#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #define _USE_MATH_DEFINES
 #include <cmath>
