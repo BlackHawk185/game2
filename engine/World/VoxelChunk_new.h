@@ -16,7 +16,6 @@ struct Vertex
     float u, v;        // Texture coordinates
     float lu, lv;      // Light map coordinates
     float ao;          // Ambient occlusion (0.0 = fully occluded, 1.0 = no occlusion)
-    float faceIndex;   // Face index (0-5) for selecting correct light map texture
 };
 
 struct VoxelMesh
@@ -27,39 +26,19 @@ struct VoxelMesh
     bool needsUpdate = true;
 };
 
-// Per-face light mapping data for the chunk
-struct FaceLightMap 
+// Light mapping data for the chunk
+struct ChunkLightMap 
 {
-    static constexpr int LIGHTMAP_SIZE = 32; // 32x32 per face
+    static constexpr int LIGHTMAP_SIZE = 32;
     uint32_t textureHandle = 0;  // OpenGL texture handle
-    std::vector<uint8_t> data;  // RGB data
+    std::array<uint8_t, LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3> data;  // RGB data (32x32 = 3072 bytes)
     bool needsUpdate = true;
     
-    FaceLightMap() {
-        // Initialize with RGB data
-        data.resize(LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
-    }
-    
-    ~FaceLightMap() {
+    ~ChunkLightMap() {
         if (textureHandle != 0) {
             // Note: glDeleteTextures should only be called from OpenGL context
             // This will be handled by proper cleanup in VoxelChunk destructor
         }
-    }
-};
-
-// Light mapping data for the chunk - one light map per face direction
-struct ChunkLightMaps 
-{
-    // 6 face directions: +X, -X, +Y, -Y, +Z, -Z (matches face indices 4, 5, 2, 3, 0, 1)
-    std::array<FaceLightMap, 6> faceMaps;
-    
-    FaceLightMap& getFaceMap(int faceDirection) {
-        return faceMaps[faceDirection];
-    }
-    
-    const FaceLightMap& getFaceMap(int faceDirection) const {
-        return faceMaps[faceDirection];
     }
 };
 
@@ -93,10 +72,6 @@ class VoxelChunk
     {
         return voxels.data();
     }
-    
-    // Network serialization helpers
-    void setRawVoxelData(const uint8_t* data, uint32_t size);
-    uint32_t getVoxelDataSize() const { return VOLUME; }
 
     // Mesh generation and management
     void generateMesh();
@@ -132,15 +107,8 @@ class VoxelChunk
     const VoxelMesh& getMesh() const { return mesh; }
     
     // Light mapping access
-    ChunkLightMaps& getLightMaps() { return lightMaps; }
-    const ChunkLightMaps& getLightMaps() const { return lightMaps; }
-    void updateLightMapTextures();  // Create/update OpenGL textures from light map data
-    void markLightMapsDirty();      // Mark light maps as needing GPU texture update
-    bool hasValidLightMaps() const; // Check if all lightmap textures are created
-    bool hasLightMapData() const;   // Check if lightmap data exists (before texture creation)
-    
-    // Light mapping utilities - public for GlobalLightingManager
-    Vec3 calculateWorldPositionFromLightMapUV(int faceIndex, float u, float v) const;  // Convert UV to world pos
+    ChunkLightMap& getLightMap() { return lightMap; }
+    const ChunkLightMap& getLightMap() const { return lightMap; }
     
     void buildCollisionMesh();
     bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
@@ -153,7 +121,7 @@ class VoxelChunk
     std::array<uint8_t, VOLUME> voxels;
     VoxelMesh mesh;
     CollisionMesh collisionMesh;
-    ChunkLightMaps lightMaps;  // NEW: Per-face light mapping data
+    ChunkLightMap lightMap;  // NEW: Light mapping data
     bool meshDirty = true;
     uint32_t physicsBodyID = 0;  // Physics body ID
 
@@ -166,19 +134,10 @@ class VoxelChunk
     void addCollisionQuad(float x, float y, float z, int face);
     bool isVoxelSolid(int x, int y, int z) const;
     
-    // Greedy meshing implementation
-    void generateGreedyMesh();
-    void generateGreedyQuads(int direction, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices);
-    bool canMergeVoxels(uint8_t voxel1, uint8_t voxel2) const;
-    void addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, 
-                       int x, int y, int z, int width, int height, int direction, uint8_t blockType);
-    
     // Light mapping utilities
     float computeAmbientOcclusion(int x, int y, int z, int face) const;
-    void generatePerFaceLightMaps();  // Generate separate light map per face direction
-    bool performSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const;  // Raycast for occlusion
-    bool performLocalSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const;  // Local chunk raycast for floating islands
-    bool performInterIslandSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const;  // Inter-island raycast for lighting
+    void generateLightMap();  // Generate light map using simple raytracing
+    void updateLightMapTexture();  // Upload light map data to GPU
     
     std::vector<Vec3>
         collisionMeshVertices;  // Collision mesh: stores positions of exposed faces for physics

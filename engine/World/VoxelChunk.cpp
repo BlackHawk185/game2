@@ -14,6 +14,7 @@
 
 #include "Threading/JobSystem.h"
 #include "../Core/Profiler.h"
+#include "IslandChunkSystem.h"  // For inter-island raycast queries
 
 // External job system reference
 extern JobSystem g_jobSystem;
@@ -31,10 +32,12 @@ VoxelChunk::VoxelChunk()
     mesh.EBO = 0;
     mesh.needsUpdate = true;
     
-    // Initialize light map
-    lightMap.textureHandle = 0;
-    // Fill with default lighting (mid-gray = normal lighting)
-    std::fill(lightMap.data.begin(), lightMap.data.end(), 128);
+    // Initialize light maps
+    for (int face = 0; face < 6; ++face) {
+        lightMaps.getFaceMap(face).textureHandle = 0;
+        // Fill with default lighting (mid-gray = normal lighting)
+        std::fill(lightMaps.getFaceMap(face).data.begin(), lightMaps.getFaceMap(face).data.end(), 128);
+    }
 }
 
 VoxelChunk::~VoxelChunk()
@@ -219,6 +222,7 @@ void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& i
         
         // Basic ambient occlusion: compute based on neighboring voxels
         v.ao = computeAmbientOcclusion(static_cast<int>(pos.x), static_cast<int>(pos.y), static_cast<int>(pos.z), face);
+        v.faceIndex = static_cast<float>(face);  // Store face index for shader
         
         vertices.push_back(v);
     }
@@ -245,9 +249,30 @@ void VoxelChunk::generateMesh()
     collisionMesh.needsUpdate = true;
     meshDirty = false;
     
-    // Generate light map for this chunk (CPU data only)
-    generateLightMap();
-    // Note: updateLightMapTexture() will be called during rendering when OpenGL context is available
+    // DISABLED: Don't clear lightmap textures - let GlobalLightingManager handle them
+    /*
+    // Clear cached textures to force regeneration
+    for (int face = 0; face < 6; ++face) {
+        if (lightMaps.getFaceMap(face).textureHandle != 0) {
+            glDeleteTextures(1, &lightMaps.getFaceMap(face).textureHandle);
+            lightMaps.getFaceMap(face).textureHandle = 0;
+        }
+    }
+    */
+    
+    // OLD PER-CHUNK LIGHTING DISABLED - Now using GlobalLightingManager
+    // generatePerFaceLightMaps();
+    
+    // Only initialize light maps if they're empty (preserve global lighting data)
+    for (int face = 0; face < 6; ++face) {
+        FaceLightMap& faceMap = lightMaps.getFaceMap(face);
+        if (faceMap.data.empty()) {
+            faceMap.data.resize(32 * 32 * 3);
+            std::fill(faceMap.data.begin(), faceMap.data.end(), 255); // Full white default for unlit chunks
+        }
+    }
+    
+    // Note: updateLightMapTextures() will be called during rendering when OpenGL context is available
 }
 
 void VoxelChunk::updatePhysicsMesh()
@@ -639,125 +664,340 @@ float VoxelChunk::computeAmbientOcclusion(int x, int y, int z, int face) const
     return std::max(0.3f, 1.0f - occlusion);
 }
 
-void VoxelChunk::generateLightMap()
+void VoxelChunk::generatePerFaceLightMaps()
 {
-    // Simple light map generation using basic raytracing
-    // For each texel in the 32x32 light map, cast rays to determine lighting
+    // Reduced debug output for performance
+    static int debugCounter = 0;
+    if (debugCounter++ % 50 == 0) {  // Only print every 50th chunk
+        std::cout << "[LIGHTMAP] Generating inter-chunk lighting for floating islands (chunk " << debugCounter << ")" << std::endl;
+    }
     
-    const int LIGHTMAP_SIZE = 32;
-    const Vec3 sunDirection = Vec3(0.4f, -1.0f, 0.3f).normalized(); // Default sun direction
-    const float sunIntensity = 0.8f;
-    const float ambientIntensity = 0.3f;
+    // Generate separate light maps for each face direction with proper inter-chunk raycasting
     
-    for (int u = 0; u < LIGHTMAP_SIZE; u++)
-    {
-        for (int v = 0; v < LIGHTMAP_SIZE; v++)
-        {
-            // Map light map UV to world space (chunk local coordinates)
-            float worldX = (static_cast<float>(u) / LIGHTMAP_SIZE) * SIZE;
-            float worldY = (static_cast<float>(v) / LIGHTMAP_SIZE) * SIZE;
-            
-            // Sample multiple positions in the chunk to get representative lighting
-            float totalLight = 0.0f;
-            int sampleCount = 0;
-            
-            // Sample at multiple Z levels
-            for (int z = 0; z < SIZE; z += 4) // Sample every 4 voxels
-            {
-                int x = static_cast<int>(worldX);
-                int y = static_cast<int>(worldY);
+    const int LIGHTMAP_SIZE = FaceLightMap::LIGHTMAP_SIZE;
+    const Vec3 sunDirection = Vec3(0.4f, -1.0f, 0.3f).normalized();
+    const float sunIntensity = 1.2f;
+    const float ambientIntensity = 0.0f;  // DISABLED for lightmap testing - was 0.2f
+    
+    // Face normals and face offset directions: 0=+Z, 1=-Z, 2=+Y, 3=-Y, 4=+X, 5=-X
+    Vec3 faceNormals[6] = {
+        Vec3(0, 0, 1),   // +Z (Forward)
+        Vec3(0, 0, -1),  // -Z (Back)
+        Vec3(0, 1, 0),   // +Y (Up) 
+        Vec3(0, -1, 0),  // -Y (Down)
+        Vec3(1, 0, 0),   // +X (Right)
+        Vec3(-1, 0, 0)   // -X (Left)
+    };
+    
+    // Generate a light map for each face direction
+    for (int faceIndex = 0; faceIndex < 6; ++faceIndex) {
+        FaceLightMap& faceMap = lightMaps.getFaceMap(faceIndex);
+        faceMap.data.resize(LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
+        
+        Vec3 faceNormal = faceNormals[faceIndex];
+        
+        for (int v = 0; v < LIGHTMAP_SIZE; v++) {
+            for (int u = 0; u < LIGHTMAP_SIZE; u++) {
+                float normalizedU = static_cast<float>(u) / (LIGHTMAP_SIZE - 1);  // 0 to 1
+                float normalizedV = static_cast<float>(v) / (LIGHTMAP_SIZE - 1);  // 0 to 1
                 
-                // Skip if this position has a solid voxel
-                if (getVoxel(x, y, z) != 0) continue;
+                // Calculate world position for this light map texel
+                Vec3 worldPos = calculateWorldPositionFromLightMapUV(faceIndex, normalizedU, normalizedV);
                 
-                // Cast ray from this position toward the sun
-                Vec3 rayStart = Vec3(static_cast<float>(x), static_cast<float>(y), static_cast<float>(z));
-                Vec3 rayDir = Vec3(0.0f, 0.0f, 0.0f) - sunDirection; // Ray toward sun
+                // Calculate ray start position (slightly offset from surface in face normal direction)
+                Vec3 rayStart = worldPos + faceNormal * 0.1f;
                 
-                // Simple ray marching to check for shadows
-                bool hitSolid = false;
-                float rayLength = 0.0f;
-                const float maxRayLength = SIZE * 2.0f;
-                const float stepSize = 0.5f;
+                // Use full inter-chunk/inter-island raycasting for proper lighting
+                // This will check occlusion across chunk boundaries and between islands
+                bool isOccluded = performSunRaycast(rayStart, sunDirection, SIZE * 3.0f);  // Extended range for inter-chunk
                 
-                while (rayLength < maxRayLength && !hitSolid)
-                {
-                    Vec3 rayPos = rayStart + rayDir * rayLength;
-                    int checkX = static_cast<int>(rayPos.x);
-                    int checkY = static_cast<int>(rayPos.y);
-                    int checkZ = static_cast<int>(rayPos.z);
-                    
-                    if (getVoxel(checkX, checkY, checkZ) != 0)
-                    {
-                        hitSolid = true;
+                // Calculate base lighting from face orientation
+                Vec3 negSunDirection = Vec3(-sunDirection.x, -sunDirection.y, -sunDirection.z);
+                float dotProduct = faceNormal.dot(negSunDirection);  // Negative sun direction to get proper lighting
+                
+                float finalLight;
+                if (dotProduct > 0.0f) {
+                    // Surface faces toward sun - check full occlusion including other islands
+                    float directionalLight = dotProduct * sunIntensity;
+                    if (isOccluded) {
+                        // Occluded by another voxel (local or remote) - reduced lighting
+                        finalLight = ambientIntensity + directionalLight * 0.1f;  // More dramatic shadow
+                    } else {
+                        // Clear path to sun - full directional lighting
+                        finalLight = ambientIntensity + directionalLight;
                     }
-                    
-                    rayLength += stepSize;
+                } else {
+                    // Surface faces away from sun - just ambient
+                    finalLight = ambientIntensity;
                 }
                 
-                // Calculate lighting for this sample
-                float light = ambientIntensity;
-                if (!hitSolid)
-                {
-                    light += sunIntensity; // Direct sunlight
-                }
+                // Add some variation based on texel position for visual interest
+                float variation = (sin(normalizedU * 3.14159f * 2.0f) * cos(normalizedV * 3.14159f * 2.0f)) * 0.03f;
+                finalLight += variation;
                 
-                totalLight += light;
-                sampleCount++;
+                // Store in light map (clamp to valid range)
+                int index = (v * LIGHTMAP_SIZE + u) * 3;
+                uint8_t lightByte = static_cast<uint8_t>(std::min(255.0f, std::max(0.0f, finalLight * 255.0f)));
+                faceMap.data[index] = lightByte;
+                faceMap.data[index + 1] = lightByte;
+                faceMap.data[index + 2] = lightByte;
             }
-            
-            // Average the lighting samples
-            float finalLight = (sampleCount > 0) ? (totalLight / sampleCount) : ambientIntensity;
-            finalLight = std::min(1.0f, std::max(0.0f, finalLight)); // Clamp [0,1]
-            
-            // Convert to RGB (for now, grayscale lighting)
-            uint8_t lightValue = static_cast<uint8_t>(finalLight * 255.0f);
-            
-            int index = (v * LIGHTMAP_SIZE + u) * 3;
-            lightMap.data[index + 0] = lightValue; // R
-            lightMap.data[index + 1] = lightValue; // G  
-            lightMap.data[index + 2] = lightValue; // B
         }
     }
 }
 
-void VoxelChunk::updateLightMapTexture()
+// Helper function to calculate world position from light map UV coordinates
+Vec3 VoxelChunk::calculateWorldPositionFromLightMapUV(int faceIndex, float u, float v) const
+{
+    // Convert light map UV (0-1) to world position within this chunk
+    // Each face maps to different axes based on face orientation
+    
+    float worldU = u * SIZE;  // Scale to chunk size
+    float worldV = v * SIZE;
+    
+    Vec3 worldPos;
+    
+    switch (faceIndex) {
+        case 0: // +Z face: U=X, V=Y, fixed Z=SIZE
+            worldPos = Vec3(worldU, worldV, SIZE - 0.5f);
+            break;
+        case 1: // -Z face: U=X, V=Y, fixed Z=0
+            worldPos = Vec3(worldU, worldV, 0.5f);
+            break;
+        case 2: // +Y face: U=X, V=Z, fixed Y=SIZE
+            worldPos = Vec3(worldU, SIZE - 0.5f, worldV);
+            break;
+        case 3: // -Y face: U=X, V=Z, fixed Y=0
+            worldPos = Vec3(worldU, 0.5f, worldV);
+            break;
+        case 4: // +X face: U=Y, V=Z, fixed X=SIZE
+            worldPos = Vec3(SIZE - 0.5f, worldU, worldV);
+            break;
+        case 5: // -X face: U=Y, V=Z, fixed X=0
+            worldPos = Vec3(0.5f, worldU, worldV);
+            break;
+        default:
+            worldPos = Vec3(SIZE * 0.5f, SIZE * 0.5f, SIZE * 0.5f);
+            break;
+    }
+    
+    return worldPos;
+}
+
+// Helper function to perform raycast toward sun for occlusion testing (local chunk only)
+bool VoxelChunk::performLocalSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const
+{
+    // Perform a simple raycast through the voxel grid toward the sun (local chunk only)
+    // Returns true if ray hits a solid voxel (occluded), false if clear path
+    
+    const float stepSize = 0.4f;  // Smaller step size for more accuracy
+    const int maxSteps = static_cast<int>(maxDistance / stepSize);
+    
+    Vec3 rayPos = rayStart;
+    Vec3 rayStep = sunDirection * stepSize;
+    
+    for (int step = 0; step < maxSteps; ++step) {
+        rayPos = rayPos + rayStep;
+        
+        // Check if ray position is outside chunk bounds
+        if (rayPos.x < 0 || rayPos.x >= SIZE || 
+            rayPos.y < 0 || rayPos.y >= SIZE || 
+            rayPos.z < 0 || rayPos.z >= SIZE) {
+            // Ray exited chunk bounds - no local occlusion (floating island characteristic)
+            return false;
+        }
+        
+        // Sample voxel at current ray position
+        int voxelX = static_cast<int>(rayPos.x);
+        int voxelY = static_cast<int>(rayPos.y);
+        int voxelZ = static_cast<int>(rayPos.z);
+        
+        // Clamp to valid bounds
+        voxelX = std::max(0, std::min(SIZE - 1, voxelX));
+        voxelY = std::max(0, std::min(SIZE - 1, voxelY));
+        voxelZ = std::max(0, std::min(SIZE - 1, voxelZ));
+        
+        uint8_t voxel = getVoxel(voxelX, voxelY, voxelZ);
+        if (voxel != 0) {
+            // Hit a solid voxel - ray is locally occluded
+            return true;
+        }
+    }
+    
+    // Ray traveled maximum distance without hitting anything locally
+    return false;
+}
+
+// Helper function to perform raycast toward sun for occlusion testing
+bool VoxelChunk::performSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const
+{
+    // Enhanced raycast that checks across multiple islands for proper inter-chunk lighting
+    return performInterIslandSunRaycast(rayStart, sunDirection, maxDistance);
+}
+
+// Helper function to perform inter-island raycast for lighting occlusion
+bool VoxelChunk::performInterIslandSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const
+{
+    // Optimized raycast that can span multiple islands for proper lighting
+    
+    const float stepSize = 1.0f;  // Larger step size for performance
+    const int maxSteps = static_cast<int>(maxDistance / stepSize);
+    
+    Vec3 rayPos = rayStart;
+    Vec3 rayStep = sunDirection * stepSize;
+    
+    // We need to find which island this chunk belongs to first
+    extern IslandChunkSystem g_islandSystem;
+    
+    // Find our island ID by checking all islands
+    uint32_t currentIslandID = 0;
+    const auto& islands = g_islandSystem.getIslands();
+    
+    for (const auto& [islandID, island] : islands) {
+        for (const auto& [chunkCoord, chunk] : island.chunks) {
+            if (chunk.get() == this) {
+                currentIslandID = islandID;
+                break;
+            }
+        }
+        if (currentIslandID != 0) break;
+    }
+    
+    if (currentIslandID == 0) {
+        // Fallback to local raycast if we can't find our island
+        return performLocalSunRaycast(rayStart, sunDirection, maxDistance);
+    }
+    
+    // Get our island's center for coordinate conversion
+    Vec3 islandCenter = g_islandSystem.getIslandCenter(currentIslandID);
+    
+    // Limit raycast steps for performance - use smaller range for inter-island checks
+    const int limitedSteps = std::min(maxSteps, static_cast<int>(SIZE * 1.5f / stepSize));
+    
+    for (int step = 0; step < limitedSteps; ++step) {
+        rayPos = rayPos + rayStep;
+        
+        // First check local island (fastest)
+        if (rayPos.x >= 0 && rayPos.x < SIZE && 
+            rayPos.y >= 0 && rayPos.y < SIZE && 
+            rayPos.z >= 0 && rayPos.z < SIZE) {
+            
+            int voxelX = static_cast<int>(rayPos.x);
+            int voxelY = static_cast<int>(rayPos.y);
+            int voxelZ = static_cast<int>(rayPos.z);
+            
+            uint8_t voxel = getVoxel(voxelX, voxelY, voxelZ);
+            if (voxel != 0) {
+                return true;  // Hit local voxel
+            }
+        } else {
+            // Only check nearby islands for efficiency
+            Vec3 worldRayPos = rayPos + islandCenter;
+            
+            // Check only the 2 closest islands to avoid O(n²) complexity
+            int islandsChecked = 0;
+            for (const auto& [otherIslandID, otherIsland] : islands) {
+                if (otherIslandID == currentIslandID) continue;  // Skip our own island
+                if (++islandsChecked > 2) break;  // Limit to 2 nearby islands
+                
+                // Convert world position to island-relative position
+                Vec3 otherIslandCenter = g_islandSystem.getIslandCenter(otherIslandID);
+                Vec3 islandRelativePos = worldRayPos - otherIslandCenter;
+                
+                // Quick distance check - skip if too far
+                float distToIsland = islandRelativePos.length();
+                if (distToIsland > SIZE * 2.0f) continue;
+                
+                // Query voxel from this island
+                uint8_t voxel = g_islandSystem.getVoxelFromIsland(otherIslandID, islandRelativePos);
+                if (voxel != 0) {
+                    return true;  // Ray is occluded by another island's voxel
+                }
+            }
+        }
+    }
+    
+    // Ray traveled limited distance without hitting anything significant
+    return false;
+}
+
+void VoxelChunk::updateLightMapTextures()
 {
     // Safety check: Only create textures when we have an OpenGL context
     // This should only be called from the rendering thread
     
-    // Generate OpenGL texture if it doesn't exist
-    if (lightMap.textureHandle == 0)
-    {
-        glGenTextures(1, &lightMap.textureHandle);
+    for (int faceIndex = 0; faceIndex < 6; ++faceIndex) {
+        FaceLightMap& faceMap = lightMaps.getFaceMap(faceIndex);
         
-        // Check for OpenGL errors
+        // Generate OpenGL texture if it doesn't exist
+        if (faceMap.textureHandle == 0)
+        {
+            glGenTextures(1, &faceMap.textureHandle);
+            
+            // Check for OpenGL errors
+            GLenum error = glGetError();
+            if (error != GL_NO_ERROR)
+            {
+                std::cerr << "Failed to generate face " << faceIndex << " light map texture, OpenGL error: " << error << std::endl;
+                continue;
+            }
+            std::cout << "[LIGHTMAP] Created face " << faceIndex << " texture handle: " << faceMap.textureHandle << std::endl;
+        }
+        
+        // Upload light map data to GPU
+        glBindTexture(GL_TEXTURE_2D, faceMap.textureHandle);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, FaceLightMap::LIGHTMAP_SIZE, FaceLightMap::LIGHTMAP_SIZE, 0, GL_RGB, GL_UNSIGNED_BYTE, faceMap.data.data());
+        
+        // Debug: Check first few texels for first face only
+        if (faceIndex == 0 && !faceMap.data.empty()) {
+            std::cout << "[LIGHTMAP] Face 0 first texel RGB: " 
+                      << static_cast<int>(faceMap.data[0]) << ", "
+                      << static_cast<int>(faceMap.data[1]) << ", "
+                      << static_cast<int>(faceMap.data[2]) << std::endl;
+        }
+        
+        // Set texture parameters for light maps
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        
+        // Check for any OpenGL errors
         GLenum error = glGetError();
         if (error != GL_NO_ERROR)
         {
-            std::cerr << "Failed to generate light map texture, OpenGL error: " << error << std::endl;
-            return;
+            std::cerr << "OpenGL error in updateLightMapTextures for face " << faceIndex << ": " << error << std::endl;
         }
     }
     
-    // Upload light map data to GPU
-    glBindTexture(GL_TEXTURE_2D, lightMap.textureHandle);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 32, 32, 0, GL_RGB, GL_UNSIGNED_BYTE, lightMap.data.data());
-    
-    // Set texture parameters for light maps
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    
     glBindTexture(GL_TEXTURE_2D, 0);
-    
-    // Check for any OpenGL errors
-    GLenum error = glGetError();
-    if (error != GL_NO_ERROR)
-    {
-        std::cerr << "OpenGL error in updateLightMapTexture: " << error << std::endl;
+}
+
+void VoxelChunk::markLightMapsDirty() {
+    // Mark all face light map textures as needing recreation
+    for (int face = 0; face < 6; ++face) {
+        lightMaps.getFaceMap(face).textureHandle = 0; // Force recreation
     }
+}
+
+bool VoxelChunk::hasValidLightMaps() const {
+    // Check if all lightmap faces have valid texture handles
+    for (int face = 0; face < 6; ++face) {
+        if (lightMaps.getFaceMap(face).textureHandle == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool VoxelChunk::hasLightMapData() const {
+    // Check if lightmap data is present (even if textures aren't created yet)
+    for (int face = 0; face < 6; ++face) {
+        if (lightMaps.getFaceMap(face).data.empty()) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // ========================================
@@ -985,60 +1225,136 @@ void VoxelChunk::addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32
     // Need to match the texture coordinates with the actual quad vertex ordering
     float texCoords[4][2];
     
+    // Use standard texture coordinates without debug borders
+    float uMin = 0.0f;
+    float uMax = static_cast<float>(width);
+    float vMin = 0.0f;
+    float vMax = static_cast<float>(height);
+    
     switch (direction)
     {
         case 0: // +X face (right): vertices go Y=0→width, Z=0→height
-            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
-            texCoords[1][0] = static_cast<float>(width); texCoords[1][1] = 0.0f;
-            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
-            texCoords[3][0] = 0.0f; texCoords[3][1] = static_cast<float>(height);
+            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
+            texCoords[1][0] = uMax; texCoords[1][1] = vMin;
+            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
+            texCoords[3][0] = uMin; texCoords[3][1] = vMax;
             break;
         case 1: // -X face (left): vertices go Z=0→height, Y=0→width  
-            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
-            texCoords[1][0] = 0.0f; texCoords[1][1] = static_cast<float>(height);
-            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
-            texCoords[3][0] = static_cast<float>(width); texCoords[3][1] = 0.0f;
+            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
+            texCoords[1][0] = uMin; texCoords[1][1] = vMax;
+            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
+            texCoords[3][0] = uMax; texCoords[3][1] = vMin;
             break;
         case 2: // +Y face (up): vertices go Z=0→height, X=0→width
-            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
-            texCoords[1][0] = 0.0f; texCoords[1][1] = static_cast<float>(height);
-            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
-            texCoords[3][0] = static_cast<float>(width); texCoords[3][1] = 0.0f;
+            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
+            texCoords[1][0] = uMin; texCoords[1][1] = vMax;
+            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
+            texCoords[3][0] = uMax; texCoords[3][1] = vMin;
             break;
         case 3: // -Y face (down): vertices go X=0→width, Z=0→height
-            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
-            texCoords[1][0] = static_cast<float>(width); texCoords[1][1] = 0.0f;
-            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
-            texCoords[3][0] = 0.0f; texCoords[3][1] = static_cast<float>(height);
+            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
+            texCoords[1][0] = uMax; texCoords[1][1] = vMin;
+            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
+            texCoords[3][0] = uMin; texCoords[3][1] = vMax;
             break;
         case 4: // +Z face (forward): vertices go X=0→width, Y=0→height
-            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
-            texCoords[1][0] = static_cast<float>(width); texCoords[1][1] = 0.0f;
-            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
-            texCoords[3][0] = 0.0f; texCoords[3][1] = static_cast<float>(height);
+            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
+            texCoords[1][0] = uMax; texCoords[1][1] = vMin;
+            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
+            texCoords[3][0] = uMin; texCoords[3][1] = vMax;
             break;
         case 5: // -Z face (back): vertices go Y=0→height, X=0→width
-            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
-            texCoords[1][0] = 0.0f; texCoords[1][1] = static_cast<float>(height);
-            texCoords[2][0] = static_cast<float>(width); texCoords[2][1] = static_cast<float>(height);
-            texCoords[3][0] = static_cast<float>(width); texCoords[3][1] = 0.0f;
+            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
+            texCoords[1][0] = uMin; texCoords[1][1] = vMax;
+            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
+            texCoords[3][0] = uMax; texCoords[3][1] = vMin;
             break;
         default:
-            // Fallback to default
-            texCoords[0][0] = 0.0f; texCoords[0][1] = 0.0f;
-            texCoords[1][0] = 1.0f; texCoords[1][1] = 0.0f;
-            texCoords[2][0] = 1.0f; texCoords[2][1] = 1.0f;
-            texCoords[3][0] = 0.0f; texCoords[3][1] = 1.0f;
+            // Fallback to default texture coordinates
+            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
+            texCoords[1][0] = uMax; texCoords[1][1] = vMin;
+            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
+            texCoords[3][0] = uMin; texCoords[3][1] = vMax;
             break;
     }
     
-    // Calculate light map coordinates (center of the merged quad)
-    float centerX = x + width * 0.5f;
-    float centerY = y + height * 0.5f;
-    float centerZ = z + 0.5f; // Simplified for now
+    // Calculate light map coordinates for each vertex
+    // With per-face light maps, each face uses its own texture space (0-1 range)
+    float lightMapCoords[4][2];
     
-    float lightMapU = (centerX / static_cast<float>(SIZE));
-    float lightMapV = (centerY / static_cast<float>(SIZE));
+    // Map each vertex to its face's light map space (0-1 range)
+    switch (direction)
+    {
+        case 0: // +X face: map Y,Z to light map UV (full 0-1 range)
+            lightMapCoords[0][0] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
+            lightMapCoords[0][1] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
+            lightMapCoords[1][0] = static_cast<float>(y + width) / static_cast<float>(SIZE);   // Y=width
+            lightMapCoords[1][1] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
+            lightMapCoords[2][0] = static_cast<float>(y + width) / static_cast<float>(SIZE);   // Y=width
+            lightMapCoords[2][1] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
+            lightMapCoords[3][0] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
+            lightMapCoords[3][1] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
+            break;
+        case 1: // -X face: map Z,Y to light map UV
+            lightMapCoords[0][0] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
+            lightMapCoords[0][1] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
+            lightMapCoords[1][0] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
+            lightMapCoords[1][1] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
+            lightMapCoords[2][0] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
+            lightMapCoords[2][1] = static_cast<float>(y + width) / static_cast<float>(SIZE);   // Y=width
+            lightMapCoords[3][0] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
+            lightMapCoords[3][1] = static_cast<float>(y + width) / static_cast<float>(SIZE);   // Y=width
+            break;
+        case 2: // +Y face: map Z,X to light map UV
+            lightMapCoords[0][0] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
+            lightMapCoords[0][1] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
+            lightMapCoords[1][0] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
+            lightMapCoords[1][1] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
+            lightMapCoords[2][0] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
+            lightMapCoords[2][1] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
+            lightMapCoords[3][0] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
+            lightMapCoords[3][1] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
+            break;
+        case 3: // -Y face: map X,Z to light map UV
+            lightMapCoords[0][0] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
+            lightMapCoords[0][1] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
+            lightMapCoords[1][0] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
+            lightMapCoords[1][1] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
+            lightMapCoords[2][0] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
+            lightMapCoords[2][1] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
+            lightMapCoords[3][0] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
+            lightMapCoords[3][1] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
+            break;
+        case 4: // +Z face: map X,Y to light map UV
+            lightMapCoords[0][0] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
+            lightMapCoords[0][1] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
+            lightMapCoords[1][0] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
+            lightMapCoords[1][1] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
+            lightMapCoords[2][0] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
+            lightMapCoords[2][1] = static_cast<float>(y + height) / static_cast<float>(SIZE);  // Y=height
+            lightMapCoords[3][0] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
+            lightMapCoords[3][1] = static_cast<float>(y + height) / static_cast<float>(SIZE);  // Y=height
+            break;
+        case 5: // -Z face: map Y,X to light map UV
+            lightMapCoords[0][0] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
+            lightMapCoords[0][1] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
+            lightMapCoords[1][0] = static_cast<float>(y + height) / static_cast<float>(SIZE);  // Y=height
+            lightMapCoords[1][1] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
+            lightMapCoords[2][0] = static_cast<float>(y + height) / static_cast<float>(SIZE);  // Y=height
+            lightMapCoords[2][1] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
+            lightMapCoords[3][0] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
+            lightMapCoords[3][1] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
+            break;
+        default:
+            // Fallback: use center coordinates for all vertices
+            float centerU = (x + width * 0.5f) / static_cast<float>(SIZE);
+            float centerV = (y + height * 0.5f) / static_cast<float>(SIZE);
+            for (int i = 0; i < 4; ++i) {
+                lightMapCoords[i][0] = centerU;
+                lightMapCoords[i][1] = centerV;
+            }
+            break;
+    }
     
     // Add vertices
     uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
@@ -1053,9 +1369,10 @@ void VoxelChunk::addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32
         vertex.nz = normal.z;
         vertex.u = texCoords[i][0];
         vertex.v = texCoords[i][1];
-        vertex.lu = lightMapU;
-        vertex.lv = lightMapV;
+        vertex.lu = lightMapCoords[i][0];
+        vertex.lv = lightMapCoords[i][1];
         vertex.ao = computeAmbientOcclusion(x, y, z, direction);
+        vertex.faceIndex = static_cast<float>(direction);  // Store face index for shader
         
         vertices.push_back(vertex);
     }

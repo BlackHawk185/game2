@@ -18,10 +18,10 @@ add_library(engine STATIC
     # Rendering systems
     Rendering/Renderer.cpp
     Rendering/VBORenderer.cpp  # RE-ENABLED
-    Rendering/ModernRenderer.cpp
     Rendering/TextureManager.cpp
     Rendering/ShaderManager.cpp
     Rendering/SimpleShader.cpp  # Simple shader for basic rendering
+    Rendering/GlobalLightingManager.cpp  # NEW: Global lighting system
     
     # Input systems
     Input/Camera.cpp

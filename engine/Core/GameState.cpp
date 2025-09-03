@@ -5,6 +5,7 @@
 
 #include "../Threading/JobSystem.h"
 #include "../World/VoxelChunk.h"
+#include "../Rendering/GlobalLightingManager.h"
 
 // External job system (we'll refactor this later)
 extern JobSystem g_jobSystem;
@@ -41,6 +42,12 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
 
     // Create primary player
     m_primaryPlayer = std::make_unique<Player>();
+
+    // Configure lighting system for maximum performance
+    g_globalLighting.setUpdateFrequency(60.0f);   // Back to 60 FPS for responsiveness
+    g_globalLighting.setOcclusionEnabled(false);  // Disable occlusion for maximum performance
+    
+    std::cout << "💡 Configured lighting: Simple face-orientation lighting for performance" << std::endl;
 
     // Create default world if requested
     if (shouldCreateDefaultWorld)
@@ -136,33 +143,22 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (3 floating islands)..." << std::endl;
 
     // **OPTIMIZED ISLAND SPACING** - Calculate safe distances to prevent overlap
-    // Main island: 320-unit radius = 640 units diameter (doubled from 160)
-    // Secondary islands: 128-unit radius = 256 units diameter (doubled from 64)
-    // Safe spacing: 320 + 128 + 100 buffer = 548 units minimum
-    // Using 600 units for aesthetic separation and clear visual distinction
+    // Main island: Half size for testing lightmaps - 160-unit radius = 320 units diameter
+    // Start with smaller island for lightmap testing
+    float mainRadius = 160.0f;     // Halved from 320.0f for lightmap testing
+    float spacing = 200.0f;        // Not needed for single island but kept for consistency
     
-    float mainRadius = 320.0f;      // Doubled from 160.0f
-    float secondaryRadius = 128.0f; // Doubled from 64.0f
-    float spacing = 600.0f;  // Increased spacing for larger islands
-    
-    // Create 3 islands in a triangle formation with proper spacing
-    uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));  // Center island (large)
-    uint32_t island2ID = m_islandSystem.createIsland(Vec3(spacing, 20.0f, spacing * 0.6f));  // Right-forward island
-    uint32_t island3ID = m_islandSystem.createIsland(Vec3(-spacing, -20.0f, spacing * 0.6f));  // Left-forward island
+    // Create 1 island for testing and optimization
+    uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));  // Center island
 
-    // Track the islands
+    // Track the island
     m_islandIDs.push_back(island1ID);
-    m_islandIDs.push_back(island2ID);
-    m_islandIDs.push_back(island3ID);
 
-    // **ALL ISLANDS USE ORGANIC NOISE-FIRST GENERATION** - Consistent quality across the world
-    std::cout << "[WORLD] Generating all islands with organic noise-first approach..." << std::endl;
-    std::cout << "[SPACING] Island spacing: " << spacing << " units (prevents overlap of " 
-              << mainRadius << "+" << secondaryRadius << "=" << (mainRadius + secondaryRadius) << " unit radii)" << std::endl;
+    // **SINGLE ISLAND GENERATION** - Focus on getting lighting working first
+    std::cout << "[WORLD] Generating single test island with lighting optimization..." << std::endl;
+    std::cout << "[ISLAND] Main island radius: " << mainRadius << " units" << std::endl;
     
-    m_islandSystem.generateFloatingIslandOrganic(island1ID, 12345, mainRadius);      // Large central island
-    m_islandSystem.generateFloatingIslandOrganic(island2ID, 54321, secondaryRadius); // Medium secondary island  
-    m_islandSystem.generateFloatingIslandOrganic(island3ID, 98765, secondaryRadius); // Medium secondary island
+    m_islandSystem.generateFloatingIslandOrganic(island1ID, 12345, mainRadius);      // Single test island
 
     // Log collision mesh generation for each island
     for (uint32_t islandID : m_islandIDs)

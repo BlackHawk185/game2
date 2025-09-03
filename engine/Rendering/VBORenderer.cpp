@@ -144,7 +144,7 @@ void VBORenderer::setupVAO(VoxelChunk* chunk)
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO);
     
     // Setup vertex attributes for modern OpenGL with light mapping
-    // Vertex layout: position(3) + normal(3) + texcoord(2) + lightMapUV(2) + ambientOcclusion(1) = 11 floats = 44 bytes
+    // Vertex layout: position(3) + normal(3) + texcoord(2) + lightMapUV(2) + ambientOcclusion(1) + faceIndex(1) = 12 floats = 48 bytes
     
     // Position attribute (location 0)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
@@ -165,6 +165,10 @@ void VBORenderer::setupVAO(VoxelChunk* chunk)
     // Ambient occlusion attribute (location 4) - NEW
     glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(10 * sizeof(float)));
     glEnableVertexAttribArray(4);
+    
+    // Face index attribute (location 5) - NEW for per-face light maps
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(11 * sizeof(float)));
+    glEnableVertexAttribArray(5);
     
     // Unbind VAO
     glBindVertexArray(0);
@@ -254,10 +258,7 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     m_shader.setMatrix4("uView", m_viewMatrix);
     m_shader.setMatrix4("uProjection", m_projectionMatrix);
     
-    // Set fixed directional lighting (Phase 1: Basic shadows working)
-    // Sun direction: slightly from above and to the side for good shadow contrast
-    m_shader.setVector3("uSunDirection", Vec3(0.5f, -0.8f, 0.3f)); 
-    m_shader.setFloat("uTimeOfDay", 0.5f); // Noon lighting
+    // Note: Using pure light map approach, no traditional lighting uniforms needed
     
     // Bind albedo texture (texture unit 0)
     GLuint grassTexture = g_textureManager->getTexture("dirt.png");
@@ -274,21 +275,47 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
         std::cout << "WARNING: dirt.png texture not found in TextureManager!" << std::endl;
     }
     
-    // Bind light map texture (texture unit 1)
-    ChunkLightMap& lightMap = chunk->getLightMap(); // Non-const to allow texture creation
-    if (lightMap.textureHandle == 0) {
-        // Create the texture now that we have OpenGL context
-        chunk->updateLightMapTexture();
+    // Bind light map textures (texture units 1-6) - one for each face
+    ChunkLightMaps& lightMaps = chunk->getLightMaps(); // Non-const to allow texture access
+    
+    // Check if lightmaps are ready - don't create them automatically
+    // The GlobalLightingManager should have processed this chunk already
+    if (!chunk->hasValidLightMaps()) {
+        // Lightmaps not ready - this should not happen if our systems are properly coordinated
+        static int skipCount = 0;
+        if (skipCount < 5) {
+            std::cout << "[VBORenderer] Warning: Lightmaps not ready for chunk - skipping! (count: " << skipCount << ")" << std::endl;
+            skipCount++;
+        }
+        return; // Skip rendering this chunk until lightmaps are ready
     }
     
-    if (lightMap.textureHandle != 0) {
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, lightMap.textureHandle);
-        m_shader.setInt("uLightMap", 1);
-        m_shader.setFloat("uLightMapStrength", 0.7f); // 70% light map influence
+    // Bind all 6 face light map textures
+    bool allTexturesValid = true;
+    for (int face = 0; face < 6; ++face) {
+        if (lightMaps.faceMaps[face].textureHandle != 0) {
+            glActiveTexture(GL_TEXTURE1 + face);
+            glBindTexture(GL_TEXTURE_2D, lightMaps.faceMaps[face].textureHandle);
+        } else {
+            allTexturesValid = false;
+            std::cerr << "Warning: Light map texture for face " << face << " is not available" << std::endl;
+        }
+    }
+    
+    // Set shader uniforms for light map textures
+    m_shader.setInt("uLightMapFace0", 1);  // GL_TEXTURE1
+    m_shader.setInt("uLightMapFace1", 2);  // GL_TEXTURE2
+    m_shader.setInt("uLightMapFace2", 3);  // GL_TEXTURE3
+    m_shader.setInt("uLightMapFace3", 4);  // GL_TEXTURE4
+    m_shader.setInt("uLightMapFace4", 5);  // GL_TEXTURE5
+    m_shader.setInt("uLightMapFace5", 6);  // GL_TEXTURE6
+    
+    if (allTexturesValid) {
+        // Enable pure light map rendering (1.0 = full light map, 0.0 = traditional lighting only)
+        m_shader.setFloat("uLightMapStrength", 1.0f);
     } else {
-        // Fallback: bind a default white texture or disable light mapping
-        m_shader.setFloat("uLightMapStrength", 0.0f); // Disable light mapping
+        // Fallback: Use default bright lighting when no light map available
+        m_shader.setFloat("uLightMapStrength", 0.0f);
     }
     
     // Bind VAO and render
@@ -296,9 +323,11 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     glDrawElements(GL_TRIANGLES, mesh.indices.size(), GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
     
-    // Clean up texture state
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    // Clean up texture state - unbind all light map textures
+    for (int face = 0; face < 6; ++face) {
+        glActiveTexture(GL_TEXTURE1 + face);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
     
@@ -377,19 +406,36 @@ void VBORenderer::renderChunkBatch(const std::vector<VoxelChunk*>& chunks, const
             m_shader.setInt("uTexture", 0);
         }
         
-        // Bind light map
-        ChunkLightMap& lightMap = chunk->getLightMap();
-        if (lightMap.textureHandle == 0) {
-            chunk->updateLightMapTexture();
+        // Bind light map textures (texture units 1-6) - one for each face
+        ChunkLightMaps& lightMaps = chunk->getLightMaps();
+        
+        // Check if lightmaps are ready - don't create them automatically  
+        // The GlobalLightingManager should have processed this chunk already
+        if (!chunk->hasValidLightMaps()) {
+            // Skip this chunk until lightmaps are ready
+            continue; // Skip to next chunk in batch
         }
         
-        if (lightMap.textureHandle != 0) {
-            glActiveTexture(GL_TEXTURE1);
-            glBindTexture(GL_TEXTURE_2D, lightMap.textureHandle);
-            m_shader.setInt("uLightMap", 1);
-            m_shader.setFloat("uLightMapStrength", 0.7f);
-        } else {
-            m_shader.setFloat("uLightMapStrength", 0.0f);
+        // Bind all 6 face light map textures
+        bool allTexturesValid = true;
+        for (int face = 0; face < 6; ++face) {
+            if (lightMaps.faceMaps[face].textureHandle != 0) {
+                glActiveTexture(GL_TEXTURE1 + face);
+                glBindTexture(GL_TEXTURE_2D, lightMaps.faceMaps[face].textureHandle);
+            } else {
+                allTexturesValid = false;
+            }
+        }
+        
+        // Set shader uniforms for light map textures (same for all chunks)
+        if (i == 0) { // Only set once per batch
+            m_shader.setInt("uLightMapFace0", 1);  // GL_TEXTURE1
+            m_shader.setInt("uLightMapFace1", 2);  // GL_TEXTURE2
+            m_shader.setInt("uLightMapFace2", 3);  // GL_TEXTURE3
+            m_shader.setInt("uLightMapFace3", 4);  // GL_TEXTURE4
+            m_shader.setInt("uLightMapFace4", 5);  // GL_TEXTURE5
+            m_shader.setInt("uLightMapFace5", 6);  // GL_TEXTURE6
+            m_shader.setFloat("uLightMapStrength", allTexturesValid ? 1.0f : 0.0f);
         }
         
         // Render chunk
@@ -403,9 +449,11 @@ void VBORenderer::renderChunkBatch(const std::vector<VoxelChunk*>& chunks, const
         m_stats.drawCalls++;
     }
     
-    // Clean up texture state
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    // Clean up texture state - unbind all light map textures
+    for (int face = 0; face < 6; ++face) {
+        glActiveTexture(GL_TEXTURE1 + face);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
 }

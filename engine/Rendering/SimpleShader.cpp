@@ -14,6 +14,7 @@ layout (location = 1) in vec2 aTexCoord;
 layout (location = 2) in vec3 aNormal;
 layout (location = 3) in vec2 aLightMapUV;  // Light map texture coordinates
 layout (location = 4) in float aAmbientOcclusion;  // Per-vertex ambient occlusion
+layout (location = 5) in float aFaceIndex;  // Face index for per-face light maps
 
 // UBO for batch rendering multiple chunks with different lighting
 layout (std140, binding = 0) uniform ChunkLightingData {
@@ -33,6 +34,7 @@ out vec2 TexCoord;
 out vec3 Normal;
 out vec2 LightMapUV;
 out float AmbientOcclusion;
+out float FaceIndex;             // Pass face index for per-face light map selection
 out vec4 ChunkLightColor;     // Pass chunk-specific lighting data
 out vec4 ChunkAmbientData;    // Pass chunk-specific ambient data
 
@@ -52,6 +54,7 @@ void main()
     LightMapUV = aLightMapUV + uvOffset;
     
     AmbientOcclusion = aAmbientOcclusion;
+    FaceIndex = aFaceIndex;  // Pass face index to fragment shader
     
     // Pass chunk-specific lighting data to fragment shader
     ChunkLightColor = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
@@ -61,7 +64,7 @@ void main()
 }
 )";
 
-// Enhanced fragment shader with UBO support and light propagation
+// Enhanced fragment shader with per-face light maps and UBO support
 static const char* FRAGMENT_SHADER_SOURCE = R"(
 #version 460 core
 
@@ -69,11 +72,17 @@ in vec2 TexCoord;
 in vec3 Normal;
 in vec2 LightMapUV;
 in float AmbientOcclusion;
+in float FaceIndex;             // Face index for per-face light map selection
 in vec4 ChunkLightColor;
 in vec4 ChunkAmbientData;
 
 uniform sampler2D uTexture;
-uniform sampler2D uLightMap;        // Light map texture (precomputed lighting)
+uniform sampler2D uLightMapFace0;   // Light map texture for +X face
+uniform sampler2D uLightMapFace1;   // Light map texture for -X face
+uniform sampler2D uLightMapFace2;   // Light map texture for +Y face
+uniform sampler2D uLightMapFace3;   // Light map texture for -Y face
+uniform sampler2D uLightMapFace4;   // Light map texture for +Z face
+uniform sampler2D uLightMapFace5;   // Light map texture for -Z face
 uniform vec3 uSunDirection;         // Dynamic sun direction from day/night cycle
 uniform float uTimeOfDay;          // 0.0 = midnight, 0.5 = noon, 1.0 = midnight
 uniform float uLightMapStrength;   // Strength of light map influence [0.0-1.0]
@@ -90,8 +99,26 @@ void main()
         texColor = vec4(1.0, 0.0, 1.0, 1.0);
     }
     
-    // Sample light map for precomputed lighting
-    vec3 lightMapColor = texture(uLightMap, LightMapUV).rgb;
+    // Sample the appropriate light map based on face index
+    vec3 lightMapColor;
+    int face = int(FaceIndex + 0.5); // Round to nearest integer
+    
+    if (face == 0) {
+        lightMapColor = texture(uLightMapFace0, LightMapUV).rgb;
+    } else if (face == 1) {
+        lightMapColor = texture(uLightMapFace1, LightMapUV).rgb;
+    } else if (face == 2) {
+        lightMapColor = texture(uLightMapFace2, LightMapUV).rgb;
+    } else if (face == 3) {
+        lightMapColor = texture(uLightMapFace3, LightMapUV).rgb;
+    } else if (face == 4) {
+        lightMapColor = texture(uLightMapFace4, LightMapUV).rgb;
+    } else if (face == 5) {
+        lightMapColor = texture(uLightMapFace5, LightMapUV).rgb;
+    } else {
+        // Fallback for invalid face index
+        lightMapColor = vec3(1.0, 0.0, 1.0); // Bright magenta for debugging
+    }
     
     // Calculate traditional directional lighting from sun (as backup/blend)
     float sunDot = dot(normalize(Normal), normalize(-uSunDirection));

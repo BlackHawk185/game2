@@ -24,7 +24,15 @@ IslandChunkSystem::IslandChunkSystem()
 IslandChunkSystem::~IslandChunkSystem()
 {
     // Clean up all islands
+    // Collect IDs first to avoid iterator invalidation
+    std::vector<uint32_t> islandIDs;
     for (auto& [id, island] : m_islands)
+    {
+        islandIDs.push_back(id);
+    }
+    
+    // Now safely destroy all islands
+    for (uint32_t id : islandIDs)
     {
         destroyIsland(id);
     }

@@ -15,6 +15,7 @@
 #include "../Network/NetworkMessages.h"
 #include "../Rendering/Renderer.h"
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED
+#include "../Rendering/GlobalLightingManager.h"  // NEW: Global lighting system
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "../Time/TimeEffects.h"
@@ -653,6 +654,13 @@ void GameClient::renderWorld()
     if (!m_gameState)
     {
         return;
+    }
+
+    // Update global lighting for all visible chunks (frustum-culled)
+    {
+        PROFILE_SCOPE("updateGlobalLighting");
+        float aspect = (float) m_windowWidth / (float) m_windowHeight;
+        g_globalLighting.updateGlobalLighting(m_camera, m_gameState->getIslandSystem(), aspect);
     }
 
     // Render all islands
