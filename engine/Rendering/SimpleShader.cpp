@@ -87,70 +87,96 @@ uniform vec3 uSunDirection;         // Dynamic sun direction from day/night cycl
 uniform float uTimeOfDay;          // 0.0 = midnight, 0.5 = noon, 1.0 = midnight
 uniform float uLightMapStrength;   // Strength of light map influence [0.0-1.0]
 
+// Material uniforms for different object types
+uniform vec4 uMaterialColor;       // Diffuse color with alpha (for fluid particles, UI, etc.)
+uniform int uMaterialType;         // 0=voxel, 1=fluid, 2=ui
+uniform float uMaterialRoughness;  // Surface roughness
+uniform vec3 uMaterialEmissive;    // Emissive color
+
 out vec4 FragColor;
 
 void main()
 {
-    vec4 texColor = texture(uTexture, TexCoord);
+    vec4 finalColor;
     
-    // Check if texture is valid (not all black/white)
-    if (texColor.rgb == vec3(0.0, 0.0, 0.0) || texColor.a < 0.1) {
-        // Fallback to bright magenta if texture is missing/invalid
-        texColor = vec4(1.0, 0.0, 1.0, 1.0);
-    }
-    
-    // Sample the appropriate light map based on face index
-    vec3 lightMapColor;
-    int face = int(FaceIndex + 0.5); // Round to nearest integer
-    
-    if (face == 0) {
-        lightMapColor = texture(uLightMapFace0, LightMapUV).rgb;
-    } else if (face == 1) {
-        lightMapColor = texture(uLightMapFace1, LightMapUV).rgb;
-    } else if (face == 2) {
-        lightMapColor = texture(uLightMapFace2, LightMapUV).rgb;
-    } else if (face == 3) {
-        lightMapColor = texture(uLightMapFace3, LightMapUV).rgb;
-    } else if (face == 4) {
-        lightMapColor = texture(uLightMapFace4, LightMapUV).rgb;
-    } else if (face == 5) {
-        lightMapColor = texture(uLightMapFace5, LightMapUV).rgb;
+    // Branch based on material type for optimal performance
+    if (uMaterialType == 1) {
+        // Fluid Material - simple color with transparency
+        finalColor = uMaterialColor;
+        
+        // Add simple lighting for fluids
+        float sunDot = max(dot(normalize(Normal), normalize(-uSunDirection)), 0.0);
+        finalColor.rgb *= (0.3 + 0.7 * sunDot); // Ambient + directional
+        
+    } else if (uMaterialType == 2) {
+        // UI Material - no lighting, just color/texture
+        vec4 texColor = texture(uTexture, TexCoord);
+        finalColor = texColor * uMaterialColor;
+        
     } else {
-        // Fallback for invalid face index
-        lightMapColor = vec3(1.0, 0.0, 1.0); // Bright magenta for debugging
+        // Voxel Material (default) - full lightmap + texture system
+        vec4 texColor = texture(uTexture, TexCoord);
+        
+        // Check if texture is valid (not all black/white)
+        if (texColor.rgb == vec3(0.0, 0.0, 0.0) || texColor.a < 0.1) {
+            // Fallback to bright magenta if texture is missing/invalid
+            texColor = vec4(1.0, 0.0, 1.0, 1.0);
+        }
+        
+        // Sample the appropriate light map based on face index
+        vec3 lightMapColor;
+        int face = int(FaceIndex + 0.5); // Round to nearest integer
+        
+        if (face == 0) {
+            lightMapColor = texture(uLightMapFace0, LightMapUV).rgb;
+        } else if (face == 1) {
+            lightMapColor = texture(uLightMapFace1, LightMapUV).rgb;
+        } else if (face == 2) {
+            lightMapColor = texture(uLightMapFace2, LightMapUV).rgb;
+        } else if (face == 3) {
+            lightMapColor = texture(uLightMapFace3, LightMapUV).rgb;
+        } else if (face == 4) {
+            lightMapColor = texture(uLightMapFace4, LightMapUV).rgb;
+        } else if (face == 5) {
+            lightMapColor = texture(uLightMapFace5, LightMapUV).rgb;
+        } else {
+            // Fallback for invalid face index
+            lightMapColor = vec3(1.0, 0.0, 1.0); // Bright magenta for debugging
+        }
+        
+        // Calculate traditional directional lighting from sun (as backup/blend)
+        float sunDot = dot(normalize(Normal), normalize(-uSunDirection));
+        sunDot = max(sunDot, 0.0);
+        float directionalLight = sunDot * 0.8;
+        
+        // Use chunk-specific ambient data
+        float ambientStrength = mix(ChunkAmbientData.a * 0.2, ChunkAmbientData.a * 0.4, 
+                                   sin(uTimeOfDay * 3.14159)); // Varies based on chunk data
+        
+        // Traditional lighting with chunk-specific color tinting
+        float traditionalLight = ambientStrength + (0.6 * directionalLight);
+        
+        // Blend light map with traditional lighting
+        float finalLightIntensity = mix(traditionalLight, length(lightMapColor), uLightMapStrength);
+        
+        // Apply ambient occlusion with chunk-specific strength
+        finalLightIntensity *= mix(1.0, AmbientOcclusion, ChunkAmbientData.a);
+        
+        // Apply chunk-specific light color tinting
+        vec3 chunkTintedLight = ChunkLightColor.rgb * ChunkLightColor.a * finalLightIntensity;
+        
+        // Apply lighting to texture
+        vec3 baseColor = texColor.rgb * chunkTintedLight;
+        
+        // Add light map color tinting for colored lighting effects with chunk influence
+        baseColor = mix(baseColor, baseColor * lightMapColor * ChunkLightColor.rgb, 
+                        uLightMapStrength * 0.3);
+        
+        // Mix with chunk ambient color for inter-chunk light propagation
+        finalColor = vec4(mix(baseColor, baseColor * ChunkAmbientData.rgb, 0.1), texColor.a);
     }
     
-    // Calculate traditional directional lighting from sun (as backup/blend)
-    float sunDot = dot(normalize(Normal), normalize(-uSunDirection));
-    float directionalLight = max(sunDot, 0.0);
-    
-    // Use chunk-specific ambient data
-    float ambientStrength = mix(ChunkAmbientData.a * 0.2, ChunkAmbientData.a * 0.4, 
-                               sin(uTimeOfDay * 3.14159)); // Varies based on chunk data
-    
-    // Traditional lighting with chunk-specific color tinting
-    float traditionalLight = ambientStrength + (0.6 * directionalLight);
-    
-    // Blend light map with traditional lighting
-    float finalLightIntensity = mix(traditionalLight, length(lightMapColor), uLightMapStrength);
-    
-    // Apply ambient occlusion with chunk-specific strength
-    finalLightIntensity *= mix(1.0, AmbientOcclusion, ChunkAmbientData.a);
-    
-    // Apply chunk-specific light color tinting
-    vec3 chunkTintedLight = ChunkLightColor.rgb * ChunkLightColor.a * finalLightIntensity;
-    
-    // Apply lighting to texture
-    vec3 finalColor = texColor.rgb * chunkTintedLight;
-    
-    // Add light map color tinting for colored lighting effects with chunk influence
-    finalColor = mix(finalColor, finalColor * lightMapColor * ChunkLightColor.rgb, 
-                    uLightMapStrength * 0.3);
-    
-    // Mix with chunk ambient color for inter-chunk light propagation
-    finalColor = mix(finalColor, finalColor * ChunkAmbientData.rgb, 0.1);
-    
-    FragColor = vec4(finalColor, texColor.a);
+    FragColor = finalColor;
 }
 )";
 
@@ -238,6 +264,39 @@ void SimpleShader::setInt(const std::string& name, int value)
     GLint location = getUniformLocation(name);
     if (location != -1) {
         glUniform1i(location, value);
+    }
+}
+
+// Material system helper methods
+void SimpleShader::setMaterialColor(const glm::vec4& color)
+{
+    GLint location = getUniformLocation("uMaterialColor");
+    if (location != -1) {
+        glUniform4f(location, color.r, color.g, color.b, color.a);
+    }
+}
+
+void SimpleShader::setMaterialType(int type)
+{
+    GLint location = getUniformLocation("uMaterialType");
+    if (location != -1) {
+        glUniform1i(location, type);
+    }
+}
+
+void SimpleShader::setMaterialRoughness(float roughness)
+{
+    GLint location = getUniformLocation("uMaterialRoughness");
+    if (location != -1) {
+        glUniform1f(location, roughness);
+    }
+}
+
+void SimpleShader::setMaterialEmissive(const glm::vec3& emissive)
+{
+    GLint location = getUniformLocation("uMaterialEmissive");
+    if (location != -1) {
+        glUniform3f(location, emissive.r, emissive.g, emissive.b);
     }
 }
 

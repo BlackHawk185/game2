@@ -16,6 +16,7 @@
 #include "../Rendering/Renderer.h"
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED
 #include "../Rendering/GlobalLightingManager.h"  // NEW: Global lighting system
+#include "../Physics/FluidSystem.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "../Time/TimeEffects.h"
@@ -28,6 +29,9 @@ GameClient::GameClient()
 {
     // Constructor
     m_networkManager = std::make_unique<NetworkManager>();  // Re-enabled with ENet
+
+    // Set global day/night cycle pointer
+    g_dayNightCycle = &m_dayNightCycle;
 
     // Set up network callbacks
     if (auto client = m_networkManager->getClient())
@@ -53,6 +57,9 @@ GameClient::GameClient()
 
 GameClient::~GameClient()
 {
+    // Clear global day/night cycle pointer
+    g_dayNightCycle = nullptr;
+    
     shutdown();
 }
 
@@ -182,6 +189,23 @@ bool GameClient::update(float deltaTime)
             // Run client-side island physics between server updates
             // This provides smooth movement using server-provided velocities
             islandSystem->updateIslandPhysics(deltaTime);
+        }
+    }
+
+    // NEW: Update day/night cycle for dynamic lighting
+    {
+        PROFILE_SCOPE("DayNightCycle::update");
+        m_dayNightCycle.update(deltaTime);
+        
+        // Check if sun direction changed significantly
+        Vec3 newSunDirection = m_dayNightCycle.getSunDirection();
+        float directionChange = (newSunDirection - m_lastSunDirection).length();
+        
+        if (directionChange > 0.01f) { // Sun moved enough to matter
+            // Update global lighting manager with new sun direction
+            extern GlobalLightingManager g_globalLighting;
+            g_globalLighting.setSunDirection(newSunDirection);
+            m_lastSunDirection = newSunDirection;
         }
     }
 
@@ -506,6 +530,25 @@ void GameClient::processKeyboard(float deltaTime)
         */
     }
 
+    // Fluid particle spawning controls
+    static bool wasWaterKeyPressed = false;
+    bool isWaterKeyPressed = glfwGetKey(m_window, GLFW_KEY_F) == GLFW_PRESS;
+    
+    if (isWaterKeyPressed && !wasWaterKeyPressed)
+    {
+        // Spawn fluid particle in front of camera
+        Vec3 spawnPosition = m_camera.position + m_camera.front * 3.0f;
+        Vec3 spawnVelocity = m_camera.front * 5.0f;  // Launch forward
+        
+        EntityID particleEntity = g_fluidSystem.spawnFluidParticle(spawnPosition, spawnVelocity);
+        if (particleEntity != INVALID_ENTITY)
+        {
+            std::cout << "💧 Spawned fluid particle " << particleEntity << " at (" 
+                      << spawnPosition.x << ", " << spawnPosition.y << ", " << spawnPosition.z << ")" << std::endl;
+        }
+    }
+    wasWaterKeyPressed = isWaterKeyPressed;
+
     // Exit
     if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
     {
@@ -667,6 +710,15 @@ void GameClient::renderWorld()
     {
         PROFILE_SCOPE("renderAllIslands");
         m_gameState->getIslandSystem()->renderAllIslands();
+    }
+
+    // Render fluid particles
+    {
+        PROFILE_SCOPE("renderFluidParticles");
+        std::vector<EntityID> visibleParticles = g_fluidSystem.getVisibleParticles(m_camera.position, 100.0f);
+        if (!visibleParticles.empty() && g_vboRenderer) {
+            g_vboRenderer->renderFluidParticles(visibleParticles);
+        }
     }
 
     // Render block highlighter (disabled in core profile; reimplement with modern pipeline if needed)

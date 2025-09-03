@@ -6,6 +6,7 @@
 #include "../Threading/JobSystem.h"
 #include "../World/VoxelChunk.h"
 #include "../Rendering/GlobalLightingManager.h"
+#include "../Physics/FluidSystem.h"
 
 // External job system (we'll refactor this later)
 extern JobSystem g_jobSystem;
@@ -44,10 +45,10 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
     m_primaryPlayer = std::make_unique<Player>();
 
     // Configure lighting system for maximum performance
-    g_globalLighting.setUpdateFrequency(60.0f);   // Back to 60 FPS for responsiveness
+    g_globalLighting.setUpdateFrequency(10.0f);   // Reduced from 60 FPS to 10 FPS for performance
     g_globalLighting.setOcclusionEnabled(false);  // Disable occlusion for maximum performance
     
-    std::cout << "💡 Configured lighting: Simple face-orientation lighting for performance" << std::endl;
+    std::cout << "💡 Configured lighting: Simple face-orientation lighting at 10 FPS for performance" << std::endl;
 
     // Create default world if requested
     if (shouldCreateDefaultWorld)
@@ -90,6 +91,9 @@ void GameState::updateSimulation(float deltaTime)
 
     // Update physics first
     updatePhysics(deltaTime);
+
+    // Update fluid system
+    g_fluidSystem.update(deltaTime);
 
     // Update player
     updatePlayer(deltaTime);

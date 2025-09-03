@@ -34,6 +34,7 @@ add_library(engine STATIC
     
     # Physics systems
     Physics/PhysicsSystem.cpp
+    Physics/FluidSystem.cpp
     
     # Threading systems
     Threading/JobSystem.cpp
@@ -44,6 +45,7 @@ add_library(engine STATIC
     # Time systems
     Time/TimeManager.cpp
     Time/TimeEffects.cpp
+    Time/DayNightCycle.cpp
     
     # Network systems - Re-enabled with proper ENet integration
     Network/NetworkManager.cpp

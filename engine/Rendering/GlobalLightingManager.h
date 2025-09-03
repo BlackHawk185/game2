@@ -24,7 +24,14 @@ public:
     
     void setAmbientIntensity(float intensity) { m_ambientIntensity = intensity; }
     void setSunIntensity(float intensity) { m_sunIntensity = intensity; }
-    void setSunDirection(const Vec3& direction) { m_sunDirection = direction.normalized(); }
+    void setSunDirection(const Vec3& direction) { 
+        m_sunDirection = direction.normalized(); 
+        m_sunDirectionChanged = true; // Mark for lighting update
+    }
+    
+    // NEW: Dynamic lighting support
+    bool hasSunDirectionChanged() const { return m_sunDirectionChanged; }
+    void clearSunDirectionChangeFlag() { m_sunDirectionChanged = false; }
     
     // Performance controls
     void setUpdateFrequency(float hz) { m_updateIntervalMs = 1000.0f / hz; }
@@ -56,8 +63,6 @@ public:
 private:
     // Core lighting functions
     void gatherVisibleChunks(const Camera& camera, IslandChunkSystem* islandSystem, float aspect);
-    void generateUnifiedLighting();
-    void processChunkLighting(VoxelChunk* chunk, const Vec3& chunkWorldPos);
     
     // Optimized lighting functions - spatial partitioning approach
     void gatherVisibleChunksEfficient(const Camera& camera, IslandChunkSystem* islandSystem, float aspect);
@@ -76,6 +81,7 @@ private:
     float m_ambientIntensity = 0.0f;  // DISABLED for shadow testing - was 0.4f
     float m_sunIntensity = 1.0f;
     Vec3 m_sunDirection{0.3f, -0.8f, 0.5f};  // Angled sun for interesting shadows
+    bool m_sunDirectionChanged = true;  // NEW: Track when sun direction changes
     
     // Performance controls
     float m_updateIntervalMs = 100.0f;  // Update lighting every 100ms (10 FPS) instead of every frame

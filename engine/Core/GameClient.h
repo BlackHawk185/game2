@@ -7,6 +7,7 @@
 #include "../Culling/FrustumCuller.h"
 #include "../World/VoxelRaycaster.h"
 #include "../Network/NetworkManager.h"  // Re-enabled with ENet integration working
+#include "../Time/DayNightCycle.h"  // NEW: Day/night cycle integration
 #include <memory>
 #include <string>
 
@@ -109,6 +110,10 @@ private:
     // Rendering systems
     Camera m_camera;
     FrustumCuller m_frustumCuller;
+    
+    // NEW: Day/night cycle system for dynamic lighting
+    DayNightCycle m_dayNightCycle;
+    Vec3 m_lastSunDirection{0.0f, 0.0f, 0.0f};  // Track sun direction changes
     
     // Input state
     struct InputState {

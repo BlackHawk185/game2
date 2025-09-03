@@ -26,12 +26,17 @@ void GlobalLightingManager::updateGlobalLighting(const Camera& camera, IslandChu
     
     PROFILE_SCOPE("GlobalLightingManager::updateGlobalLighting");
     
-    // Throttle lighting updates - only update every N milliseconds
+    // NEW: Smart throttling - only update when chunks need lighting OR sun direction changed
     auto currentTime = std::chrono::high_resolution_clock::now();
     float currentTimeMs = std::chrono::duration<float, std::milli>(currentTime.time_since_epoch()).count();
     
-    if (currentTimeMs - m_lastUpdateTime < m_updateIntervalMs) {
-        return; // Skip this update - not enough time has passed
+    // Check if we need to force an update due to sun direction change
+    bool forceUpdate = m_sunDirectionChanged;
+    
+    // Use different throttle intervals based on whether we have pending updates
+    const float UPDATE_INTERVAL = forceUpdate ? 16.7f : 500.0f; // 60 FPS when sun changes, 2 FPS for maintenance
+    if (!forceUpdate && currentTimeMs - m_lastUpdateTime < UPDATE_INTERVAL) {
+        return; // Skip this update - no urgent work to do
     }
     m_lastUpdateTime = currentTimeMs;
     
@@ -44,9 +49,9 @@ void GlobalLightingManager::updateGlobalLighting(const Camera& camera, IslandChu
     // Step 1: Gather visible chunks using frustum culling (but limit scope)
     gatherVisibleChunksEfficient(camera, islandSystem, aspect);
     
-    // Step 2: Generate lighting ONLY for visible chunks using optimized approach with raycasting
+    // Step 2: Only process chunks that actually need lighting updates (much more efficient!)
     if (!m_visibleChunks.empty()) {
-        generateOptimizedLighting();  // Use the efficient version with smart raycasting
+        generateOptimizedLighting();  // Now only processes chunks with lightingDirty flag
     }
     
     auto endTime = std::chrono::high_resolution_clock::now();
@@ -54,10 +59,10 @@ void GlobalLightingManager::updateGlobalLighting(const Camera& camera, IslandChu
     
     // Debug output occasionally
     static int debugCounter = 0;
-    if (++debugCounter % 300 == 0) { // Every ~5 seconds at 60fps
+    if (++debugCounter % 120 == 0) { // Every ~60 seconds at 2 FPS (was every 5 seconds)
         std::cout << "[GLOBAL_LIGHTING] Processed " << m_stats.chunksLit << "/" 
                   << m_stats.chunksConsidered << " chunks in " 
-                  << m_stats.updateTimeMs << "ms" << std::endl;
+                  << m_stats.updateTimeMs << "ms (Event-driven mode)" << std::endl;
     }
 }
 
@@ -118,97 +123,6 @@ void GlobalLightingManager::gatherVisibleChunks(const Camera& camera, IslandChun
             m_islandChunkMap[islandID] = &island;
         }
     }
-}
-
-void GlobalLightingManager::generateUnifiedLighting() {
-    PROFILE_SCOPE("GlobalLightingManager::generateUnifiedLighting");
-    
-    // Process each visible chunk with global awareness
-    for (const auto& visibleChunk : m_visibleChunks) {
-        processChunkLighting(visibleChunk.chunk, visibleChunk.worldPosition);
-        m_stats.chunksLit++;
-    }
-}
-
-void GlobalLightingManager::processChunkLighting(VoxelChunk* chunk, const Vec3& chunkWorldPos) {
-    PROFILE_SCOPE("GlobalLightingManager::processChunkLighting");
-    
-    // Get chunk's light maps
-    ChunkLightMaps& lightMaps = chunk->getLightMaps();
-    
-    // Face normals for lighting calculations
-    const Vec3 faceNormals[6] = {
-        Vec3(-1, 0, 0), Vec3(1, 0, 0),   // Left, Right (X faces)
-        Vec3(0, -1, 0), Vec3(0, 1, 0),   // Bottom, Top (Y faces)  
-        Vec3(0, 0, -1), Vec3(0, 0, 1)    // Back, Front (Z faces)
-    };
-    
-    const int LIGHTMAP_SIZE = 32;
-    
-    // Generate lighting for each face
-    for (int faceIndex = 0; faceIndex < 6; faceIndex++) {
-        FaceLightMap& faceMap = lightMaps.getFaceMap(faceIndex);
-        faceMap.data.resize(LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
-        
-        Vec3 faceNormal = faceNormals[faceIndex];
-        
-        for (int v = 0; v < LIGHTMAP_SIZE; v++) {
-            for (int u = 0; u < LIGHTMAP_SIZE; u++) {
-                float normalizedU = static_cast<float>(u) / (LIGHTMAP_SIZE - 1);
-                float normalizedV = static_cast<float>(v) / (LIGHTMAP_SIZE - 1);
-                
-                // Calculate world position for this light map texel
-                Vec3 localPos = chunk->calculateWorldPositionFromLightMapUV(faceIndex, normalizedU, normalizedV);
-                Vec3 worldPos = chunkWorldPos + localPos;
-                
-                // Calculate ray start position (offset from surface)
-                Vec3 rayStart = worldPos + faceNormal * 0.1f;
-                
-                // Perform global raycast that can span multiple visible chunks
-                bool isOccluded = performGlobalSunRaycast(rayStart, m_sunDirection, 128.0f);
-                
-                // Calculate lighting based on face orientation and occlusion
-                // Use sun direction directly - no negation needed for lighting calculation
-                float dotProduct = faceNormal.dot(m_sunDirection);
-                
-                float finalLight;
-                if (dotProduct > 0.0f) {
-                    // Surface faces toward sun
-                    if (isOccluded) {
-                        // Occluded - darker shadows for dramatic effect
-                        finalLight = 0.2f; // 20% brightness in shadows
-                    } else {
-                        // Clear path to sun - BRIGHT for dramatic contrast
-                        finalLight = 1.0f; // Full brightness in sunlight
-                    }
-                } else {
-                    // Surface faces away from sun - completely dark
-                    finalLight = 0.0f; // Pure black for surfaces facing away from sun
-                }
-                
-                // Clamp and convert to RGB
-                finalLight = std::max(0.0f, std::min(1.0f, finalLight));
-                uint8_t lightValue = static_cast<uint8_t>(finalLight * 255);
-                
-                // Debug output for a few texels
-                static int debugTexelCounter = 0;
-                if (debugTexelCounter < 5 && u == 0 && v == 0) {
-                    std::cout << "[LIGHTING_DEBUG] Face " << faceIndex << " texel (0,0): "
-                              << "dotProduct=" << dotProduct << " occluded=" << isOccluded 
-                              << " finalLight=" << finalLight << " lightValue=" << (int)lightValue << std::endl;
-                    debugTexelCounter++;
-                }
-                
-                int texelIndex = (v * LIGHTMAP_SIZE + u) * 3;
-                faceMap.data[texelIndex + 0] = lightValue; // R
-                faceMap.data[texelIndex + 1] = lightValue; // G
-                faceMap.data[texelIndex + 2] = lightValue; // B
-            }
-        }
-    }
-    
-    // Data is updated - textures will be uploaded when needed by renderer
-    // Don't force recreation every time!
 }
 
 bool GlobalLightingManager::performGlobalSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const {
@@ -295,10 +209,44 @@ uint8_t GlobalLightingManager::sampleVoxelAtWorldPos(const Vec3& worldPos) const
 void GlobalLightingManager::generateOptimizedLighting() {
     PROFILE_SCOPE("GlobalLightingManager::generateOptimizedLighting");
     
-    // Process each visible chunk with optimized approach
+    // NEW: Check if sun direction changed (time-of-day lighting updates)
+    bool sunDirectionChanged = m_sunDirectionChanged;
+    if (sunDirectionChanged) {
+        // Force lighting update on all visible chunks when sun direction changes
+        for (const auto& visibleChunk : m_visibleChunks) {
+            visibleChunk.chunk->markLightingDirty();
+        }
+        m_sunDirectionChanged = false;
+    }
+    
+    // Only process chunks that actually need lighting updates
+    int chunksProcessed = 0;
+    int chunksSkipped = 0;
+    
     for (const auto& visibleChunk : m_visibleChunks) {
-        processChunkLightingOptimized(visibleChunk.chunk, visibleChunk.worldPosition);
-        m_stats.chunksLit++;
+        VoxelChunk* chunk = visibleChunk.chunk;
+        
+        // SMART UPDATE: Only recompute lighting if:
+        // 1. Chunk geometry changed (lighting marked dirty)
+        // 2. Lighting has never been computed (no valid lightmaps)
+        // 3. Sun direction changed (time-of-day update)
+        if (chunk->needsLightingUpdate() || !chunk->hasValidLightMaps()) {
+            processChunkLightingOptimized(chunk, visibleChunk.worldPosition);
+            chunk->markLightingClean();  // Mark as clean after processing
+            chunksProcessed++;
+            m_stats.chunksLit++;
+        } else {
+            chunksSkipped++;
+        }
+    }
+    
+    // Debug output for optimization tracking (only occasionally)
+    static int debugCounter = 0;
+    if (debugCounter++ % 300 == 0) {  // Every 5 seconds at 60 FPS
+        std::cout << "[LIGHTING_OPTIMIZATION] Processed: " << chunksProcessed 
+                  << ", Skipped: " << chunksSkipped 
+                  << " (Efficiency: " << (chunksSkipped * 100 / std::max(1, chunksProcessed + chunksSkipped)) << "%)"
+                  << (sunDirectionChanged ? " [SUN_CHANGED]" : "") << std::endl;
     }
 }
 void GlobalLightingManager::gatherVisibleChunksEfficient(const Camera& camera, IslandChunkSystem* islandSystem, float aspect) {
@@ -311,15 +259,12 @@ void GlobalLightingManager::gatherVisibleChunksEfficient(const Camera& camera, I
         return;
     }
     
-    std::cout << "[EFFICIENT_GATHER] Starting efficient chunk gathering..." << std::endl;
-    
     // Update frustum culler
     extern FrustumCuller g_frustumCuller;
     g_frustumCuller.updateFromCamera(camera, aspect, 75.0f);
     
     // Get all islands from the provided island system
     const auto& islands = islandSystem->getIslands();
-    std::cout << "[EFFICIENT_GATHER] Found " << islands.size() << " islands to process" << std::endl;
     
     for (const auto& [islandID, island] : islands) {
         // Limit chunks per island to prevent performance issues
@@ -363,7 +308,6 @@ void GlobalLightingManager::gatherVisibleChunksEfficient(const Camera& camera, I
         }
     }
     
-    std::cout << "[EFFICIENT_GATHER] Total visible chunks gathered: " << m_visibleChunks.size() << std::endl;
 }
 
 void GlobalLightingManager::processChunkLightingOptimized(VoxelChunk* chunk, const Vec3& chunkWorldPos) {

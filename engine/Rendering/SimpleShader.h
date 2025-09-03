@@ -33,6 +33,12 @@ public:
     void setFloat(const std::string& name, float value);
     void setInt(const std::string& name, int value);
     
+    // Material system helpers
+    void setMaterialColor(const glm::vec4& color);
+    void setMaterialType(int type);
+    void setMaterialRoughness(float roughness);
+    void setMaterialEmissive(const glm::vec3& emissive);
+    
     // UBO management
     bool initializeUBO();
     void updateChunkLightingData(const ChunkLightingData& data);

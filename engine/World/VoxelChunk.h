@@ -139,6 +139,11 @@ class VoxelChunk
     bool hasValidLightMaps() const; // Check if all lightmap textures are created
     bool hasLightMapData() const;   // Check if lightmap data exists (before texture creation)
     
+    // NEW: Lighting dirty state management
+    bool needsLightingUpdate() const { return lightingDirty; }
+    void markLightingDirty() { lightingDirty = true; }
+    void markLightingClean() { lightingDirty = false; }
+    
     // Light mapping utilities - public for GlobalLightingManager
     Vec3 calculateWorldPositionFromLightMapUV(int faceIndex, float u, float v) const;  // Convert UV to world pos
     
@@ -155,6 +160,7 @@ class VoxelChunk
     CollisionMesh collisionMesh;
     ChunkLightMaps lightMaps;  // NEW: Per-face light mapping data
     bool meshDirty = true;
+    bool lightingDirty = true;  // NEW: Lighting needs recalculation
     uint32_t physicsBodyID = 0;  // Physics body ID
 
     // **FACE CULLING OPTIMIZATION HELPER**

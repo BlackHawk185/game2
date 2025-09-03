@@ -30,8 +30,7 @@
 #include <enet/enet.h>
 
 // bgfx rendering
-// #include <bgfx/bgfx.h>
-// #include <bgfx/platform.h>
+// ...existing code...
 
 // Engine-wide macros and config
 // Project headers should be included in individual source files after pch.h

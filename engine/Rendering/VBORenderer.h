@@ -7,6 +7,7 @@
 
 #include "../World/VoxelChunk.h"
 #include "../Math/Vec3.h"
+#include "../ECS/ECS.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -36,6 +37,9 @@ public:
     void beginBatch();
     void renderChunkBatch(const std::vector<VoxelChunk*>& chunks, const std::vector<Vec3>& offsets);
     void endBatch();
+
+    // Fluid particle rendering
+    void renderFluidParticles(const std::vector<EntityID>& particles);
 
     // Performance stats
     struct RenderStats {

@@ -2,6 +2,7 @@
 #include "VoxelChunk.h"
 
 #include "../Rendering/VBORenderer.h"
+#include "../Time/DayNightCycle.h"  // For dynamic sun direction
 
 #include <algorithm>
 #include <chrono>
@@ -59,6 +60,7 @@ void VoxelChunk::setVoxel(int x, int y, int z, uint8_t type)
         return;
     voxels[x + y * SIZE + z * SIZE * SIZE] = type;
     meshDirty = true;
+    lightingDirty = true;  // NEW: Mark lighting as needing update when voxels change
     collisionMesh.needsUpdate = true;
 }
 
@@ -249,21 +251,14 @@ void VoxelChunk::generateMesh()
     collisionMesh.needsUpdate = true;
     meshDirty = false;
     
-    // DISABLED: Don't clear lightmap textures - let GlobalLightingManager handle them
-    /*
-    // Clear cached textures to force regeneration
-    for (int face = 0; face < 6; ++face) {
-        if (lightMaps.getFaceMap(face).textureHandle != 0) {
-            glDeleteTextures(1, &lightMaps.getFaceMap(face).textureHandle);
-            lightMaps.getFaceMap(face).textureHandle = 0;
-        }
-    }
-    */
+    // NEW: Mark lighting as needing recalculation since geometry changed
+    lightingDirty = true;
     
-    // OLD PER-CHUNK LIGHTING DISABLED - Now using GlobalLightingManager
-    // generatePerFaceLightMaps();
+    // IMMEDIATE LIGHTING GENERATION: Generate lighting when mesh updates
+    // This ensures lighting is always in sync with geometry changes
+    generatePerFaceLightMaps();
     
-    // Only initialize light maps if they're empty (preserve global lighting data)
+    // Only initialize light maps if they're empty (preserve generated lighting data)
     for (int face = 0; face < 6; ++face) {
         FaceLightMap& faceMap = lightMaps.getFaceMap(face);
         if (faceMap.data.empty()) {
@@ -271,6 +266,9 @@ void VoxelChunk::generateMesh()
             std::fill(faceMap.data.begin(), faceMap.data.end(), 255); // Full white default for unlit chunks
         }
     }
+    
+    // Mark lighting as clean since we just generated it
+    lightingDirty = false;
     
     // Note: updateLightMapTextures() will be called during rendering when OpenGL context is available
 }
@@ -667,15 +665,10 @@ float VoxelChunk::computeAmbientOcclusion(int x, int y, int z, int face) const
 void VoxelChunk::generatePerFaceLightMaps()
 {
     // Reduced debug output for performance
-    static int debugCounter = 0;
-    if (debugCounter++ % 50 == 0) {  // Only print every 50th chunk
-        std::cout << "[LIGHTMAP] Generating inter-chunk lighting for floating islands (chunk " << debugCounter << ")" << std::endl;
-    }
-    
     // Generate separate light maps for each face direction with proper inter-chunk raycasting
     
     const int LIGHTMAP_SIZE = FaceLightMap::LIGHTMAP_SIZE;
-    const Vec3 sunDirection = Vec3(0.4f, -1.0f, 0.3f).normalized();
+    const Vec3 sunDirection = g_dayNightCycle ? g_dayNightCycle->getSunDirection() : Vec3(0.3f, 0.8f, 0.5f).normalized();  // Use dynamic sun direction, fallback for early init
     const float sunIntensity = 1.2f;
     const float ambientIntensity = 0.0f;  // DISABLED for lightmap testing - was 0.2f
     
@@ -941,20 +934,11 @@ void VoxelChunk::updateLightMapTextures()
                 std::cerr << "Failed to generate face " << faceIndex << " light map texture, OpenGL error: " << error << std::endl;
                 continue;
             }
-            std::cout << "[LIGHTMAP] Created face " << faceIndex << " texture handle: " << faceMap.textureHandle << std::endl;
         }
         
         // Upload light map data to GPU
         glBindTexture(GL_TEXTURE_2D, faceMap.textureHandle);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, FaceLightMap::LIGHTMAP_SIZE, FaceLightMap::LIGHTMAP_SIZE, 0, GL_RGB, GL_UNSIGNED_BYTE, faceMap.data.data());
-        
-        // Debug: Check first few texels for first face only
-        if (faceIndex == 0 && !faceMap.data.empty()) {
-            std::cout << "[LIGHTMAP] Face 0 first texel RGB: " 
-                      << static_cast<int>(faceMap.data[0]) << ", "
-                      << static_cast<int>(faceMap.data[1]) << ", "
-                      << static_cast<int>(faceMap.data[2]) << std::endl;
-        }
         
         // Set texture parameters for light maps
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);

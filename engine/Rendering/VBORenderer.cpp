@@ -3,6 +3,7 @@
 #include <glad/gl.h>
 #include "TextureManager.h"
 #include "../Core/Profiler.h"
+#include "../Physics/FluidSystem.h"
 #include <iostream>
 #include <filesystem>
 
@@ -266,11 +267,7 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, grassTexture);
         m_shader.setInt("uTexture", 0);
-        // Debug: print texture ID occasionally
-        static int debugCounter = 0;
-        if (debugCounter++ % 10000 == 0) {
-            std::cout << "Using texture ID: " << grassTexture << " for dirt.png" << std::endl;
-        }
+        // Texture found and bound successfully
     } else {
         std::cout << "WARNING: dirt.png texture not found in TextureManager!" << std::endl;
     }
@@ -486,4 +483,113 @@ void VBORenderer::deleteChunkVBO(VoxelChunk* chunk)
         glDeleteBuffers(1, &mesh.EBO);
         mesh.EBO = 0;
     }
+}
+
+void VBORenderer::renderFluidParticles(const std::vector<EntityID>& particles)
+{
+    PROFILE_SCOPE("VBORenderer::renderFluidParticles");
+    
+    if (!m_initialized || particles.empty()) {
+        return;
+    }
+    
+    // Get component storages
+    auto* transformStorage = g_ecs.getStorage<TransformComponent>();
+    auto* fluidStorage = g_ecs.getStorage<FluidParticleComponent>();
+    auto* renderStorage = g_ecs.getStorage<FluidRenderComponent>();
+    
+    if (!transformStorage || !fluidStorage || !renderStorage) {
+        return;
+    }
+    
+    // Use shader for rendering
+    m_shader.use();
+    
+    // Enable blending for water effect
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    
+    // Simple cube vertices for each particle (could be optimized with instancing)
+    static const float cubeVertices[] = {
+        // Positions (centered around origin)
+        -0.5f, -0.5f, -0.5f,
+         0.5f, -0.5f, -0.5f,
+         0.5f,  0.5f, -0.5f,
+        -0.5f,  0.5f, -0.5f,
+        -0.5f, -0.5f,  0.5f,
+         0.5f, -0.5f,  0.5f,
+         0.5f,  0.5f,  0.5f,
+        -0.5f,  0.5f,  0.5f
+    };
+    
+    static const unsigned int cubeIndices[] = {
+        0, 1, 2, 2, 3, 0,  // Front face
+        4, 5, 6, 6, 7, 4,  // Back face
+        0, 1, 5, 5, 4, 0,  // Bottom face
+        2, 3, 7, 7, 6, 2,  // Top face
+        0, 3, 7, 7, 4, 0,  // Left face
+        1, 2, 6, 6, 5, 1   // Right face
+    };
+    
+    // Create VAO/VBO/EBO for particle rendering (could be cached)
+    static GLuint particleVAO = 0, particleVBO = 0, particleEBO = 0;
+    
+    if (particleVAO == 0) {
+        glGenVertexArrays(1, &particleVAO);
+        glGenBuffers(1, &particleVBO);
+        glGenBuffers(1, &particleEBO);
+        
+        glBindVertexArray(particleVAO);
+        
+        glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+        
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, particleEBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
+        
+        // Position attribute
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        
+        glBindVertexArray(0);
+    }
+    
+    glBindVertexArray(particleVAO);
+    
+    // Render each particle
+    for (EntityID particleEntity : particles) {
+        auto* transform = transformStorage->getComponent(particleEntity);
+        auto* fluid = fluidStorage->getComponent(particleEntity);
+        auto* render = renderStorage->getComponent(particleEntity);
+        
+        if (!transform || !fluid || !render) {
+            continue;
+        }
+        
+        // Create model matrix for this particle
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(transform->position.x, transform->position.y, transform->position.z));
+        model = glm::scale(model, glm::vec3(fluid->radius, fluid->radius, fluid->radius));
+        
+        // Set model matrix
+        m_shader.setMatrix4("uModel", model);
+        
+        // Set fluid material properties
+        glm::vec4 waterColor(0.2f, 0.6f, 1.0f, 0.7f);  // Blue water with transparency
+        m_shader.setMaterialColor(waterColor);
+        m_shader.setMaterialType(1);  // Fluid material type
+        m_shader.setMaterialRoughness(0.1f);  // Smooth water surface
+        m_shader.setMaterialEmissive(glm::vec3(0.0f));  // No emission
+        
+        // Render the cube
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        
+        m_stats.drawCalls++;
+        m_stats.verticesRendered += 8;  // 8 vertices per cube
+    }
+    
+    glBindVertexArray(0);
+    glDisable(GL_BLEND);
+    
+    m_stats.chunksRendered += particles.size();  // Count particles as "chunks" for stats
 }

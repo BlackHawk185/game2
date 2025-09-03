@@ -30,6 +30,7 @@ void printHelp()
 #include "engine/Time/TimeManager.h"
 #include "engine/Core/DebugDiagnostics.h"
 #include "engine/Core/Profiler.h"
+#include "engine/Physics/FluidSystem.h"
 
 // Global systems (external declarations - defined in engine library)
 extern JobSystem g_jobSystem;
@@ -100,6 +101,13 @@ int main(int argc, char* argv[])
     if (!g_jobSystem.initialize())
     {
         std::cerr << "Failed to initialize job system!" << std::endl;
+        return 1;
+    }
+
+    // Initialize fluid system
+    if (!g_fluidSystem.initialize())
+    {
+        std::cerr << "Failed to initialize fluid system!" << std::endl;
         return 1;
     }
 
