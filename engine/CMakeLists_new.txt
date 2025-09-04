@@ -1,11 +1,22 @@
-# Add all engine source files (minimal clean core)
+# Add all engine source files (including new systems)
 add_library(engine STATIC
-    # Core systems
-    Core/Profiler.cpp
-    Core/DebugDiagnostics.cpp
+    # Core systems (new modular architecture)
+    Core/GameState.cpp
     Core/GameServer.cpp
     Core/GameClient.cpp
-    Core/Window.cpp
+    Core/Profiler.cpp
+    Core/DebugDiagnostics.cpp
+    
+    # World systems
+    World/VoxelChunk.cpp
+    World/IslandChunkSystem.cpp
+    World/VoxelRaycaster.cpp
+    
+    # Game objects
+    Player.cpp
+    
+    # Rendering systems (REMOVED - pipeline being reworked)
+    # All rendering files have been removed as part of pipeline redesign
     
     # Input systems
     Input/Camera.cpp
@@ -16,30 +27,22 @@ add_library(engine STATIC
     # ECS systems
     ECS/ECS.cpp
     
-    # Physics systems (minimal - removed PhysicsSystem.cpp due to dependencies)
+    # Physics systems
+    Physics/PhysicsSystem.cpp
     Physics/FluidSystem.cpp
     
     # Threading systems
     Threading/JobSystem.cpp
     
+    # Culling systems
+    Culling/FrustumCuller.cpp
+    
     # Time systems
     Time/TimeManager.cpp
     Time/TimeEffects.cpp
+    Time/DayNightCycle.cpp
     
-    # Profiling systems
-    Profiling/PerformanceProfiler.cpp
-    
-    # World systems
-    World/Chunk.cpp
-    World/Island.cpp
-    World/ChunkManager.cpp
-    World/MeshGenerator.cpp
-    
-    # Rendering systems
-    Rendering/VoxelRenderer.cpp
-    Rendering/STBImpl.cpp
-    
-    # Network systems
+    # Network systems - Re-enabled with proper ENet integration
     Network/NetworkManager.cpp
     Network/IntegratedServer.cpp
     Network/NetworkClient.cpp
@@ -93,7 +96,6 @@ target_link_libraries(engine PUBLIC
     glad
     OpenGL::GL
     glm::glm
-    FastNoise
 )
 
 # Ensure GLFW does not include a GL header (glad provides it)

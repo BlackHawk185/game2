@@ -27,25 +27,25 @@ public:
     // Called each frame to handle networking
     void update();
     
-    // Send messages to clients
+    // Send messages to clients - Essential for entity-based architecture
     void broadcastHelloWorld();
     void broadcastPlayerPosition(uint32_t playerId, const Vec3& position, const Vec3& velocity);
-    void sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState);
-    void sendCompressedIslandToClient(ENetPeer* client, uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t voxelDataSize);
-    
-    // NEW: Send individual chunk with coordinates for multi-chunk islands
-    void sendCompressedChunkToClient(ENetPeer* client, uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t voxelDataSize);
-    
-    void broadcastVoxelChange(uint32_t islandID, const Vec3& localPos, uint8_t voxelType, uint32_t authorPlayerId);
     void broadcastEntityState(const EntityStateUpdate& entityState);
+    
+    // Chunk data transmission (simplified - no legacy island methods)
+    void sendCompressedChunkToClient(ENetPeer* client, uint32_t islandID, const Vec3& chunkCoord, 
+                                     const Vec3& islandPosition, const uint8_t* compressedData, uint32_t compressedSize);
+    void sendCompressedChunkToAllClients(uint32_t islandID, const Vec3& chunkCoord, 
+                                         const Vec3& islandPosition, const uint8_t* compressedData, uint32_t compressedSize);
+    
+    // Basic network utility methods
     void sendToClient(ENetPeer* client, const void* data, size_t size);
     void broadcastToAllClients(const void* data, size_t size);
     
-    // Callbacks for when clients connect/disconnect
+    // Callbacks for client requests - Essential for entity-based architecture
     std::function<void(ENetPeer*)> onClientConnected;
     std::function<void(ENetPeer*)> onClientDisconnected;
     std::function<void(ENetPeer*, const PlayerMovementRequest&)> onPlayerMovementRequest;
-    std::function<void(ENetPeer*, const VoxelChangeRequest&)> onVoxelChangeRequest;
     
 private:
     void handleClientEvent(const ENetEvent& event);

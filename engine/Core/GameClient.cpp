@@ -1,978 +1,591 @@
-// GameClient.cpp - Client-side rendering and input implementation
+// Core/GameClient.cpp - Client implementation
+#include "pch.h"
 #include "GameClient.h"
-
-#include <GLFW/glfw3.h>
-#include <glad/gl.h>
-#include <imgui.h>
-
-#include <iostream>
-#include <memory>
-
-#include "GameState.h"
-#include "Profiler.h"
-
 #include "../Network/NetworkManager.h"
-#include "../Network/NetworkMessages.h"
-#include "../Rendering/Renderer.h"
-#include "../Rendering/VBORenderer.h"  // RE-ENABLED
-#include "../Rendering/GlobalLightingManager.h"  // NEW: Global lighting system
-#include "../Physics/FluidSystem.h"
-#include <glm/glm.hpp>
-#include <glm/gtc/type_ptr.hpp>
-#include "../Time/TimeEffects.h"
-#include "../World/VoxelChunk.h"  // For accessing voxel data
+#include "../World/Chunk.h"
+#include "../World/MeshGenerator.h"
+#include "../Rendering/VoxelRenderer.h"
+#include "../Input/Camera.h"
+#include <GLFW/glfw3.h>
 
-// External systems that we'll refactor later
-extern TimeEffects* g_timeEffects;
+namespace Engine {
+namespace Core {
 
-GameClient::GameClient()
+GameClient::GameClient() 
+    : m_isRunning(false)
+    , m_isConnected(false)
+    , m_window(nullptr)
+    , m_renderer(nullptr)
+    , m_camera(nullptr)
+    , m_meshGenerator(nullptr)
+    , m_inputManager(nullptr)
+    , m_networkManager(nullptr)
 {
-    // Constructor
-    m_networkManager = std::make_unique<NetworkManager>();  // Re-enabled with ENet
-
-    // Set global day/night cycle pointer
-    g_dayNightCycle = &m_dayNightCycle;
-
-    // Set up network callbacks
-    if (auto client = m_networkManager->getClient())
-    {
-        client->onWorldStateReceived = [this](const WorldStateMessage& worldState)
-        { this->handleWorldStateReceived(worldState); };
-
-        client->onCompressedIslandReceived = [this](uint32_t islandID, const Vec3& position,
-                                                    const uint8_t* voxelData, uint32_t dataSize)
-        { this->handleCompressedIslandReceived(islandID, position, voxelData, dataSize); };
-
-        client->onCompressedChunkReceived = [this](uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition,
-                                                   const uint8_t* voxelData, uint32_t dataSize)
-        { this->handleCompressedChunkReceived(islandID, chunkCoord, islandPosition, voxelData, dataSize); };
-
-        client->onVoxelChangeReceived = [this](const VoxelChangeUpdate& update)
-        { this->handleVoxelChangeReceived(update); };
-
-        client->onEntityStateUpdate = [this](const EntityStateUpdate& update)
-        { this->handleEntityStateUpdate(update); };
-    }
+    m_localPlayer.position = Vec3(0, 0, 0);
+    m_localPlayer.velocity = Vec3(0, 0, 0);
+    m_localPlayer.rotation = Vec3(0, 0, 0);
+    m_localPlayer.playerID = 0;
 }
 
-GameClient::~GameClient()
-{
-    // Clear global day/night cycle pointer
-    g_dayNightCycle = nullptr;
-    
+GameClient::~GameClient() {
     shutdown();
 }
 
-bool GameClient::initialize()
-{
-    if (m_initialized)
-    {
-        std::cerr << "GameClient already initialized!" << std::endl;
-        return false;
-    }
-
-    // Removed verbose debug output
-
-    // Initialize window and graphics
-    if (!initializeWindow())
-    {
-        return false;
-    }
-
-    if (!initializeGraphics())
-    {
-        return false;
-    }
-
-    m_initialized = true;
-    // Removed verbose debug output
-    return true;
-}
-
-bool GameClient::connectToGameState(GameState* gameState)
-{
-    if (!gameState)
-    {
-        std::cerr << "Cannot connect to null game state!" << std::endl;
-        return false;
-    }
-
-    m_gameState = gameState;
-    m_isRemoteClient = false;  // Local connection
-
-    // **NEW: Connect physics system to island system for collision detection**
-    if (gameState && gameState->getIslandSystem())
-    {
-        g_physics.setIslandSystem(gameState->getIslandSystem());
-    }
-
-    // Set up camera position based on game state
-    if (m_gameState->getPrimaryPlayer())
-    {
-        Vec3 playerPos = m_gameState->getPrimaryPlayer()->getPosition();
-        m_camera.position = playerPos;
-    }
-
-    // Removed verbose debug output
-    return true;
-}
-
-bool GameClient::connectToRemoteServer(const std::string& serverAddress, uint16_t serverPort)
-{
-    if (!m_networkManager)
-    {
-        std::cerr << "Network manager not initialized!" << std::endl;
-        return false;
-    }
-
-    // Initialize networking
-    if (!m_networkManager->initializeNetworking())
-    {
-        std::cerr << "Failed to initialize networking!" << std::endl;
-        return false;
-    }
-
-    // Removed verbose debug output
-
-    // Connect to remote server
-    if (!m_networkManager->joinServer(serverAddress, serverPort))
-    {
-        std::cerr << "Failed to connect to remote server!" << std::endl;
-        return false;
-    }
-
-    m_isRemoteClient = true;
-
-    // Initial world state will be received from server after handshake protocol
-    // For now, create a minimal local state for rendering
-    // This will be replaced by data received from server
-
-    // Removed verbose debug output
-    return true;
-}
-
-bool GameClient::update(float deltaTime)
-{
-    PROFILE_SCOPE("GameClient::update");
+bool GameClient::initialize() {
+    std::cout << "GameClient: Initializing..." << std::endl;
     
-    if (!m_initialized)
-    {
-        return false;
-    }
-
-    // Poll window events
-    {
-        PROFILE_SCOPE("glfwPollEvents");
-        glfwPollEvents();
-    }
-
-    // Check if window should close
-    if (shouldClose())
-    {
-        return false;
-    }
-
-    // Update networking if remote client
-    if (m_isRemoteClient && m_networkManager)
-    {
-        PROFILE_SCOPE("NetworkManager::update");
-        m_networkManager->update();
-    }
-
-    // Update client-side physics for smooth island movement
-    if (m_gameState)
-    {
-        PROFILE_SCOPE("Island physics update");
-        auto* islandSystem = m_gameState->getIslandSystem();
-        if (islandSystem)
-        {
-            // Run client-side island physics between server updates
-            // This provides smooth movement using server-provided velocities
-            islandSystem->updateIslandPhysics(deltaTime);
+    // Initialize Window and OpenGL context
+    if (!m_window) {
+        m_window = new Window();
+        if (!m_window->initialize(1280, 720, "MMORPG Engine - Client")) {
+            std::cerr << "GameClient: Failed to initialize Window" << std::endl;
+            delete m_window;
+            m_window = nullptr;
+            return false;
         }
+        std::cout << "GameClient: Window and OpenGL context initialized" << std::endl;
+    }
+    
+    // Initialize NetworkManager
+    if (!m_networkManager) {
+        m_networkManager = new NetworkManager();
+        // Note: In integrated mode, ENet is already initialized by the server
+        // so we don't call initializeNetworking() here
+        std::cout << "GameClient: NetworkManager initialized" << std::endl;
+    }
+    
+    // Initialize MeshGenerator
+    if (!m_meshGenerator) {
+        m_meshGenerator = new Engine::World::MeshGenerator();
+        std::cout << "GameClient: MeshGenerator initialized" << std::endl;
     }
 
-    // NEW: Update day/night cycle for dynamic lighting
-    {
-        PROFILE_SCOPE("DayNightCycle::update");
-        m_dayNightCycle.update(deltaTime);
-        
-        // Check if sun direction changed significantly
-        Vec3 newSunDirection = m_dayNightCycle.getSunDirection();
-        float directionChange = (newSunDirection - m_lastSunDirection).length();
-        
-        if (directionChange > 0.01f) { // Sun moved enough to matter
-            // Update global lighting manager with new sun direction
-            extern GlobalLightingManager g_globalLighting;
-            g_globalLighting.setSunDirection(newSunDirection);
-            m_lastSunDirection = newSunDirection;
+    // Initialize VoxelRenderer(now that we have OpenGL context)
+    if (!m_renderer) {
+        m_renderer = new Engine::Rendering::VoxelRenderer();
+        if (!m_renderer->initialize()) {
+            std::cerr << "GameClient: Failed to initialize VoxelRenderer" << std::endl;
+            delete m_renderer;
+            m_renderer = nullptr;
+            return false;
         }
+        std::cout << "GameClient: VoxelRenderer initialized" << std::endl;
     }
 
-    // Process input
-    {
-        PROFILE_SCOPE("processInput");
-        processInput(deltaTime);
+    // Initialize camera system
+    if (!m_camera) {
+        m_camera = new Camera();
+        std::cout << "GameClient: Camera initialized" << std::endl;
     }
-
-    // Render frame
-    {
-        PROFILE_SCOPE("render");
-        render();
-    }
-
-    // Swap buffers
-    {
-        PROFILE_SCOPE("glfwSwapBuffers");
-        glfwSwapBuffers(m_window);
-    }
-
-    // Update profiler (will auto-report every second)
-    g_profiler.updateAndReport();
-
+    
+    // TODO: Initialize input management
+    
+    m_isRunning = true;
+    std::cout << "GameClient: Initialization complete" << std::endl;
     return true;
 }
 
-void GameClient::shutdown()
-{
-    if (!m_initialized)
-    {
-        return;
-    }
-
-    // Removed verbose debug output
-
-    // Disconnect from game state
-    m_gameState = nullptr;
-
-    // Cleanup VBO renderer
-    // RE-ENABLED FOR TESTING
-    if (g_vboRenderer)
-    {
-        g_vboRenderer->shutdown();
-        delete g_vboRenderer;
-        g_vboRenderer = nullptr;
-        std::cout << "VBO renderer shutdown" << std::endl;
-    }
-
-    // Cleanup graphics
-    if (m_window)
-    {
-        glfwDestroyWindow(m_window);
-        m_window = nullptr;
-    }
-
-    glfwTerminate();
-
-    m_initialized = false;
-    // Removed verbose debug output
-}
-
-bool GameClient::shouldClose() const
-{
-    return m_window && glfwWindowShouldClose(m_window);
-}
-
-void GameClient::processInput(float deltaTime)
-{
-    if (!m_window)
-    {
-        return;
-    }
-
-    processKeyboard(deltaTime);
-    processMouse(deltaTime);
-
-    // Only process block interaction if we have a local game state
-    if (m_gameState)
-    {
-        processBlockInteraction(deltaTime);
-    }
-}
-
-void GameClient::render()
-{
-    PROFILE_SCOPE("GameClient::render");
+bool GameClient::initializeStandalone() {
+    std::cout << "GameClient: Initializing in standalone mode..." << std::endl;
     
-    // Clear screen
-    {
-        PROFILE_SCOPE("Renderer::clear");
-        Renderer::clear();
-    }
-
-    // Set up 3D projection
-    {
-        PROFILE_SCOPE("Setup 3D projection");
-        
-        float aspect = (float) m_windowWidth / (float) m_windowHeight;
-        float fov = 45.0f;
-        float nearPlane = 0.1f;
-        float farPlane = 1000.0f;
-
-        // Create modern projection matrix (glm expects radians)
-        glm::mat4 projectionMatrix = glm::perspective(fov * 3.14159265358979323846f / 180.0f, aspect, nearPlane, farPlane);
-        glm::mat4 viewMatrix = m_camera.getViewMatrix();
-        
-        // Set matrices for VBO renderer (modern OpenGL)
-        if (g_vboRenderer) {
-            g_vboRenderer->setProjectionMatrix(projectionMatrix);
-            g_vboRenderer->setViewMatrix(viewMatrix);
+    // Initialize window and OpenGL context
+    if (!m_window) {
+        m_window = new Window();
+        if (!m_window->initialize(1280, 720, "MMORPG Engine - Standalone Mode")) {
+            std::cerr << "GameClient: Failed to initialize window" << std::endl;
+            return false;
         }
-        
-        // Update frustum culling
-        m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);
+        std::cout << "GameClient: Window and OpenGL context initialized" << std::endl;
+    }
+    
+    // Skip NetworkManager initialization for standalone mode
+    std::cout << "GameClient: Skipping NetworkManager for standalone mode" << std::endl;
+    
+    // Initialize MeshGenerator
+    if (!m_meshGenerator) {
+        m_meshGenerator = new Engine::World::MeshGenerator();
+        std::cout << "GameClient: MeshGenerator initialized" << std::endl;
     }
 
-    // Render world (only if we have local game state)
-    if (m_gameState)
-    {
-        PROFILE_SCOPE("renderWorld");
-        renderWorld();
-    }
-    else if (m_isRemoteClient)
-    {
-        // Render waiting screen for remote clients
-        PROFILE_SCOPE("renderWaitingScreen");
-        renderWaitingScreen();
-    }
-
-    // Render UI
-    {
-        PROFILE_SCOPE("renderUI");
-        renderUI();
-    }
-}
-
-bool GameClient::initializeWindow()
-{
-    if (!glfwInit())
-    {
-        std::cerr << "Failed to initialize GLFW!" << std::endl;
-        return false;
+    // Initialize VoxelRenderer (now that we have OpenGL context)
+    if (!m_renderer) {
+        m_renderer = new Engine::Rendering::VoxelRenderer();
+        if (!m_renderer->initialize()) {
+            std::cerr << "GameClient: Failed to initialize VoxelRenderer" << std::endl;
+            delete m_renderer;
+            m_renderer = nullptr;
+            return false;
+        }
+        std::cout << "GameClient: VoxelRenderer initialized" << std::endl;
     }
 
-    // Request OpenGL 4.6 Core context
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
-
-    // Create window
-    m_window =
-        glfwCreateWindow(m_windowWidth, m_windowHeight, "MMORPG Engine - Client", nullptr, nullptr);
-    if (!m_window)
-    {
-        std::cerr << "Failed to create GLFW window!" << std::endl;
-        glfwTerminate();
-        return false;
+    // Generate multiple test chunks to create a small world
+    generateStandaloneWorld();
+    
+    // Initialize camera system
+    if (!m_camera) {
+        m_camera = new Camera();
+        std::cout << "GameClient: Camera initialized" << std::endl;
     }
-
-    glfwMakeContextCurrent(m_window);
-
-    // Load OpenGL via glad2
-    if (gladLoadGL(glfwGetProcAddress) == 0)
-    {
-        std::cerr << "Failed to initialize glad (OpenGL 4.6)" << std::endl;
-        glfwDestroyWindow(m_window);
-        glfwTerminate();
-        return false;
-    }
-
-    // Set callbacks
-    glfwSetWindowUserPointer(m_window, this);
-    glfwSetWindowSizeCallback(m_window, windowResizeCallback);
-
-    // Set up mouse capture
-    glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-
+    
+    // TODO: Initialize input management
+    
+    m_isRunning = true;
+    std::cout << "GameClient: Standalone initialization complete" << std::endl;
     return true;
 }
 
-bool GameClient::initializeGraphics()
-{
-    // Initialize renderer
-    if (!Renderer::initialize())
-    {
-        std::cerr << "Failed to initialize renderer!" << std::endl;
-        return false;
-    }
-
-    // Initialize VBO renderer for modern OpenGL rendering
-    // RE-ENABLED FOR TESTING
-    g_vboRenderer = new VBORenderer();
-    if (!g_vboRenderer->initialize())
-    {
-        std::cerr << "Failed to initialize VBO renderer!" << std::endl;
-        delete g_vboRenderer;
-        g_vboRenderer = nullptr;
-        return false;
-    }
-    std::cout << "VBO renderer initialized successfully" << std::endl;
-
-    // Initialize ImGui
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO();
-    (void) io;
-    ImGui::StyleColorsDark();
-
-    return true;
-}
-
-void GameClient::processKeyboard(float deltaTime)
-{
-    // Camera movement
-    float moveSpeed = 10.0f;
-    Vec3 movement(0, 0, 0);
-
-    if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
-    {
-        movement = movement + m_camera.front * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
-    {
-        movement = movement - m_camera.front * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS)
-    {
-        movement = movement - m_camera.right * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS)
-    {
-        movement = movement + m_camera.right * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_SPACE) == GLFW_PRESS)
-    {
-        movement = movement + m_camera.up * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-    {
-        movement = movement - m_camera.up * moveSpeed * deltaTime;
-    }
-
-    // **NEW: Collision Detection**
-    Vec3 intendedPosition = m_camera.position + movement;
-    const float PLAYER_RADIUS = 0.5f;  // Player collision radius
-
-    // Verbose per-frame movement logging disabled
-
-    // Check for collision with islands
-    Vec3 collisionNormal;
-    bool hasCollision = false;
-
-    if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
-    {
-        // Initial collision detected; suppress verbose log
-        // Collision detected - implement friction-based sliding collision
-        const float FRICTION_COEFFICIENT =
-            0.3f;  // Friction factor (0 = no friction, 1 = full stop)
-
-        // Project movement onto the collision plane
-        float dotProduct = movement.dot(collisionNormal);
-        Vec3 slideMovement = movement - collisionNormal * dotProduct;
-
-        // Apply friction to the sliding movement
-        slideMovement *= (1.0f - FRICTION_COEFFICIENT);
-
-        // Apply sliding movement with friction
-        intendedPosition = m_camera.position + slideMovement;
-
-        // Check if sliding movement also collides
-        if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
-        {
-            // Sliding also collides; suppress verbose log
-            // If sliding also collides, apply stronger friction instead of blocking completely
-            const float STRONG_FRICTION = 0.7f;
-            Vec3 strongFrictionMovement = movement * (1.0f - STRONG_FRICTION);
-            intendedPosition = m_camera.position + strongFrictionMovement;
-        }
-        else
-        {
-            // Slide movement succeeded; suppress verbose log
-        }
-
-        hasCollision = true;
-    }
-    else
-    {
-        // No collision; suppress verbose log
-    }
-
-    // Apply movement (with collision response)
-    m_camera.position = intendedPosition;
-
-    // Update player position in game state if local
-    if (m_gameState && m_gameState->getPrimaryPlayer())
-    {
-        m_gameState->setPrimaryPlayerPosition(m_camera.position);
-    }
-
-    // Send movement to server if we're a remote client
-    if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f)
-    {
-        Vec3 velocity = movement / deltaTime;  // Calculate velocity
-        m_networkManager->sendPlayerMovement(m_camera.position, velocity, deltaTime);
-    }
-
-    // Time effects (temporary, will be refactored)
-    if (g_timeEffects)
-    {
-        // TODO: Implement proper time effect methods
-        // The actual method names need to be checked in TimeEffects.h
-        /*
-        if (glfwGetKey(m_window, GLFW_KEY_1) == GLFW_PRESS) g_timeEffects->setSlowMotion();
-        if (glfwGetKey(m_window, GLFW_KEY_2) == GLFW_PRESS) g_timeEffects->setBulletTime();
-        if (glfwGetKey(m_window, GLFW_KEY_3) == GLFW_PRESS) g_timeEffects->setTimeFreeze();
-        if (glfwGetKey(m_window, GLFW_KEY_4) == GLFW_PRESS) g_timeEffects->setSpeedUp();
-        if (glfwGetKey(m_window, GLFW_KEY_5) == GLFW_PRESS) g_timeEffects->setTimeReverse();
-        if (glfwGetKey(m_window, GLFW_KEY_0) == GLFW_PRESS) g_timeEffects->resetTime();
-        if (glfwGetKey(m_window, GLFW_KEY_T) == GLFW_PRESS) g_timeEffects->toggleTimePulse();
-        */
-    }
-
-    // Fluid particle spawning controls
-    static bool wasWaterKeyPressed = false;
-    bool isWaterKeyPressed = glfwGetKey(m_window, GLFW_KEY_F) == GLFW_PRESS;
+void GameClient::shutdown() {
+    if (!m_isRunning) return;
     
-    if (isWaterKeyPressed && !wasWaterKeyPressed)
-    {
-        // Spawn fluid particle in front of camera
-        Vec3 spawnPosition = m_camera.position + m_camera.front * 3.0f;
-        Vec3 spawnVelocity = m_camera.front * 5.0f;  // Launch forward
-        
-        EntityID particleEntity = g_fluidSystem.spawnFluidParticle(spawnPosition, spawnVelocity);
-        if (particleEntity != INVALID_ENTITY)
-        {
-            std::cout << "💧 Spawned fluid particle " << particleEntity << " at (" 
-                      << spawnPosition.x << ", " << spawnPosition.y << ", " << spawnPosition.z << ")" << std::endl;
-        }
-    }
-    wasWaterKeyPressed = isWaterKeyPressed;
-
-    // Exit
-    if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-    {
-        glfwSetWindowShouldClose(m_window, GLFW_TRUE);
-    }
-}
-
-void GameClient::processMouse(float deltaTime)
-{
-    static double lastX = m_windowWidth / 2.0;
-    static double lastY = m_windowHeight / 2.0;
-    static bool firstMouse = true;
-
-    double xpos, ypos;
-    glfwGetCursorPos(m_window, &xpos, &ypos);
-
-    if (firstMouse)
-    {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
-
-    float xoffset = (float) (xpos - lastX);
-    float yoffset = (float) (lastY - ypos);  // Reversed since y-coordinates go from bottom to top
-    lastX = xpos;
-    lastY = ypos;
-
-    float sensitivity = 0.1f;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
-
-    m_camera.yaw += xoffset;
-    m_camera.pitch += yoffset;
-
-    // Constrain pitch
-    if (m_camera.pitch > 89.0f)
-        m_camera.pitch = 89.0f;
-    if (m_camera.pitch < -89.0f)
-        m_camera.pitch = -89.0f;
-
-    // Update camera vectors after changing yaw/pitch - this was missing!
-    m_camera.updateCameraVectors();
-    // We need to manually call this since we're directly modifying yaw/pitch
-    // TODO: Refactor to use Camera's processInput() method instead of duplicating logic
-    // m_camera.updateCameraVectors();
-}
-
-void GameClient::processBlockInteraction(float deltaTime)
-{
-    if (!m_gameState)
-    {
-        return;
-    }
-
-    // Update raycast timer for performance
-    m_inputState.raycastTimer += deltaTime;
-    if (m_inputState.raycastTimer > 0.05f)
-    {  // 20 FPS raycasting for more responsive block selection
-        m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-            m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
-        m_inputState.raycastTimer = 0.0f;
-    }
-
-    bool leftClick = glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-    bool rightClick = glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-
-    // Left click - break block
-    if (leftClick && !m_inputState.leftMousePressed)
-    {
-        m_inputState.leftMousePressed = true;
-
-        if (m_inputState.cachedTargetBlock.hit)
-        {
-            // Send network request for block break
-            if (m_networkManager && m_networkManager->getClient() &&
-                m_networkManager->getClient()->isConnected())
-            {
-                m_networkManager->getClient()->sendVoxelChangeRequest(
-                    m_inputState.cachedTargetBlock.islandID,
-                    m_inputState.cachedTargetBlock.localBlockPos, 0);
-            }
-
-            // Apply optimistically for immediate visual feedback
-            m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID,
-                                  m_inputState.cachedTargetBlock.localBlockPos, 0);
-
-            // Clear the cached target block immediately to remove the yellow outline
-            m_inputState.cachedTargetBlock = RayHit();
-
-            // **FIXED**: Force immediate raycast to update block selection after breaking
-            m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-                m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
-            m_inputState.raycastTimer = 0.0f;
-        }
-    }
-    else if (!leftClick)
-    {
-        m_inputState.leftMousePressed = false;
-    }
-
-    // Right click - place block
-    if (rightClick && !m_inputState.rightMousePressed)
-    {
-        m_inputState.rightMousePressed = true;
-
-        if (m_inputState.cachedTargetBlock.hit)
-        {
-            Vec3 placePos = VoxelRaycaster::getPlacementPosition(m_inputState.cachedTargetBlock);
-            uint8_t existingVoxel =
-                m_gameState->getVoxel(m_inputState.cachedTargetBlock.islandID, placePos);
-
-            if (existingVoxel == 0)
-            {
-                // Send network request for block place
-                if (m_networkManager && m_networkManager->getClient() &&
-                    m_networkManager->getClient()->isConnected())
-                {
-                    m_networkManager->getClient()->sendVoxelChangeRequest(
-                        m_inputState.cachedTargetBlock.islandID, placePos, 1);
-                }
-
-                // Apply optimistically for immediate visual feedback
-                m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, 1);
-
-                // Clear the cached target block to refresh the selection
-                m_inputState.cachedTargetBlock = RayHit();
-
-                // **FIXED**: Force immediate raycast to update block selection after placing
-                m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-                    m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
-                m_inputState.raycastTimer = 0.0f;
-            }
-        }
-    }
-    else if (!rightClick)
-    {
-        m_inputState.rightMousePressed = false;
-    }
-}
-
-void GameClient::renderWorld()
-{
-    PROFILE_SCOPE("GameClient::renderWorld");
+    std::cout << "GameClient: Shutting down..." << std::endl;
     
-    if (!m_gameState)
-    {
-        return;
+    // Cleanup rendered chunks
+    for (auto& pair : m_renderedChunks) {
+        // OpenGL cleanup is handled by VoxelRenderer
     }
-
-    // Update global lighting for all visible chunks (frustum-culled)
-    {
-        PROFILE_SCOPE("updateGlobalLighting");
-        float aspect = (float) m_windowWidth / (float) m_windowHeight;
-        g_globalLighting.updateGlobalLighting(m_camera, m_gameState->getIslandSystem(), aspect);
+    m_renderedChunks.clear();
+    
+    // Cleanup chunks
+    for (auto& pair : m_chunks) {
+        delete pair.second;
     }
-
-    // Render all islands
-    {
-        PROFILE_SCOPE("renderAllIslands");
-        m_gameState->getIslandSystem()->renderAllIslands();
+    m_chunks.clear();
+    
+    // Cleanup rendering system
+    if (m_renderer) {
+        m_renderer->shutdown();
+        delete m_renderer;
+        m_renderer = nullptr;
     }
-
-    // Render fluid particles
-    {
-        PROFILE_SCOPE("renderFluidParticles");
-        std::vector<EntityID> visibleParticles = g_fluidSystem.getVisibleParticles(m_camera.position, 100.0f);
-        if (!visibleParticles.empty() && g_vboRenderer) {
-            g_vboRenderer->renderFluidParticles(visibleParticles);
-        }
+    
+    // Cleanup mesh generator
+    if (m_meshGenerator) {
+        delete m_meshGenerator;
+        m_meshGenerator = nullptr;
     }
-
-    // Render block highlighter (disabled in core profile; reimplement with modern pipeline if needed)
-    (void)0;
+    
+    // Cleanup network connections
+    if (m_networkManager) {
+        m_networkManager->leaveServer();  // Use leaveServer instead of disconnect
+        // Note: Don't call shutdownNetworking() in integrated mode since server handles ENet
+        delete m_networkManager;
+        m_networkManager = nullptr;
+    }
+    
+    // TODO: Cleanup input systems
+    
+    m_isRunning = false;
+    std::cout << "GameClient: Shutdown complete" << std::endl;
 }
 
-void GameClient::renderWaitingScreen()
-{
-    // Simple text rendering for waiting screen
-    // TODO: Replace with proper ImGui or text rendering system
-    // For now, just clear to a different color to show we're in remote mode
-    glClearColor(0.1f, 0.1f, 0.3f, 1.0f);  // Dark blue background
-}
-
-void GameClient::renderUI()
-{
-    // TODO: Implement ImGui UI rendering
-    // This will show server connection status, performance metrics, etc.
-    if (m_isRemoteClient)
-    {
-        // Show connection status for remote clients
-        // TODO: Add proper UI text rendering
-    }
-}
-
-void GameClient::onWindowResize(int width, int height)
-{
-    m_windowWidth = width;
-    m_windowHeight = height;
-    glViewport(0, 0, width, height);
-}
-
-void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)
-{
-    // Removed verbose debug output
-
-    // Create a new GameState for the client based on server data
-    m_gameState =
-        new GameState();  // Note: This creates a raw pointer, we might want to use unique_ptr later
-
-    if (!m_gameState->initialize(false))
-    {  // Don't create default world, we'll use server data
-        std::cerr << "Failed to initialize client game state!" << std::endl;
-        delete m_gameState;
-        m_gameState = nullptr;
-        return;
-    }
-
-    // Set camera position to the spawn location
-    m_camera.position = worldState.playerSpawnPosition;
-    m_camera.position.y += 2.0f;  // Position camera slightly above spawn point
-
-    // Removed verbose debug output
-}
-
-void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& position,
-                                                const uint8_t* voxelData, uint32_t dataSize)
-{
-    if (!m_gameState)
-    {
-        std::cerr << "Cannot handle island data: No game state initialized" << std::endl;
-        return;
-    }
-
-    // Removed verbose debug output
-
-    auto* islandSystem = m_gameState->getIslandSystem();
-    if (!islandSystem)
-    {
-        std::cerr << "No island system available" << std::endl;
-        return;
-    }
-
-    // Create the island at the specified position with the server's ID
-    // We'll create it locally and map the server ID to our local island
-    uint32_t localIslandID = islandSystem->createIsland(position);
-    // Removed verbose debug output
-
-    // Get the island and apply the voxel data
-    FloatingIsland* island = islandSystem->getIsland(localIslandID);
-    if (island)
-    {
-        // Create the main chunk if it doesn't exist (client islands don't auto-generate chunks)
-        // For backward compatibility, use the origin chunk (0,0,0)
-        Vec3 originChunk(0, 0, 0);
-        if (island->chunks.find(originChunk) == island->chunks.end())
-        {
-            islandSystem->addChunkToIsland(localIslandID, originChunk);
-        }
-
-        VoxelChunk* chunk = islandSystem->getChunkFromIsland(localIslandID, originChunk);
-        if (chunk)
-        {
-            // Apply the voxel data directly - this replaces any procedural generation
-            chunk->setRawVoxelData(voxelData, dataSize);
-            chunk->generateMesh();        // Regenerate the mesh with the new data
-            chunk->buildCollisionMesh();  // Build collision faces from vertices
-        }
-        else
-        {
-            std::cerr << "Failed to create main chunk for island " << localIslandID << std::endl;
-        }
-    }
-    else
-    {
-        std::cerr << "Failed to retrieve island with local ID: " << localIslandID << std::endl;
-    }
-}
-
-void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t dataSize)
-{
-    if (!m_gameState)
-    {
-        std::cerr << "Cannot handle chunk data: No game state initialized" << std::endl;
-        return;
-    }
-
-    auto* islandSystem = m_gameState->getIslandSystem();
-    if (!islandSystem)
-    {
-        std::cerr << "No island system available" << std::endl;
-        return;
-    }
-
-    // Create or get the island 
-    FloatingIsland* island = islandSystem->getIsland(islandID);
-    if (!island)
-    {
-        // Create the island if it doesn't exist
-        uint32_t localIslandID = islandSystem->createIsland(islandPosition);
-        island = islandSystem->getIsland(localIslandID);
-        
-        if (!island)
-        {
-            std::cerr << "Failed to create island " << islandID << std::endl;
+void GameClient::update(float deltaTime) {
+    if (!m_isRunning) return;
+    
+    // Update window and handle events
+    if (m_window) {
+        m_window->update();
+        // Check if window should close
+        if (m_window->shouldClose()) {
+            m_isRunning = false;
             return;
         }
     }
-
-    // Add chunk to island if it doesn't exist
-    VoxelChunk* chunk = islandSystem->getChunkFromIsland(islandID, chunkCoord);
-    if (!chunk)
-    {
-        islandSystem->addChunkToIsland(islandID, chunkCoord);
-        chunk = islandSystem->getChunkFromIsland(islandID, chunkCoord);
+    
+    // Update network manager and check connection status
+    if (m_networkManager) {
+        m_networkManager->update();
+        
+        // Check if we just connected
+        if (!m_isConnected && m_networkManager->isConnectedToServer()) {
+            m_isConnected = true;
+            std::cout << "GameClient: Connected to server successfully" << std::endl;
+        }
+        
+        // Check if we got disconnected
+        if (m_isConnected && !m_networkManager->isConnectedToServer()) {
+            m_isConnected = false;
+            std::cout << "GameClient: Disconnected from server" << std::endl;
+        }
     }
-
-    if (chunk)
-    {
-        // Apply the voxel data directly
-        chunk->setRawVoxelData(voxelData, dataSize);
-        chunk->generateMesh();        // Regenerate the mesh with the new data
-        chunk->buildCollisionMesh();  // Build collision faces from vertices
+    
+    // Process input
+    processInput(deltaTime);
+    
+    // Update camera
+    if (m_camera) {
+        m_camera->processInput(m_window->getHandle(), deltaTime);
+        m_camera->update(deltaTime);
     }
-    else
-    {
-        std::cerr << "Failed to create chunk " << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
-                  << " for island " << islandID << std::endl;
-    }
+    
+    // Handle network messages
+    handleNetworkMessages();
+    
+    // Update rendering data
+    updateRendering();
+    
+    // TODO: Update client-side prediction
 }
 
-void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update)
-{
-    if (!m_gameState)
-    {
-        std::cerr << "Cannot apply voxel change: no game state!" << std::endl;
-        return;
+void GameClient::render() {
+    if (!m_isRunning || !m_window) return;
+    
+    // Clear the screen
+    if (m_renderer) {
+        // Begin frame
+        m_renderer->beginFrame();
+        
+        // Set camera matrices from the camera
+        if (m_camera) {
+            float viewMatrix[16];
+            m_camera->getViewMatrix(viewMatrix);
+            
+            float projMatrix[16];
+            int width, height;
+            m_window->getSize(width, height);
+            float aspect = static_cast<float>(width) / static_cast<float>(height);
+            m_camera->getProjectionMatrix(projMatrix, aspect);
+            
+            m_renderer->setViewMatrix(viewMatrix);
+            m_renderer->setProjectionMatrix(projMatrix);
+        } else {
+            // Fallback identity matrices if no camera
+            float viewMatrix[16] = {
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, -5, 1  // Move camera back 5 units
+            };
+            
+            float projMatrix[16] = {
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, -1, 0,
+                0, 0, 0, 1
+            };
+            
+            m_renderer->setViewMatrix(viewMatrix);
+            m_renderer->setProjectionMatrix(projMatrix);
+        }
+        
+        // Render all chunks
+        if (m_renderedChunks.empty()) {
+            // Only log this occasionally to avoid spam
+            static int emptyRenderCount = 0;
+            emptyRenderCount++;
+            if (emptyRenderCount % 300 == 1) { // Log every 5 seconds at 60fps
+                std::cout << "GameClient: No chunks to render (" << emptyRenderCount << " empty renders)" << std::endl;
+            }
+        } else {
+            static bool loggedRenderStart = false;
+            if (!loggedRenderStart) {
+                std::cout << "GameClient: Rendering " << m_renderedChunks.size() << " chunks" << std::endl;
+                loggedRenderStart = true;
+            }
+        }
+        
+        for (const auto& pair : m_renderedChunks) {
+            m_renderer->renderChunk(pair.second, m_renderer->getDirtTexture());
+        }
+        
+        // End frame
+        m_renderer->endFrame();
+        
+        // Print statistics occasionally (every 5 seconds)
+        static int frameCount = 0;
+        frameCount++;
+        if (m_renderedChunks.size() > 0 && frameCount % 300 == 0) { // Every 5 seconds at 60 FPS
+            m_renderer->printRenderStatistics();
+        }
+    } else {
+        // Just print statistics about what we would render
+        if (!m_renderedChunks.empty()) {
+            std::cout << "GameClient: Would render " << m_renderedChunks.size() << " chunks" << std::endl;
+        }
     }
-
-    // Removed verbose debug output
-
-    // Apply the authoritative voxel change from server
-    m_gameState->setVoxel(update.islandID, update.localPos, update.voxelType);
-
-    // **FIXED**: Always force immediate raycast update when server sends voxel changes
-    // This ensures block selection is immediately accurate after server updates
-    m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-        m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
-    m_inputState.raycastTimer = 0.0f;
-
-    // The setVoxel call should automatically trigger mesh regeneration in GameState
+    
+    // Buffer swapping is handled by Window::update()
 }
 
-void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update)
-{
-    if (!m_gameState)
-    {
+void GameClient::processInput(float deltaTime) {
+    if (m_window) {
+        // Check for ESC key to close the window
+        if (m_window->isKeyPressed(GLFW_KEY_ESCAPE)) {
+            m_window->setShouldClose(true);
+        }
+    }
+    
+    // TODO: Handle keyboard/mouse input
+    // TODO: Update player movement intent
+    // TODO: Send input to server
+}
+
+void GameClient::handleNetworkMessages() {
+    // TODO: Receive world updates from server
+    // TODO: Apply server state corrections
+    // TODO: Handle player state updates
+}
+
+void GameClient::generateTestChunk() {
+    std::cout << "GameClient: Generating test chunk for rendering verification..." << std::endl;
+    
+    if (!m_meshGenerator) {
+        std::cout << "GameClient: MeshGenerator not available for test chunk" << std::endl;
         return;
     }
-
-    // Handle different entity types
-    switch (update.entityType)
-    {
-        case 1:
-        {  // Island
-            // Removed verbose debug output
-
-            auto* islandSystem = m_gameState->getIslandSystem();
-            if (islandSystem)
-            {
-                FloatingIsland* island = islandSystem->getIsland(update.entityID);
-                if (island)
-                {
-                    // Apply server-authoritative velocity for client-side physics simulation
-                    // This allows smooth movement while maintaining server authority
-
-                    Vec3 currentPos = island->physicsCenter;
-                    Vec3 serverPos = update.position;
-                    Vec3 positionError = serverPos - currentPos;
-
-                    // Calculate position error magnitude
-                    float errorMagnitude = sqrtf(positionError.x * positionError.x +
-                                                 positionError.y * positionError.y +
-                                                 positionError.z * positionError.z);
-
-                    // Set velocity from server for physics simulation
-                    island->velocity = update.velocity;
-                    island->acceleration = update.acceleration;
-
-                    // Apply position correction based on error magnitude
-                    if (errorMagnitude > 2.0f)
-                    {
-                        // Large error: snap to server position (teleport/respawn case)
-                        island->physicsCenter = serverPos;
-                    }
-                    else if (errorMagnitude > 0.1f)
-                    {
-                        // Small to medium error: apply gradual correction
-                        // Add a correction velocity component to smoothly move toward server
-                        // position
-                        Vec3 correctionVelocity = positionError * 0.8f;  // Correction strength
-                        island->velocity = island->velocity + correctionVelocity;
-                    }
-                    // If error is very small (< 0.1f), just use server velocity as-is
-
-                    // Mark for physics update synchronization
-                    island->needsPhysicsUpdate = true;
+    
+    // Create a test chunk at coordinates (0,0,0)
+    auto testChunk = std::make_unique<Engine::World::Chunk>(0, 0, 0);
+    
+    // Create a simple pattern - a platform at y=8 and some blocks
+    const int CHUNK_SIZE = 16;
+    for (int x = 0; x < CHUNK_SIZE; ++x) {
+        for (int z = 0; z < CHUNK_SIZE; ++z) {
+            // Platform at y=8
+            testChunk->setBlock(x, 8, z, 1); // Dirt block
+            
+            // Add some variety - pillars at corners  
+            if ((x == 2 || x == 13) && (z == 2 || z == 13)) {
+                for (int y = 9; y <= 12; ++y) {
+                    testChunk->setBlock(x, y, z, 1);
                 }
             }
-            break;
         }
-        case 0:  // Player (future implementation)
-        case 2:  // NPC (future implementation)
-        default:
-            // Handle other entity types in the future
-            break;
+    }
+    
+    // Mark the chunk as generated and clean
+    testChunk->markGenerated();
+    testChunk->markClean();
+    
+    // Generate mesh for the test chunk
+    Engine::World::PhysicsMesh physicsMesh;
+    Engine::World::RenderMesh renderMesh;
+    
+    m_meshGenerator->generateMesh(*testChunk, true, physicsMesh, renderMesh);
+    
+    if (!renderMesh.vertices.empty()) {
+        std::cout << "GameClient: Test chunk mesh generated successfully (" 
+                  << renderMesh.vertices.size()/6 << " vertices)" << std::endl;
+        
+        // Convert to OpenGL renderable format using VoxelRenderer
+        if (m_renderer) {
+            Engine::Rendering::RenderedChunk renderedChunk;
+            m_renderer->generateChunkRenderData(renderMesh, renderedChunk);
+            
+            // Store with a simple key (combine x,z coordinates into uint64_t)
+            uint64_t chunkKey = (uint64_t(0) << 32) | uint64_t(0); // x=0, z=0
+            m_renderedChunks[chunkKey] = renderedChunk;
+            
+            std::cout << "GameClient: Test chunk added to render queue" << std::endl;
+        } else {
+            std::cout << "GameClient: VoxelRenderer not available for test chunk conversion" << std::endl;
+        }
+    } else {
+        std::cout << "GameClient: Test chunk mesh generation failed!" << std::endl;
     }
 }
 
-void GameClient::windowResizeCallback(GLFWwindow* window, int width, int height)
-{
-    GameClient* client = static_cast<GameClient*>(glfwGetWindowUserPointer(window));
-    if (client)
-    {
-        client->onWindowResize(width, height);
+void GameClient::generateStandaloneWorld() {
+    std::cout << "GameClient: Generating standalone world..." << std::endl;
+    
+    if (!m_meshGenerator) {
+        std::cout << "GameClient: MeshGenerator not available for standalone world" << std::endl;
+        return;
+    }
+    
+    // Generate a 3x3 grid of chunks centered around origin
+    const int WORLD_SIZE = 3; // 3x3 = 9 chunks
+    const int OFFSET = WORLD_SIZE / 2; // Center offset
+    
+    for (int cx = -OFFSET; cx <= OFFSET; ++cx) {
+        for (int cz = -OFFSET; cz <= OFFSET; ++cz) {
+            // Create chunk at world coordinates
+            auto chunk = std::make_unique<Engine::World::Chunk>(cx, 0, cz);
+            
+            // Generate terrain for this chunk
+            generateChunkTerrain(*chunk, cx, cz);
+            
+            // Mark chunk as generated and clean
+            chunk->markGenerated();
+            chunk->markClean();
+            
+            // Generate mesh for the chunk
+            Engine::World::PhysicsMesh physicsMesh;
+            Engine::World::RenderMesh renderMesh;
+            
+            m_meshGenerator->generateMesh(*chunk, true, physicsMesh, renderMesh);
+            
+            if (!renderMesh.vertices.empty()) {
+                std::cout << "GameClient: Generated chunk (" << cx << ", " << cz 
+                          << ") with " << renderMesh.vertices.size()/6 << " vertices" << std::endl;
+                
+                // Convert to OpenGL renderable format
+                if (m_renderer) {
+                    Engine::Rendering::RenderedChunk renderedChunk;
+                    m_renderer->generateChunkRenderData(renderMesh, renderedChunk);
+                    
+                    // Store with chunk coordinates as key
+                    uint64_t chunkKey = (uint64_t(cx + 1000) << 32) | uint64_t(cz + 1000); // Offset to avoid negative coords
+                    m_renderedChunks[chunkKey] = renderedChunk;
+                }
+            }
+        }
+    }
+    
+    std::cout << "GameClient: Standalone world generation complete - " 
+              << m_renderedChunks.size() << " chunks rendered" << std::endl;
+}
+
+void GameClient::generateChunkTerrain(Engine::World::Chunk& chunk, int chunkX, int chunkZ) {
+    const int CHUNK_SIZE = 16;
+    
+    // Simple terrain generation - create rolling hills
+    for (int x = 0; x < CHUNK_SIZE; ++x) {
+        for (int z = 0; z < CHUNK_SIZE; ++z) {
+            // Calculate world coordinates
+            int worldX = chunkX * CHUNK_SIZE + x;
+            int worldZ = chunkZ * CHUNK_SIZE + z;
+            
+            // Simple height map using sine waves for variety
+            float height = 8.0f + 3.0f * sin(worldX * 0.1f) + 2.0f * cos(worldZ * 0.15f);
+            int terrainHeight = static_cast<int>(height);
+            
+            // Fill from bottom up to terrain height
+            for (int y = 0; y <= terrainHeight && y < CHUNK_SIZE; ++y) {
+                if (y == terrainHeight) {
+                    chunk.setBlock(x, y, z, 1); // Grass/dirt on top
+                } else if (y >= terrainHeight - 2) {
+                    chunk.setBlock(x, y, z, 1); // Dirt layer
+                } else {
+                    chunk.setBlock(x, y, z, 1); // Stone below
+                }
+            }
+            
+            // Add some random features
+            if ((worldX + worldZ) % 7 == 0 && terrainHeight < 14) {
+                // Occasional tree/pillar
+                for (int y = terrainHeight + 1; y <= terrainHeight + 3 && y < CHUNK_SIZE; ++y) {
+                    chunk.setBlock(x, y, z, 1);
+                }
+            }
+        }
     }
 }
+
+bool GameClient::connectToServer(const std::string& address, uint16_t port) {
+    std::cout << "GameClient: Connecting to server " << address << ":" << port << std::endl;
+    
+    if (m_networkManager) {
+        if (m_networkManager->joinServer(address, port)) {  // Use joinServer instead of connectToServer
+            m_isConnected = true;
+            std::cout << "GameClient: Connected to server successfully" << std::endl;
+            return true;
+        } else {
+            std::cerr << "GameClient: Failed to connect to server" << std::endl;
+            return false;
+        }
+    }
+    
+    return false;
+}
+
+void GameClient::startConnecting(const std::string& address, uint16_t port) {
+    std::cout << "GameClient: Starting connection to server " << address << ":" << port << std::endl;
+    
+    if (m_networkManager) {
+        if (m_networkManager->joinServer(address, port)) {
+            m_isConnected = true;
+            std::cout << "GameClient: Connected to server successfully" << std::endl;
+        } else {
+            std::cerr << "GameClient: Failed to connect to server" << std::endl;
+        }
+    }
+}
+
+void GameClient::handleChunkDataReceived(const std::vector<uint8_t>& chunkData) {
+    std::cout << "GameClient: Received chunk data (" << chunkData.size() << " bytes)" << std::endl;
+    
+    // Create a temporary chunk to deserialize the data
+    Engine::World::Chunk tempChunk(0, 0, 0);
+    tempChunk.deserialize(chunkData);
+    
+    // Get chunk coordinates
+    int chunkX = tempChunk.getChunkX();
+    int chunkY = tempChunk.getChunkY();
+    int chunkZ = tempChunk.getChunkZ();
+    
+    std::cout << "GameClient: Processing chunk at (" << chunkX << ", " << chunkY << ", " << chunkZ << ")" << std::endl;
+    
+    // Store chunk in client-side world representation
+    uint64_t chunkKey = getChunkKey(chunkX, chunkY, chunkZ);
+    
+    // If we already have this chunk, delete the old one
+    auto it = m_chunks.find(chunkKey);
+    if (it != m_chunks.end()) {
+        delete it->second;
+    }
+    
+    // Store the new chunk
+    Engine::World::Chunk* newChunk = new Engine::World::Chunk(chunkX, chunkY, chunkZ);
+    newChunk->deserialize(chunkData);
+    m_chunks[chunkKey] = newChunk;
+    
+    // Generate mesh for rendering
+    generateChunkMesh(newChunk);
+    
+    std::cout << "GameClient: Chunk data processed and mesh generated for chunk (" 
+              << chunkX << ", " << chunkY << ", " << chunkZ << ")" << std::endl;
+}
+
+void GameClient::updateRendering() {
+    // This method is called each frame to update any dynamic rendering data
+    // For now, chunks are only updated when received from server
+}
+
+void GameClient::generateChunkMesh(Engine::World::Chunk* chunk) {
+    if (!chunk || !m_meshGenerator) {
+        return;
+    }
+    
+    std::cout << "GameClient: Generating mesh for chunk (" 
+              << chunk->getChunkX() << ", " << chunk->getChunkY() << ", " << chunk->getChunkZ() << ")" << std::endl;
+    
+    // Generate mesh data
+    Engine::World::PhysicsMesh physicsMesh;
+    Engine::World::RenderMesh renderMesh;
+    
+    m_meshGenerator->generateMesh(*chunk, true, physicsMesh, renderMesh);
+    
+    // Print mesh statistics (since we can't render yet)
+    std::cout << "GameClient: Mesh generation complete for chunk - " 
+              << "Physics: " << physicsMesh.getVertexCount() << " vertices, " 
+              << physicsMesh.getTriangleCount() << " triangles | "
+              << "Render: " << renderMesh.getVertexCount() << " vertices, " 
+              << renderMesh.getTriangleCount() << " triangles" << std::endl;
+    
+    // Skip OpenGL data generation if no renderer
+    if (!m_renderer) {
+        std::cout << "GameClient: Skipping OpenGL data generation (no renderer)" << std::endl;
+        return;
+    }
+    
+    // Create rendered chunk
+    uint64_t chunkKey = getChunkKey(chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ());
+    Engine::Rendering::RenderedChunk& renderedChunk = m_renderedChunks[chunkKey];
+    
+    // Generate OpenGL data
+    m_renderer->generateChunkRenderData(renderMesh, renderedChunk);
+    renderedChunk.chunkPosition = Vec3(chunk->getChunkX(), chunk->getChunkY(), chunk->getChunkZ());
+}
+
+uint64_t GameClient::getChunkKey(int x, int y, int z) const {
+    // Pack chunk coordinates into a 64-bit key
+    // Assuming coordinates fit in 21 bits each (supports -1M to +1M range)
+    uint64_t ux = static_cast<uint64_t>(x + 1048576) & 0x1FFFFF; // 21 bits
+    uint64_t uy = static_cast<uint64_t>(y + 1048576) & 0x1FFFFF; // 21 bits  
+    uint64_t uz = static_cast<uint64_t>(z + 1048576) & 0x1FFFFF; // 21 bits
+    return (ux << 42) | (uy << 21) | uz;
+}
+
+} // namespace Core
+} // namespace Engine

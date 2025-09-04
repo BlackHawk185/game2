@@ -41,37 +41,28 @@ bool NetworkClient::connectToServer(const std::string& host, uint16_t port)
 
     // Set up server address
     ENetAddress address;
-    enet_address_set_host(&address, host.c_str());
+    if (enet_address_set_host(&address, host.c_str()) < 0) {
+        std::cout << "NetworkClient: Failed to resolve hostname: " << host << std::endl;
+        return false;
+    }
     address.port = port;
 
     // Connect to server
+    std::cout << "NetworkClient: Attempting to connect to " << host << ":" << port << std::endl;
     serverConnection = enet_host_connect(client, &address, 2, 0);
     if (!serverConnection)
     {
-        std::cout << "Failed to create connection to server!" << std::endl;
+        std::cout << "NetworkClient: Failed to create connection to server!" << std::endl;
         return false;
     }
 
-    // Wait for connection to complete (5 second timeout)
-    ENetEvent event;
-    if (enet_host_service(client, &event, 5000) > 0 && event.type == ENET_EVENT_TYPE_CONNECT)
-    {
-        std::cout << "Connected to server at " << host << ":" << port << std::endl;
-
-        if (onConnectedToServer)
-        {
-            onConnectedToServer();
-        }
-
-        return true;
-    }
-    else
-    {
-        std::cout << "Failed to connect to server!" << std::endl;
-        enet_peer_reset(serverConnection);
-        serverConnection = nullptr;
-        return false;
-    }
+    std::cout << "NetworkClient: Connection initiated (asynchronous)" << std::endl;
+    return true;
+    
+    std::cout << "Failed to connect to server!" << std::endl;
+    enet_peer_reset(serverConnection);
+    serverConnection = nullptr;
+    return false;
 }
 
 void NetworkClient::disconnect()
@@ -120,6 +111,17 @@ void NetworkClient::handleServerEvent(const ENetEvent& event)
 {
     switch (event.type)
     {
+        case ENET_EVENT_TYPE_CONNECT:
+        {
+            std::cout << "Connected to server successfully!" << std::endl;
+            
+            if (onConnectedToServer)
+            {
+                onConnectedToServer();
+            }
+            break;
+        }
+        
         case ENET_EVENT_TYPE_DISCONNECT:
         {
             std::cout << "Server disconnected us" << std::endl;
@@ -182,66 +184,6 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
             break;
         }
 
-        case NetworkMessageType::WORLD_STATE:
-        {
-            if (packet->dataLength >= sizeof(WorldStateMessage))
-            {
-                WorldStateMessage worldState = *(WorldStateMessage*) packet->data;
-                // Removed verbose debug output
-
-                if (onWorldStateReceived)
-                {
-                    onWorldStateReceived(worldState);
-                }
-            }
-            break;
-        }
-
-        case NetworkMessageType::COMPRESSED_ISLAND_DATA:
-        {
-            if (packet->dataLength >= sizeof(CompressedIslandHeader))
-            {
-                CompressedIslandHeader header = *(CompressedIslandHeader*) packet->data;
-
-                // Removed verbose debug output
-
-                // The compressed data starts after the header
-                const uint8_t* compressedData =
-                    reinterpret_cast<const uint8_t*>(packet->data) + sizeof(CompressedIslandHeader);
-                size_t availableDataSize =
-                    static_cast<size_t>(packet->dataLength) - sizeof(CompressedIslandHeader);
-
-                if (availableDataSize >= static_cast<size_t>(header.compressedSize))
-                {
-                    // Decompress the voxel data using LZ4
-                    std::vector<uint8_t> decompressedData(static_cast<size_t>(header.originalSize));
-
-                    if (VoxelCompression::decompressLZ4(compressedData, header.compressedSize,
-                                                        decompressedData.data(),
-                                                        header.originalSize))
-                    {
-                        if (onCompressedIslandReceived)
-                        {
-                            onCompressedIslandReceived(header.islandID, header.position,
-                                                       decompressedData.data(),
-                                                       header.originalSize);
-                        }
-                    }
-                    else
-                    {
-                        std::cerr << "Failed to decompress island " << header.islandID << std::endl;
-                    }
-                }
-                else
-                {
-                    std::cerr << "Incomplete island data packet. Expected: "
-                              << header.compressedSize << ", Available: " << availableDataSize
-                              << std::endl;
-                }
-            }
-            break;
-        }
-
         case NetworkMessageType::COMPRESSED_CHUNK_DATA:
         {
             if (packet->dataLength >= sizeof(CompressedChunkHeader))
@@ -271,32 +213,16 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
                     }
                     else
                     {
-                        std::cerr << "Failed to decompress chunk (" << header.chunkCoord.x << "," 
-                                  << header.chunkCoord.y << "," << header.chunkCoord.z 
-                                  << ") for island " << header.islandID << std::endl;
+                        std::cerr << "Failed to decompress chunk (" << header.chunkCoord.x 
+                                  << "," << header.chunkCoord.y << "," << header.chunkCoord.z 
+                                  << ") from island " << header.islandID << std::endl;
                     }
                 }
                 else
                 {
-                    std::cerr << "Incomplete chunk data packet. Expected: " << header.compressedSize 
-                              << ", Available: " << availableDataSize << std::endl;
-                }
-            }
-            break;
-        }
-
-        case NetworkMessageType::VOXEL_CHANGE_UPDATE:
-        {
-            if (packet->dataLength >= sizeof(VoxelChangeUpdate))
-            {
-                VoxelChangeUpdate update = *(VoxelChangeUpdate*) packet->data;
-                std::cout << "Received voxel change: Island " << update.islandID << " at ("
-                          << update.localPos.x << "," << update.localPos.y << ","
-                          << update.localPos.z << ") = " << (int) update.voxelType << std::endl;
-
-                if (onVoxelChangeReceived)
-                {
-                    onVoxelChangeReceived(update);
+                    std::cerr << "Incomplete chunk data packet. Expected: "
+                              << header.compressedSize << ", Available: " << availableDataSize
+                              << std::endl;
                 }
             }
             break;
@@ -322,35 +248,6 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
     }
 }
 
-void NetworkClient::sendMovementRequest(const Vec3& intendedPosition, const Vec3& velocity,
-                                        float deltaTime)
-{
-    if (!serverConnection)
-        return;
-
-    PlayerMovementRequest request;
-    request.intendedPosition = intendedPosition;
-    request.velocity = velocity;
-    request.deltaTime = deltaTime;
-
-    sendToServer(&request, sizeof(request));
-}
-
-void NetworkClient::sendVoxelChangeRequest(uint32_t islandID, const Vec3& localPos,
-                                           uint8_t voxelType)
-{
-    if (!serverConnection)
-        return;
-
-    VoxelChangeRequest request;
-    request.sequenceNumber = nextSequenceNumber++;
-    request.islandID = islandID;
-    request.localPos = localPos;
-    request.voxelType = voxelType;
-
-    sendToServer(&request, sizeof(request));
-}
-
 void NetworkClient::sendToServer(const void* data, size_t size)
 {
     if (!serverConnection)
@@ -358,4 +255,15 @@ void NetworkClient::sendToServer(const void* data, size_t size)
 
     ENetPacket* packet = enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE);
     enet_peer_send(serverConnection, 0, packet);
+}
+
+void NetworkClient::sendMovementRequest(const Vec3& intendedPosition, const Vec3& velocity, float deltaTime)
+{
+    PlayerMovementRequest request;
+    request.sequenceNumber = nextSequenceNumber++;
+    request.intendedPosition = intendedPosition;
+    request.velocity = velocity;
+    request.deltaTime = deltaTime;
+    
+    sendToServer(&request, sizeof(request));
 }

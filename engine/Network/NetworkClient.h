@@ -19,7 +19,7 @@ public:
     NetworkClient();
     ~NetworkClient();
     
-    // Connection management
+    // Connection management - SIMPLIFIED
     bool connectToServer(const std::string& host, uint16_t port = 7777);
     void disconnect();
     bool isConnected() const { return serverConnection != nullptr; }
@@ -27,23 +27,18 @@ public:
     // Called each frame to handle networking
     void update();
     
-    // Send messages to server
-    void sendMovementRequest(const Vec3& intendedPosition, const Vec3& velocity, float deltaTime);
-    void sendVoxelChangeRequest(uint32_t islandID, const Vec3& localPos, uint8_t voxelType);
+    // Send basic message to server
     void sendToServer(const void* data, size_t size);
     
-    // Callbacks for server messages
+    // Send movement request to server (for players)
+    void sendMovementRequest(const Vec3& intendedPosition, const Vec3& velocity, float deltaTime);
+    
+    // Callbacks for server messages - Essential for entity-based architecture
     std::function<void()> onConnectedToServer;
     std::function<void()> onDisconnectedFromServer;
-    std::function<void(const PlayerPositionUpdate&)> onPlayerPositionUpdate;
     std::function<void(const HelloWorldMessage&)> onHelloWorld;
-    std::function<void(const WorldStateMessage&)> onWorldStateReceived;
-    std::function<void(uint32_t, const Vec3&, const uint8_t*, uint32_t)> onCompressedIslandReceived;
-    
-    // NEW: Callback for individual chunk data with coordinates
     std::function<void(uint32_t, const Vec3&, const Vec3&, const uint8_t*, uint32_t)> onCompressedChunkReceived;
-    
-    std::function<void(const VoxelChangeUpdate&)> onVoxelChangeReceived;
+    std::function<void(const PlayerPositionUpdate&)> onPlayerPositionUpdate;
     std::function<void(const EntityStateUpdate&)> onEntityStateUpdate;
     
 private:

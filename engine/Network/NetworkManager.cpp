@@ -6,8 +6,6 @@
 
 #include "NetworkMessages.h"
 
-#include "../Physics/PhysicsSystem.h"
-
 NetworkManager::NetworkManager() : isNetworkingEnabled(false)
 {
     // Create integrated server and client
@@ -90,32 +88,17 @@ bool NetworkManager::startHosting(uint16_t port)
             //           << ", " << request.velocity.z << "))" << std::endl;
 
             // Validate movement against collision
-            Vec3 collisionNormal;
-            const float PLAYER_RADIUS = 0.5f;
-
-            if (g_physics.checkPlayerCollision(request.intendedPosition, collisionNormal,
-                                               PLAYER_RADIUS))
-            {
+            // TODO: Replace with proper physics validation
+            bool hasCollision = false; // Placeholder - assume no collision for now
+            
+            if (hasCollision) {
                 // Debug: Uncomment for collision debugging
                 // std::cout
-                //     << "[SERVER] Collision detected, applying friction-based response (normal: ("
-                //     << collisionNormal.x << ", " << collisionNormal.y << ", " << collisionNormal.z
-                //     << "))" << std::endl;
+                //     << "[SERVER] Collision detected, applying friction-based response" << std::endl;
 
-                // Apply friction-based collision response instead of instant stop
-                const float FRICTION_COEFFICIENT =
-                    0.3f;  // Friction factor (0 = no friction, 1 = full stop)
+                // Apply simple collision response - reduce velocity
+                const float FRICTION_COEFFICIENT = 0.3f;  // Friction factor (0 = no friction, 1 = full stop)
                 Vec3 frictionVelocity = request.velocity * (1.0f - FRICTION_COEFFICIENT);
-
-                // Project velocity onto collision plane to prevent penetration
-                float velocityDotNormal = request.velocity.dot(collisionNormal);
-                if (velocityDotNormal < 0)
-                {
-                    // Only apply friction if moving towards the collision surface
-                    Vec3 tangentialVelocity =
-                        request.velocity - collisionNormal * velocityDotNormal;
-                    frictionVelocity = tangentialVelocity * (1.0f - FRICTION_COEFFICIENT);
-                }
 
                 // Send corrected position with friction-applied velocity
                 this->broadcastPlayerPosition(0, request.intendedPosition, frictionVelocity);
@@ -224,5 +207,13 @@ void NetworkManager::broadcastPlayerPosition(uint32_t playerId, const Vec3& posi
     if (server && server->isRunning())
     {
         server->broadcastPlayerPosition(playerId, position, velocity);
+    }
+}
+
+void NetworkManager::broadcastEntityState(const EntityStateUpdate& entityState)
+{
+    if (server && server->isRunning())
+    {
+        server->broadcastEntityState(entityState);
     }
 }

@@ -1,197 +1,117 @@
-// GameClient.h - Client-side rendering and input handling
-// This class manages the presentation layer and user interaction
 #pragma once
 
-#include "../Math/Vec3.h"
+#include "../Network/NetworkManager.h"
 #include "../Input/Camera.h"
-#include "../Culling/FrustumCuller.h"
-#include "../World/VoxelRaycaster.h"
-#include "../Network/NetworkManager.h"  // Re-enabled with ENet integration working
-#include "../Time/DayNightCycle.h"  // NEW: Day/night cycle integration
+#include "../Math/Vec3.h"
+#include "../World/MeshGenerator.h"
+#include "../Rendering/VoxelRenderer.h"
+#include "Window.h"
 #include <memory>
-#include <string>
+#include <unordered_map>
+
+namespace Engine {
+namespace Core {
 
 // Forward declarations
-class GameState;
-struct GLFWwindow;
-struct VoxelChangeUpdate;
-struct WorldStateMessage;
+class InputManager;
+
+namespace World {
+    class Chunk;
+}
 
 /**
- * GameClient handles the presentation layer of the game.
- * It manages rendering, input, and UI, but does not own the game state.
- * 
- * The client can either:
- * 1. Connect to a local GameServer (integrated mode)
- * 2. Connect to a remote server (client-only mode)
- * 3. Work with a shared GameState directly (current transition mode)
+ * GameClient - Presentation and input handling
+ * Handles all rendering (OpenGL + Dear ImGui)
+ * Processes user input and sends to server
+ * Runs client-side physics for responsiveness
+ * Receives world data from server
  */
 class GameClient {
 public:
     GameClient();
     ~GameClient();
-    
-    // ================================
-    // CLIENT LIFECYCLE
-    // ================================
-    
-    /**
-     * Initialize the client (creates window, graphics context, etc.)
-     */
+
+    // Core lifecycle
     bool initialize();
-    
-    /**
-     * Connect to a game state (local or remote)
-     * @param gameState - The game state to render (can be local server)
-     */
-    bool connectToGameState(GameState* gameState);
-    
-    /**
-     * Connect to a remote server
-     * @param serverAddress - The server address to connect to
-     * @param serverPort - The server port to connect to
-     */
-    bool connectToRemoteServer(const std::string& serverAddress, uint16_t serverPort);
-    
-    /**
-     * Main client loop - handles input, rendering, and presentation
-     * Returns false when the client should exit
-     */
-    bool update(float deltaTime);
-    
-    /**
-     * Shutdown the client
-     */
-    void shutdown();
-    
-    // ================================
-    // INPUT HANDLING
-    // ================================
-    
-    /**
-     * Process input and generate commands
-     * These commands will be sent to the game state/server
-     */
-    void processInput(float deltaTime);
-    
-    /**
-     * Check if the client window should close
-     */
-    bool shouldClose() const;
-    
-    // ================================
-    // RENDERING
-    // ================================
-    
-    /**
-     * Render the current game state
-     */
+    bool initializeStandalone();  // Initialize without networking for local world testing
+    void update(float deltaTime);
     void render();
-    
-    /**
-     * Get the current camera for external use
-     */
-    Camera& getCamera() { return m_camera; }
-    const Camera& getCamera() const { return m_camera; }
-    
-private:
-    // Graphics context
-    GLFWwindow* m_window = nullptr;
-    int m_windowWidth = 1280;
-    int m_windowHeight = 720;
-    
-    // Game state connection
-    GameState* m_gameState = nullptr;  // Not owned by client
-    
-    // Networking - Re-enabled with ENet integration
-    std::unique_ptr<NetworkManager> m_networkManager;
-    bool m_isRemoteClient = false;
-    
-    // Rendering systems
-    Camera m_camera;
-    FrustumCuller m_frustumCuller;
-    
-    // NEW: Day/night cycle system for dynamic lighting
-    DayNightCycle m_dayNightCycle;
-    Vec3 m_lastSunDirection{0.0f, 0.0f, 0.0f};  // Track sun direction changes
-    
-    // Input state
-    struct InputState {
-        bool leftMousePressed = false;
-        bool rightMousePressed = false;
-        float raycastTimer = 0.0f;
-        RayHit cachedTargetBlock;  // Cache raycast results for performance
-    } m_inputState;
-    
+    void shutdown();
+
     // Client state
-    bool m_initialized = false;
+    bool isRunning() const { return m_isRunning; }
+    bool isConnected() const { return m_isConnected; }
     
-    // ================================
-    // INTERNAL METHODS
-    // ================================
+    // Connection management
+    bool connectToServer(const std::string& serverAddress, uint16_t port = 7777);
+    void startConnecting(const std::string& serverAddress, uint16_t port = 7777);
+    void disconnect();
     
-    /**
-     * Initialize GLFW and create window
-     */
-    bool initializeWindow();
+    // World data handling
+    void handleChunkDataReceived(const std::vector<uint8_t>& chunkData);
     
-    /**
-     * Initialize graphics systems (ImGui, etc.)
-     */
-    bool initializeGraphics();
+    // TEMPORARY: Test rendering without server
+    void generateTestChunk();
+    void generateStandaloneWorld();  // Generate multiple chunks for standalone testing
+    void generateChunkTerrain(Engine::World::Chunk& chunk, int chunkX, int chunkZ);  // Generate terrain for a single chunk
+
+private:
+    // Core client state
+    bool m_isRunning;
+    bool m_isConnected;
     
-    /**
-     * Process keyboard and mouse input
-     */
-    void processKeyboard(float deltaTime);
-    void processMouse(float deltaTime);
-    void processBlockInteraction(float deltaTime);
+    // Rendering
+    Window* m_window;                                     // GLFW window and OpenGL context
+    Engine::Rendering::VoxelRenderer* m_renderer;        // Modern voxel renderer
+    Camera* m_camera;                                     // Camera for view matrix
     
-    /**
-     * Render the 3D world
-     */
+    // Mesh generation
+    Engine::World::MeshGenerator* m_meshGenerator;   // Unified mesh generation
+    
+    // Input handling
+    InputManager* m_inputManager;                     // Input processing
+    
+    // Networking
+    NetworkManager* m_networkManager;                 // Network communication
+    
+    // Client-side world state (received from server)
+    std::unordered_map<uint64_t, Engine::World::Chunk*> m_chunks;  // Received chunks (key = chunk coords)
+    std::unordered_map<uint64_t, Engine::Rendering::RenderedChunk> m_renderedChunks; // OpenGL data for chunks
+    
+    // Client-side world state (received from server)
+    struct ClientWorldState {
+        // TODO: Received chunk data
+        // TODO: Other player positions
+        // TODO: World change notifications
+    };
+    ClientWorldState m_worldState;
+    
+    // Player state
+    struct LocalPlayer {
+        Vec3 position;
+        Vec3 velocity;
+        Vec3 rotation;
+        uint32_t playerID;
+    };
+    LocalPlayer m_localPlayer;
+    
+    // Internal methods
+    void handleNetworkMessages();
+    void processInput(float deltaTime);
+    void updateClientPrediction(float deltaTime);
+    void sendInputToServer();
+    void updateRendering();
+    void generateChunkMesh(Engine::World::Chunk* chunk);
+    uint64_t getChunkKey(int x, int y, int z) const;
+    
+    // Rendering methods
     void renderWorld();
-    
-    /**
-     * Handle received world state from server
-     */
-    void handleWorldStateReceived(const WorldStateMessage& worldState);
-    
-    /**
-     * Handle received compressed island data from server
-     */
-    void handleCompressedIslandReceived(uint32_t islandID, const Vec3& position, const uint8_t* voxelData, uint32_t dataSize);
-    
-    /**
-     * Handle received compressed chunk data from server
-     */
-    void handleCompressedChunkReceived(uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t dataSize);
-    
-    /**
-     * Handle received voxel change updates from server
-     */
-    void handleVoxelChangeReceived(const VoxelChangeUpdate& update);
-    
-    /**
-     * Handle received entity state updates from server
-     */
-    void handleEntityStateUpdate(const EntityStateUpdate& update);
-    
-    /**
-     * Render waiting screen for remote clients
-     */
-    void renderWaitingScreen();
-    
-    /**
-     * Render UI and debug info
-     */
     void renderUI();
     
-    /**
-     * Handle window resize
-     */
-    void onWindowResize(int width, int height);
-    
-    // Static callback for GLFW
-    static void windowResizeCallback(GLFWwindow* window, int width, int height);
+    // World state management
+    void applyServerWorldUpdate();
+    void handleChunkDataReceived();
 };
+
+} // namespace Core
+} // namespace Engine

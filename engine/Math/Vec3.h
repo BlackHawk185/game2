@@ -1,5 +1,13 @@
 // Vec3.h - Lightweight 3D vector math for voxel engine
 #pragma once
+
+// Prevent Windows min/max macro conflicts
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
+
 #include <cmath>
 #include <algorithm>
 
@@ -110,12 +118,12 @@ struct Vec3
     }
 
     // Component-wise min/max
-    static Vec3 min(const Vec3& a, const Vec3& b)
+    static Vec3 componentMin(const Vec3& a, const Vec3& b)
     {
-        return {std::min(a.x, b.x), std::min(a.y, b.y), std::min(a.z, b.z)};
+        return {(a.x < b.x) ? a.x : b.x, (a.y < b.y) ? a.y : b.y, (a.z < b.z) ? a.z : b.z};
     }
-    static Vec3 max(const Vec3& a, const Vec3& b)
+    static Vec3 componentMax(const Vec3& a, const Vec3& b)
     {
-        return {std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
+        return {(a.x > b.x) ? a.x : b.x, (a.y > b.y) ? a.y : b.y, (a.z > b.z) ? a.z : b.z};
     }
 };

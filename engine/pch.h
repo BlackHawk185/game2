@@ -1,6 +1,11 @@
 // Precompiled header for MMORPG Engine
 #pragma once
 
+// Windows compatibility
+#ifdef _WIN32
+#define NOMINMAX  // Prevent min/max macro conflicts
+#endif
+
 // Standard library
 #include <algorithm>
 #include <atomic>

@@ -36,12 +36,13 @@ public:
     // Called each frame to update networking
     void update();
     
-    // Test functions for Phase 1
+    // Basic test function
     void broadcastHelloWorld();
     
-    // Movement functions for Phase 2
+    // Entity movement functions (essential for entity-based architecture)
     void sendPlayerMovement(const Vec3& intendedPosition, const Vec3& velocity, float deltaTime);
     void broadcastPlayerPosition(uint32_t playerId, const Vec3& position, const Vec3& velocity);
+    void broadcastEntityState(const EntityStateUpdate& entityState);
     
     // Get components for setting up callbacks
     IntegratedServer* getServer() { return server.get(); }

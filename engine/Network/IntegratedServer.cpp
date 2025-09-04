@@ -38,6 +38,8 @@ bool IntegratedServer::startServer(uint16_t port)
         return false;
     }
 
+    std::cout << "ENet server successfully created and listening on 127.0.0.1:" << port << std::endl;
+
     // Removed verbose debug output
     return true;
 }
@@ -63,6 +65,7 @@ void IntegratedServer::update()
     // Process all pending events (non-blocking)
     while (enet_host_service(host, &event, 0) > 0)
     {
+        std::cout << "Server: Received network event type: " << event.type << std::endl;
         handleClientEvent(event);
     }
 }
@@ -73,7 +76,7 @@ void IntegratedServer::handleClientEvent(const ENetEvent& event)
     {
         case ENET_EVENT_TYPE_CONNECT:
         {
-            // Removed verbose debug output
+            std::cout << "Server: Client connection received!" << std::endl;
 
             connectedClients.push_back(event.peer);
 
@@ -137,20 +140,6 @@ void IntegratedServer::processClientMessage(ENetPeer* client, ENetPacket* packet
             break;
         }
 
-        case NetworkMessageType::VOXEL_CHANGE_REQUEST:
-        {
-            if (packet->dataLength >= sizeof(VoxelChangeRequest))
-            {
-                VoxelChangeRequest request = *(VoxelChangeRequest*) packet->data;
-
-                if (onVoxelChangeRequest)
-                {
-                    onVoxelChangeRequest(client, request);
-                }
-            }
-            break;
-        }
-
         default:
             std::cout << "Unknown message type from client: " << (int) messageType << std::endl;
             break;
@@ -178,54 +167,6 @@ void IntegratedServer::broadcastPlayerPosition(uint32_t playerId, const Vec3& po
     broadcastToAllClients(&update, sizeof(update));
 }
 
-void IntegratedServer::sendWorldStateToClient(ENetPeer* client, const WorldStateMessage& worldState)
-{
-    // Removed verbose debug output
-    sendToClient(client, &worldState, sizeof(worldState));
-}
-
-void IntegratedServer::sendCompressedIslandToClient(ENetPeer* client, uint32_t islandID,
-                                                    const Vec3& position, const uint8_t* voxelData,
-                                                    uint32_t voxelDataSize)
-{
-    if (!client || !voxelData || voxelDataSize == 0)
-    {
-        std::cerr << "Invalid parameters for compressed island transmission" << std::endl;
-        return;
-    }
-
-    // Compress the voxel data
-    std::vector<uint8_t> compressedData;
-    uint32_t compressedSize =
-        VoxelCompression::compressRLE(voxelData, voxelDataSize, compressedData);
-
-    if (compressedSize == 0 || compressedData.empty())
-    {
-        std::cerr << "Failed to compress island data for island " << islandID << std::endl;
-        return;
-    }
-
-    // Create header
-    CompressedIslandHeader header;
-    header.islandID = islandID;
-    header.position = position;
-    header.originalSize = voxelDataSize;
-    header.compressedSize = compressedSize;
-
-    // Create combined packet: header + compressed data
-    std::vector<uint8_t> combinedPacket(sizeof(header) + compressedSize);
-
-    // Copy header to the beginning
-    std::memcpy(combinedPacket.data(), &header, sizeof(header));
-
-    // Copy compressed data after header
-    std::memcpy(combinedPacket.data() + sizeof(header), compressedData.data(), compressedSize);
-
-    // Send as single packet
-    sendToClient(client, combinedPacket.data(), combinedPacket.size());
-}
-
-// NEW: Send individual chunk with coordinates for multi-chunk islands
 void IntegratedServer::sendCompressedChunkToClient(ENetPeer* client, uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t voxelDataSize)
 {
     if (!client || !voxelData || voxelDataSize == 0)
@@ -283,19 +224,6 @@ void IntegratedServer::broadcastToAllClients(const void* data, size_t size)
     {
         enet_peer_send(client, 0, packet);
     }
-}
-
-void IntegratedServer::broadcastVoxelChange(uint32_t islandID, const Vec3& localPos,
-                                            uint8_t voxelType, uint32_t authorPlayerId)
-{
-    VoxelChangeUpdate update;
-    update.sequenceNumber = nextSequenceNumber++;
-    update.islandID = islandID;
-    update.localPos = localPos;
-    update.voxelType = voxelType;
-    update.authorPlayerId = authorPlayerId;
-
-    broadcastToAllClients(&update, sizeof(update));
 }
 
 void IntegratedServer::broadcastEntityState(const EntityStateUpdate& entityState)
