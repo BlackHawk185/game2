@@ -272,49 +272,6 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
         std::cout << "WARNING: dirt.png texture not found in TextureManager!" << std::endl;
     }
     
-    // Bind light map textures (texture units 1-6) - one for each face
-    ChunkLightMaps& lightMaps = chunk->getLightMaps(); // Non-const to allow texture access
-    
-    // Check if lightmaps are ready - don't create them automatically
-    // The GlobalLightingManager should have processed this chunk already
-    if (!chunk->hasValidLightMaps()) {
-        // Lightmaps not ready - this should not happen if our systems are properly coordinated
-        static int skipCount = 0;
-        if (skipCount < 5) {
-            std::cout << "[VBORenderer] Warning: Lightmaps not ready for chunk - skipping! (count: " << skipCount << ")" << std::endl;
-            skipCount++;
-        }
-        return; // Skip rendering this chunk until lightmaps are ready
-    }
-    
-    // Bind all 6 face light map textures
-    bool allTexturesValid = true;
-    for (int face = 0; face < 6; ++face) {
-        if (lightMaps.faceMaps[face].textureHandle != 0) {
-            glActiveTexture(GL_TEXTURE1 + face);
-            glBindTexture(GL_TEXTURE_2D, lightMaps.faceMaps[face].textureHandle);
-        } else {
-            allTexturesValid = false;
-            std::cerr << "Warning: Light map texture for face " << face << " is not available" << std::endl;
-        }
-    }
-    
-    // Set shader uniforms for light map textures
-    m_shader.setInt("uLightMapFace0", 1);  // GL_TEXTURE1
-    m_shader.setInt("uLightMapFace1", 2);  // GL_TEXTURE2
-    m_shader.setInt("uLightMapFace2", 3);  // GL_TEXTURE3
-    m_shader.setInt("uLightMapFace3", 4);  // GL_TEXTURE4
-    m_shader.setInt("uLightMapFace4", 5);  // GL_TEXTURE5
-    m_shader.setInt("uLightMapFace5", 6);  // GL_TEXTURE6
-    
-    if (allTexturesValid) {
-        // Enable pure light map rendering (1.0 = full light map, 0.0 = traditional lighting only)
-        m_shader.setFloat("uLightMapStrength", 1.0f);
-    } else {
-        // Fallback: Use default bright lighting when no light map available
-        m_shader.setFloat("uLightMapStrength", 0.0f);
-    }
-    
     // Bind VAO and render
     glBindVertexArray(mesh.VAO);
     glDrawElements(GL_TRIANGLES, mesh.indices.size(), GL_UNSIGNED_INT, 0);
@@ -403,37 +360,6 @@ void VBORenderer::renderChunkBatch(const std::vector<VoxelChunk*>& chunks, const
             m_shader.setInt("uTexture", 0);
         }
         
-        // Bind light map textures (texture units 1-6) - one for each face
-        ChunkLightMaps& lightMaps = chunk->getLightMaps();
-        
-        // Check if lightmaps are ready - don't create them automatically  
-        // The GlobalLightingManager should have processed this chunk already
-        if (!chunk->hasValidLightMaps()) {
-            // Skip this chunk until lightmaps are ready
-            continue; // Skip to next chunk in batch
-        }
-        
-        // Bind all 6 face light map textures
-        bool allTexturesValid = true;
-        for (int face = 0; face < 6; ++face) {
-            if (lightMaps.faceMaps[face].textureHandle != 0) {
-                glActiveTexture(GL_TEXTURE1 + face);
-                glBindTexture(GL_TEXTURE_2D, lightMaps.faceMaps[face].textureHandle);
-            } else {
-                allTexturesValid = false;
-            }
-        }
-        
-        // Set shader uniforms for light map textures (same for all chunks)
-        if (i == 0) { // Only set once per batch
-            m_shader.setInt("uLightMapFace0", 1);  // GL_TEXTURE1
-            m_shader.setInt("uLightMapFace1", 2);  // GL_TEXTURE2
-            m_shader.setInt("uLightMapFace2", 3);  // GL_TEXTURE3
-            m_shader.setInt("uLightMapFace3", 4);  // GL_TEXTURE4
-            m_shader.setInt("uLightMapFace4", 5);  // GL_TEXTURE5
-            m_shader.setInt("uLightMapFace5", 6);  // GL_TEXTURE6
-            m_shader.setFloat("uLightMapStrength", allTexturesValid ? 1.0f : 0.0f);
-        }
         
         // Render chunk
         glBindVertexArray(mesh.VAO);
