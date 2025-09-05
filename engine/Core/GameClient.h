@@ -17,6 +17,8 @@ struct GLFWwindow;
 struct VoxelChangeUpdate;
 struct WorldStateMessage;
 
+namespace Engine { namespace Core { class Window; } }
+
 /**
  * GameClient handles the presentation layer of the game.
  * It manages rendering, input, and UI, but does not own the game state.
@@ -38,7 +40,7 @@ public:
     /**
      * Initialize the client (creates window, graphics context, etc.)
      */
-    bool initialize();
+    bool initialize(bool enableDebug = false);
     
     /**
      * Connect to a game state (local or remote)
@@ -95,8 +97,8 @@ public:
     const Camera& getCamera() const { return m_camera; }
     
 private:
-    // Graphics context
-    GLFWwindow* m_window = nullptr;
+    // Graphics window/context
+    std::unique_ptr<Engine::Core::Window> m_window;
     int m_windowWidth = 1280;
     int m_windowHeight = 720;
     
@@ -125,6 +127,7 @@ private:
     
     // Client state
     bool m_initialized = false;
+    bool m_debugMode = false;
     
     // ================================
     // INTERNAL METHODS
@@ -191,7 +194,8 @@ private:
      * Handle window resize
      */
     void onWindowResize(int width, int height);
-    
-    // Static callback for GLFW
-    static void windowResizeCallback(GLFWwindow* window, int width, int height);
-};
+
+    // Lighting neighborhood tracking
+    Vec3 m_lastChunkCoord{999999,999999,999999};
+
+}; 

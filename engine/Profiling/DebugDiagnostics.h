@@ -1,4 +1,4 @@
-// DebugDiagnostics.h - Install debug-time diagnostics for MSVC
+// DebugDiagnostics.h - Install debug-time diagnostics for MSVC (moved to Profiling)
 #pragma once
 
 namespace DebugDiagnostics {

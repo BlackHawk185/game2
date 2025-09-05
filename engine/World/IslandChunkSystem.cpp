@@ -355,20 +355,24 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
 
 uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& islandRelativePosition) const
 {
-    const FloatingIsland* island = getIsland(islandID);
-    if (!island)
+    // Hold lock across the entire access to prevent races
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
+    auto itIsl = m_islands.find(islandID);
+    if (itIsl == m_islands.end())
         return 0;
+
+    const FloatingIsland& island = itIsl->second;
 
     // Convert island-relative position to chunk coordinate and local voxel position
     Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(islandRelativePosition);
     Vec3 localPos = FloatingIsland::islandPosToLocalPos(islandRelativePosition);
 
     // Find the chunk
-    auto it = island->chunks.find(chunkCoord);
-    if (it == island->chunks.end())
+    auto it = island.chunks.find(chunkCoord);
+    if (it == island.chunks.end())
         return 0; // Chunk doesn't exist
 
-    VoxelChunk* chunk = it->second.get();
+    const VoxelChunk* chunk = it->second.get();
     if (!chunk)
         return 0;
 
@@ -386,79 +390,66 @@ uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& isl
 
 void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRelativePosition, uint8_t voxelType)
 {
-    FloatingIsland* island = getIsland(islandID);
-    if (!island)
-        return;
-
-    // Convert island-relative position to chunk coordinate and local position
-    Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(islandRelativePosition);
-    Vec3 localPos = FloatingIsland::islandPosToLocalPos(islandRelativePosition);
-
-    // Find or create the chunk
-    auto it = island->chunks.find(chunkCoord);
-    if (it == island->chunks.end())
+    // Acquire chunk pointer under lock, then perform heavy work without holding the map mutex
+    VoxelChunk* chunk = nullptr;
+    Vec3 localPos;
     {
-        // Create new chunk if it doesn't exist
-        addChunkToIsland(islandID, chunkCoord);
-        it = island->chunks.find(chunkCoord);
+        std::lock_guard<std::mutex> lock(m_islandsMutex);
+        auto itIsl = m_islands.find(islandID);
+        if (itIsl == m_islands.end())
+            return;
+        FloatingIsland& island = itIsl->second;
+        Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(islandRelativePosition);
+        localPos = FloatingIsland::islandPosToLocalPos(islandRelativePosition);
+        std::unique_ptr<VoxelChunk>& chunkPtr = island.chunks[chunkCoord];
+        if (!chunkPtr)
+            chunkPtr = std::make_unique<VoxelChunk>();
+        chunk = chunkPtr.get();
     }
 
-    VoxelChunk* chunk = it->second.get();
-    if (!chunk)
-        return;
-
-    // Set voxel in chunk using local coordinates
+    // Set voxel and rebuild mesh outside of islands mutex to avoid deadlocks
     int x = static_cast<int>(localPos.x);
     int y = static_cast<int>(localPos.y);
     int z = static_cast<int>(localPos.z);
-
-    // Check bounds (should be 0-15 for 16x16x16 chunks)
     if (x < 0 || x >= VoxelChunk::SIZE || y < 0 || y >= VoxelChunk::SIZE || z < 0 || z >= VoxelChunk::SIZE)
         return;
-
     chunk->setVoxel(x, y, z, voxelType);
-    chunk->generateMesh();  // Update visual mesh
+    chunk->generateMesh();
 }
 
 void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType)
 {
-    FloatingIsland* island = getIsland(islandID);
-    if (!island)
-        return;
-
-    // Calculate which chunk this position belongs to using grid-aligned coordinates
-    // Use floor division to ensure proper grid alignment
-    int chunkX = static_cast<int>(std::floor(islandRelativePos.x / VoxelChunk::SIZE));
-    int chunkY = static_cast<int>(std::floor(islandRelativePos.y / VoxelChunk::SIZE));
-    int chunkZ = static_cast<int>(std::floor(islandRelativePos.z / VoxelChunk::SIZE));
-    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
-
-    // Calculate local position within the chunk (always 0-31)
-    int localX = static_cast<int>(islandRelativePos.x) % VoxelChunk::SIZE;
-    int localY = static_cast<int>(islandRelativePos.y) % VoxelChunk::SIZE;
-    int localZ = static_cast<int>(islandRelativePos.z) % VoxelChunk::SIZE;
-    
-    // Handle negative coordinates properly for modulo
-    if (localX < 0) localX += VoxelChunk::SIZE;
-    if (localY < 0) localY += VoxelChunk::SIZE;
-    if (localZ < 0) localZ += VoxelChunk::SIZE;
-
-    // Find or create the chunk at the grid-aligned coordinate
-    auto it = island->chunks.find(chunkCoord);
-    if (it == island->chunks.end())
+    // Acquire chunk pointer under lock, then write outside the lock
+    VoxelChunk* chunk = nullptr;
+    int localX = 0, localY = 0, localZ = 0;
     {
-        // Create new chunk at grid-aligned position
-        addChunkToIsland(islandID, chunkCoord);
-        it = island->chunks.find(chunkCoord);
+        std::lock_guard<std::mutex> lock(m_islandsMutex);
+        auto itIsl = m_islands.find(islandID);
+        if (itIsl == m_islands.end())
+            return;
+        FloatingIsland& island = itIsl->second;
+
+        int chunkX = static_cast<int>(std::floor(islandRelativePos.x / VoxelChunk::SIZE));
+        int chunkY = static_cast<int>(std::floor(islandRelativePos.y / VoxelChunk::SIZE));
+        int chunkZ = static_cast<int>(std::floor(islandRelativePos.z / VoxelChunk::SIZE));
+        Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+
+        localX = static_cast<int>(islandRelativePos.x) % VoxelChunk::SIZE;
+        localY = static_cast<int>(islandRelativePos.y) % VoxelChunk::SIZE;
+        localZ = static_cast<int>(islandRelativePos.z) % VoxelChunk::SIZE;
+        if (localX < 0) localX += VoxelChunk::SIZE;
+        if (localY < 0) localY += VoxelChunk::SIZE;
+        if (localZ < 0) localZ += VoxelChunk::SIZE;
+
+        std::unique_ptr<VoxelChunk>& chunkPtr = island.chunks[chunkCoord];
+        if (!chunkPtr)
+            chunkPtr = std::make_unique<VoxelChunk>();
+        chunk = chunkPtr.get();
     }
 
-    VoxelChunk* chunk = it->second.get();
-    if (!chunk)
-        return;
-
-    // Set voxel in chunk using local coordinates
+    if (!chunk) return;
     chunk->setVoxel(localX, localY, localZ, voxelType);
-    // NOTE: Don't generate mesh here - do it once at the end for performance
+    // Mesh generation can be deferred/batched; leave as-is to avoid stutters
 }
 
 void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks)
@@ -511,7 +502,11 @@ void IslandChunkSystem::renderAllIslands()
     g_vboRenderer->beginBatch();
     for (auto& p : snapshot)
     {
-        g_vboRenderer->uploadChunkMesh(p.first);
+        // Only upload when needed to avoid contention/cost
+        VoxelMesh& m = p.first->getMesh();
+        if (m.VAO == 0 || m.needsUpdate) {
+            g_vboRenderer->uploadChunkMesh(p.first);
+        }
         g_vboRenderer->renderChunk(p.first, p.second);
     }
     g_vboRenderer->endBatch();

@@ -27,11 +27,18 @@ public:
     void setProjectionMatrix(const glm::mat4& projection);
     void setViewMatrix(const glm::mat4& view);
     void setModelMatrix(const glm::mat4& model);
+    void setLightVP(const glm::mat4& lightVP);
+    void setLightDir(const glm::vec3& lightDir);
 
     // Chunk VBO management with VAO support
     void uploadChunkMesh(VoxelChunk* chunk);
     void renderChunk(VoxelChunk* chunk, const Vec3& worldOffset);
     void deleteChunkVBO(VoxelChunk* chunk);
+    
+    // Shadow depth pass helpers
+    void beginDepthPass(const glm::mat4& lightVP);
+    void renderDepthChunk(VoxelChunk* chunk, const Vec3& worldOffset);
+    void endDepthPass(int screenWidth, int screenHeight);
 
     // Batch rendering for multiple chunks
     void beginBatch();
@@ -63,10 +70,18 @@ private:
     glm::mat4 m_projectionMatrix;
     glm::mat4 m_viewMatrix;
     glm::mat4 m_modelMatrix;
+    glm::mat4 m_lightVP{1.0f};
+    glm::vec3 m_lightDir{ -0.3f, -1.0f, -0.2f };
+
+    // Depth-only shader for shadow map pass
+    unsigned int m_depthProgram = 0;
+    int m_depth_uLightVP = -1;
+    int m_depth_uModel = -1;
 
     // Helper methods
     void setupVertexAttributes();
     void setupVAO(VoxelChunk* chunk);
+    bool initDepthShader();
 };
 
 // Global VBO renderer instance

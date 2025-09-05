@@ -5,87 +5,60 @@
 #include <iostream>
 #include <unordered_map>
 
-// Enhanced vertex shader for voxel rendering with light mapping and UBO
+// Vertex shader for voxel rendering with inverse shadow map lighting (no lightmaps)
 static const char* VERTEX_SHADER_SOURCE = R"(
 #version 460 core
 
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec2 aTexCoord;
-layout (location = 2) in vec3 aNormal;
-layout (location = 3) in vec2 aLightMapUV;  // Light map texture coordinates
-layout (location = 4) in float aAmbientOcclusion;  // Per-vertex ambient occlusion
-layout (location = 5) in float aFaceIndex;  // Face index for per-face light maps
+layout (location = 2) in vec3 aNormal; // Optional
 
-// UBO for batch rendering multiple chunks with different lighting
+// Retain UBO signature for compatibility, though not used for lighting
 layout (std140, binding = 0) uniform ChunkLightingData {
-    mat4 uChunkTransforms[64];    // Transform matrices for up to 64 chunks
-    vec4 uChunkLightColors[64];   // Per-chunk light tinting (rgb + intensity)
-    vec4 uChunkAmbientData[64];   // Per-chunk ambient (rgb + occlusion strength)
-    vec2 uChunkLightMapOffsets[64]; // UV offsets for light map atlasing
-    int uNumChunks;               // Number of active chunks
+    mat4 uChunkTransforms[64];
+    vec4 uChunkLightColors[64];
+    vec4 uChunkAmbientData[64];
+    vec2 uChunkLightMapOffsets[64];
+    int uNumChunks;
 };
 
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
 uniform int uChunkIndex;  // Which chunk this vertex belongs to
+uniform mat4 uLightVP;    // Light view-projection for shadow map
 
 out vec2 TexCoord;
 out vec3 Normal;
-out vec2 LightMapUV;
-out float AmbientOcclusion;
-out float FaceIndex;             // Pass face index for per-face light map selection
-out vec4 ChunkLightColor;     // Pass chunk-specific lighting data
-out vec4 ChunkAmbientData;    // Pass chunk-specific ambient data
+out vec3 WorldPos;
+out vec4 LightSpacePos;
 
 void main()
 {
-    // Use chunk-specific transform if available, otherwise use uniform transform
-    mat4 finalTransform = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
+    mat4 finalTransform = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ?
                          uChunkTransforms[uChunkIndex] : uModel;
-    
-    gl_Position = uProjection * uView * finalTransform * vec4(aPosition, 1.0);
+
+    vec4 world = finalTransform * vec4(aPosition, 1.0);
+    gl_Position = uProjection * uView * world;
     TexCoord = aTexCoord;
     Normal = aNormal;
-    
-    // Apply chunk-specific light map UV offset for atlasing
-    vec2 uvOffset = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
-                   uChunkLightMapOffsets[uChunkIndex] : vec2(0.0);
-    LightMapUV = aLightMapUV + uvOffset;
-    
-    AmbientOcclusion = aAmbientOcclusion;
-    FaceIndex = aFaceIndex;  // Pass face index to fragment shader
-    
-    // Pass chunk-specific lighting data to fragment shader
-    ChunkLightColor = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
-                     uChunkLightColors[uChunkIndex] : vec4(1.0, 1.0, 1.0, 1.0);
-    ChunkAmbientData = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ? 
-                      uChunkAmbientData[uChunkIndex] : vec4(0.3, 0.3, 0.3, 1.0);
+    WorldPos = world.xyz;
+    LightSpacePos = uLightVP * world;
 }
 )";
 
-// Enhanced fragment shader with per-face light maps and UBO support
+// Fragment shader: texture * shadow visibility (inverse lighting)
 static const char* FRAGMENT_SHADER_SOURCE = R"(
 #version 460 core
 
 in vec2 TexCoord;
 in vec3 Normal;
-in vec2 LightMapUV;
-in float AmbientOcclusion;
-in float FaceIndex;             // Face index for per-face light map selection
-in vec4 ChunkLightColor;
-in vec4 ChunkAmbientData;
+in vec3 WorldPos;
+in vec4 LightSpacePos;
 
 uniform sampler2D uTexture;
-uniform sampler2D uLightMapFace0;   // Light map texture for +X face
-uniform sampler2D uLightMapFace1;   // Light map texture for -X face
-uniform sampler2D uLightMapFace2;   // Light map texture for +Y face
-uniform sampler2D uLightMapFace3;   // Light map texture for -Y face
-uniform sampler2D uLightMapFace4;   // Light map texture for +Z face
-uniform sampler2D uLightMapFace5;   // Light map texture for -Z face
-uniform vec3 uSunDirection;         // Dynamic sun direction from day/night cycle
-uniform float uTimeOfDay;          // 0.0 = midnight, 0.5 = noon, 1.0 = midnight
-uniform float uLightMapStrength;   // Strength of light map influence [0.0-1.0]
+uniform sampler2D uShadowMap;
+uniform vec3 uLightDir;
 
 // Material uniforms for different object types
 uniform vec4 uMaterialColor;       // Diffuse color with alpha (for fluid particles, UI, etc.)
@@ -98,84 +71,53 @@ out vec4 FragColor;
 void main()
 {
     vec4 finalColor;
-    
-    // Branch based on material type for optimal performance
+
     if (uMaterialType == 1) {
-        // Fluid Material - simple color with transparency
+        // Fluid Material - simple color with transparency, no directional lighting
         finalColor = uMaterialColor;
-        
-        // Add simple lighting for fluids
-        float sunDot = max(dot(normalize(Normal), normalize(-uSunDirection)), 0.0);
-        finalColor.rgb *= (0.3 + 0.7 * sunDot); // Ambient + directional
-        
     } else if (uMaterialType == 2) {
         // UI Material - no lighting, just color/texture
         vec4 texColor = texture(uTexture, TexCoord);
         finalColor = texColor * uMaterialColor;
-        
     } else {
-        // Voxel Material (default) - full lightmap + texture system
         vec4 texColor = texture(uTexture, TexCoord);
-        
-        // Check if texture is valid (not all black/white)
-        if (texColor.rgb == vec3(0.0, 0.0, 0.0) || texColor.a < 0.1) {
-            // Fallback to bright magenta if texture is missing/invalid
-            texColor = vec4(1.0, 0.0, 1.0, 1.0);
+        if (texColor.a < 0.1) { discard; }
+
+        // Transform to [0,1] shadow map coords
+        vec3 proj = LightSpacePos.xyz / LightSpacePos.w;
+        proj = proj * 0.5 + 0.5;
+        float shadow = 1.0;
+        // Slope-scale bias based on N.L to mitigate acne
+        vec3 N = normalize(Normal);
+        vec3 L = normalize(-uLightDir);
+        float ndotl = max(dot(N, L), 0.0);
+        float bias = max(0.0015, 0.0035 * (1.0 - ndotl));
+        if (proj.x >= 0.0 && proj.x <= 1.0 && proj.y >= 0.0 && proj.y <= 1.0 && proj.z <= 1.0)
+        {
+            float current = proj.z - bias;
+            // Poisson disk PCF (12 taps)
+            const vec2 poisson[12] = vec2[12](
+                vec2( -0.613,  0.354 ), vec2( 0.743,  0.106 ), vec2( 0.296, -0.682 ), vec2( -0.269, -0.402 ),
+                vec2( -0.154,  0.692 ), vec2( 0.389,  0.463 ), vec2( 0.682, -0.321 ), vec2( -0.682,  0.228 ),
+                vec2( -0.053, -0.934 ), vec2( 0.079,  0.934 ), vec2( -0.934, -0.079 ), vec2( 0.934,  0.053 )
+            );
+            float texel = 1.0 / 2048.0; // matches shadow map size
+            float radius = 2.5 * texel; // base softness
+            float sum = 0.0;
+            for (int i = 0; i < 12; ++i) {
+                vec2 offset = poisson[i] * radius;
+                float d = texture(uShadowMap, proj.xy + offset).r;
+                sum += current <= d ? 1.0 : 0.0;
+            }
+            shadow = sum / 12.0;
         }
-        
-        // Sample the appropriate light map based on face index
-        vec3 lightMapColor;
-        int face = int(FaceIndex + 0.5); // Round to nearest integer
-        
-        if (face == 0) {
-            lightMapColor = texture(uLightMapFace0, LightMapUV).rgb;
-        } else if (face == 1) {
-            lightMapColor = texture(uLightMapFace1, LightMapUV).rgb;
-        } else if (face == 2) {
-            lightMapColor = texture(uLightMapFace2, LightMapUV).rgb;
-        } else if (face == 3) {
-            lightMapColor = texture(uLightMapFace3, LightMapUV).rgb;
-        } else if (face == 4) {
-            lightMapColor = texture(uLightMapFace4, LightMapUV).rgb;
-        } else if (face == 5) {
-            lightMapColor = texture(uLightMapFace5, LightMapUV).rgb;
-        } else {
-            // Fallback for invalid face index
-            lightMapColor = vec3(1.0, 0.0, 1.0); // Bright magenta for debugging
-        }
-        
-        // Calculate traditional directional lighting from sun (as backup/blend)
-        float sunDot = dot(normalize(Normal), normalize(-uSunDirection));
-        sunDot = max(sunDot, 0.0);
-        float directionalLight = sunDot * 0.8;
-        
-        // Use chunk-specific ambient data
-        float ambientStrength = mix(ChunkAmbientData.a * 0.2, ChunkAmbientData.a * 0.4, 
-                                   sin(uTimeOfDay * 3.14159)); // Varies based on chunk data
-        
-        // Traditional lighting with chunk-specific color tinting
-        float traditionalLight = ambientStrength + (0.6 * directionalLight);
-        
-        // Blend light map with traditional lighting
-        float finalLightIntensity = mix(traditionalLight, length(lightMapColor), uLightMapStrength);
-        
-        // Apply ambient occlusion with chunk-specific strength
-        finalLightIntensity *= mix(1.0, AmbientOcclusion, ChunkAmbientData.a);
-        
-        // Apply chunk-specific light color tinting
-        vec3 chunkTintedLight = ChunkLightColor.rgb * ChunkLightColor.a * finalLightIntensity;
-        
-        // Apply lighting to texture
-        vec3 baseColor = texColor.rgb * chunkTintedLight;
-        
-        // Add light map color tinting for colored lighting effects with chunk influence
-        baseColor = mix(baseColor, baseColor * lightMapColor * ChunkLightColor.rgb, 
-                        uLightMapStrength * 0.3);
-        
-        // Mix with chunk ambient color for inter-chunk light propagation
-        finalColor = vec4(mix(baseColor, baseColor * ChunkAmbientData.rgb, 0.1), texColor.a);
+        // Simple lambert + small ambient floor for readability
+        float lambert = ndotl;
+        float ambient = 0.04;
+        float lit = clamp(ambient + shadow * lambert, 0.0, 1.0);
+        finalColor = vec4(texColor.rgb * lit, texColor.a);
     }
-    
+
     FragColor = finalColor;
 }
 )";

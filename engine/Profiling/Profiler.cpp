@@ -1,4 +1,4 @@
-// Profiler.cpp - Basic performance profiler implementation
+// Profiler.cpp - Basic performance profiler implementation (moved to Profiling)
 #include "Profiler.h"
 #include <iostream>
 #include <iomanip>

@@ -1,4 +1,5 @@
 // Profiler.h - Basic performance profiler for MMORPG Engine
+// (Moved from Core to Profiling)
 #pragma once
 #include <chrono>
 #include <string>

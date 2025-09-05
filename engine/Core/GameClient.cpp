@@ -9,12 +9,14 @@
 #include <memory>
 
 #include "GameState.h"
-#include "Profiler.h"
+#include "../Profiling/Profiler.h"
 
 #include "../Network/NetworkManager.h"
 #include "../Network/NetworkMessages.h"
 #include "../Rendering/Renderer.h"
+#include "../Core/Window.h"
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED
+#include "../Rendering/ShadowMap.h"
 #include "../Rendering/GlobalLightingManager.h"  // NEW: Global lighting system
 #include "../Physics/FluidSystem.h"
 #include <glm/glm.hpp>
@@ -63,13 +65,15 @@ GameClient::~GameClient()
     shutdown();
 }
 
-bool GameClient::initialize()
+bool GameClient::initialize(bool enableDebug)
 {
     if (m_initialized)
     {
         std::cerr << "GameClient already initialized!" << std::endl;
         return false;
     }
+
+    m_debugMode = enableDebug;
 
     // Removed verbose debug output
 
@@ -160,11 +164,7 @@ bool GameClient::update(float deltaTime)
         return false;
     }
 
-    // Poll window events
-    {
-        PROFILE_SCOPE("glfwPollEvents");
-        glfwPollEvents();
-    }
+    // Polling now occurs during window update at end of frame
 
     // Check if window should close
     if (shouldClose())
@@ -221,10 +221,10 @@ bool GameClient::update(float deltaTime)
         render();
     }
 
-    // Swap buffers
+    // Swap buffers and poll events via wrapper
     {
-        PROFILE_SCOPE("glfwSwapBuffers");
-        glfwSwapBuffers(m_window);
+        PROFILE_SCOPE("Window::update");
+        if (m_window) m_window->update();
     }
 
     // Update profiler (will auto-report every second)
@@ -255,13 +255,14 @@ void GameClient::shutdown()
         std::cout << "VBO renderer shutdown" << std::endl;
     }
 
-    // Cleanup graphics
+    // Cleanup window
     if (m_window)
     {
-        glfwDestroyWindow(m_window);
-        m_window = nullptr;
+        m_window->shutdown();
+        m_window.reset();
     }
 
+    // Terminate GLFW after window shutdown
     glfwTerminate();
 
     m_initialized = false;
@@ -270,7 +271,7 @@ void GameClient::shutdown()
 
 bool GameClient::shouldClose() const
 {
-    return m_window && glfwWindowShouldClose(m_window);
+    return m_window && m_window->shouldClose();
 }
 
 void GameClient::processInput(float deltaTime)
@@ -345,45 +346,19 @@ void GameClient::render()
 
 bool GameClient::initializeWindow()
 {
-    if (!glfwInit())
+    // Use the Window wrapper for all window/context handling
+    m_window = std::make_unique<Engine::Core::Window>();
+    if (!m_window->initialize(m_windowWidth, m_windowHeight, "MMORPG Engine - Client", m_debugMode))
     {
-        std::cerr << "Failed to initialize GLFW!" << std::endl;
+        std::cerr << "Failed to initialize window!" << std::endl;
         return false;
     }
 
-    // Request OpenGL 4.6 Core context
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
+    // Set resize callback to update camera/aspect
+    m_window->setResizeCallback([this](int width, int height) { this->onWindowResize(width, height); });
 
-    // Create window
-    m_window =
-        glfwCreateWindow(m_windowWidth, m_windowHeight, "MMORPG Engine - Client", nullptr, nullptr);
-    if (!m_window)
-    {
-        std::cerr << "Failed to create GLFW window!" << std::endl;
-        glfwTerminate();
-        return false;
-    }
-
-    glfwMakeContextCurrent(m_window);
-
-    // Load OpenGL via glad2
-    if (gladLoadGL(glfwGetProcAddress) == 0)
-    {
-        std::cerr << "Failed to initialize glad (OpenGL 4.6)" << std::endl;
-        glfwDestroyWindow(m_window);
-        glfwTerminate();
-        return false;
-    }
-
-    // Set callbacks
-    glfwSetWindowUserPointer(m_window, this);
-    glfwSetWindowSizeCallback(m_window, windowResizeCallback);
-
-    // Set up mouse capture
-    glfwSetInputMode(m_window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    // Set up mouse capture on underlying GLFW window
+    glfwSetInputMode(m_window->getHandle(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
     return true;
 }
@@ -425,27 +400,27 @@ void GameClient::processKeyboard(float deltaTime)
     float moveSpeed = 10.0f;
     Vec3 movement(0, 0, 0);
 
-    if (glfwGetKey(m_window, GLFW_KEY_W) == GLFW_PRESS)
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
     {
         movement = movement + m_camera.front * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_S) == GLFW_PRESS)
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
     {
         movement = movement - m_camera.front * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_A) == GLFW_PRESS)
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
     {
         movement = movement - m_camera.right * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_D) == GLFW_PRESS)
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
     {
         movement = movement + m_camera.right * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_SPACE) == GLFW_PRESS)
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
     {
         movement = movement + m_camera.up * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(m_window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
     {
         movement = movement - m_camera.up * moveSpeed * deltaTime;
     }
@@ -495,10 +470,6 @@ void GameClient::processKeyboard(float deltaTime)
     }
     else
     {
-        // No collision; suppress verbose log
-    }
-
-    // Apply movement (with collision response)
     m_camera.position = intendedPosition;
 
     // Update player position in game state if local
@@ -520,19 +491,19 @@ void GameClient::processKeyboard(float deltaTime)
         // TODO: Implement proper time effect methods
         // The actual method names need to be checked in TimeEffects.h
         /*
-        if (glfwGetKey(m_window, GLFW_KEY_1) == GLFW_PRESS) g_timeEffects->setSlowMotion();
-        if (glfwGetKey(m_window, GLFW_KEY_2) == GLFW_PRESS) g_timeEffects->setBulletTime();
-        if (glfwGetKey(m_window, GLFW_KEY_3) == GLFW_PRESS) g_timeEffects->setTimeFreeze();
-        if (glfwGetKey(m_window, GLFW_KEY_4) == GLFW_PRESS) g_timeEffects->setSpeedUp();
-        if (glfwGetKey(m_window, GLFW_KEY_5) == GLFW_PRESS) g_timeEffects->setTimeReverse();
-        if (glfwGetKey(m_window, GLFW_KEY_0) == GLFW_PRESS) g_timeEffects->resetTime();
-        if (glfwGetKey(m_window, GLFW_KEY_T) == GLFW_PRESS) g_timeEffects->toggleTimePulse();
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_1) == GLFW_PRESS) g_timeEffects->setSlowMotion();
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_2) == GLFW_PRESS) g_timeEffects->setBulletTime();
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_3) == GLFW_PRESS) g_timeEffects->setTimeFreeze();
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_4) == GLFW_PRESS) g_timeEffects->setSpeedUp();
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_5) == GLFW_PRESS) g_timeEffects->setTimeReverse();
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_0) == GLFW_PRESS) g_timeEffects->resetTime();
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_T) == GLFW_PRESS) g_timeEffects->toggleTimePulse();
         */
     }
 
     // Fluid particle spawning controls
     static bool wasWaterKeyPressed = false;
-    bool isWaterKeyPressed = glfwGetKey(m_window, GLFW_KEY_F) == GLFW_PRESS;
+    bool isWaterKeyPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_F) == GLFW_PRESS;
     
     if (isWaterKeyPressed && !wasWaterKeyPressed)
     {
@@ -543,17 +514,18 @@ void GameClient::processKeyboard(float deltaTime)
         EntityID particleEntity = g_fluidSystem.spawnFluidParticle(spawnPosition, spawnVelocity);
         if (particleEntity != INVALID_ENTITY)
         {
-            std::cout << "💧 Spawned fluid particle " << particleEntity << " at (" 
+            std::cout << "ðŸ’§ Spawned fluid particle " << particleEntity << " at (" 
                       << spawnPosition.x << ", " << spawnPosition.y << ", " << spawnPosition.z << ")" << std::endl;
         }
     }
     wasWaterKeyPressed = isWaterKeyPressed;
 
     // Exit
-    if (glfwGetKey(m_window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
     {
-        glfwSetWindowShouldClose(m_window, GLFW_TRUE);
+        m_window->setShouldClose(true);
     }
+}
 }
 
 void GameClient::processMouse(float deltaTime)
@@ -563,7 +535,7 @@ void GameClient::processMouse(float deltaTime)
     static bool firstMouse = true;
 
     double xpos, ypos;
-    glfwGetCursorPos(m_window, &xpos, &ypos);
+    glfwGetCursorPos(m_window->getHandle(), &xpos, &ypos);
 
     if (firstMouse)
     {
@@ -613,8 +585,8 @@ void GameClient::processBlockInteraction(float deltaTime)
         m_inputState.raycastTimer = 0.0f;
     }
 
-    bool leftClick = glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-    bool rightClick = glfwGetMouseButton(m_window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    bool leftClick = glfwGetMouseButton(m_window->getHandle(), GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    bool rightClick = glfwGetMouseButton(m_window->getHandle(), GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
 
     // Left click - break block
     if (leftClick && !m_inputState.leftMousePressed)
@@ -699,11 +671,42 @@ void GameClient::renderWorld()
         return;
     }
 
-    // Update global lighting for all visible chunks (frustum-culled)
+    // Shadow depth pass (single map, inverse lighting)
     {
-        PROFILE_SCOPE("updateGlobalLighting");
-        float aspect = (float) m_windowWidth / (float) m_windowHeight;
-        g_globalLighting.updateGlobalLighting(m_camera, m_gameState->getIslandSystem(), aspect);
+        PROFILE_SCOPE("Shadow depth pass");
+        Vec3 sunDir = Vec3(-0.3f, -1.0f, -0.2f).normalized();
+        glm::vec3 camPos(m_camera.position.x, m_camera.position.y, m_camera.position.z);
+        glm::vec3 lightTarget = camPos;
+        glm::vec3 lightPos = camPos - glm::vec3(sunDir.x, sunDir.y, sunDir.z) * 100.0f;
+        glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
+        float ortho = 120.0f;
+        glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
+        glm::mat4 lightVP = lightProj * lightView;
+        if (g_vboRenderer)
+        {
+            // Pass light direction for forward shading
+            g_vboRenderer->setLightDir(glm::vec3(sunDir.x, sunDir.y, sunDir.z));
+            g_vboRenderer->beginDepthPass(lightVP);
+            {
+                auto* islandSystem = m_gameState->getIslandSystem();
+                if (islandSystem)
+                {
+                    std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
+                    islandSystem->getAllChunksWithWorldPos(snapshot);
+                    for (auto& p : snapshot)
+                    {
+                        VoxelChunk* chunkPtr = p.first;
+                        const Vec3& worldPos = p.second;
+                        VoxelMesh& mesh = chunkPtr->getMesh();
+                        if (mesh.VAO == 0 || mesh.needsUpdate)
+                            g_vboRenderer->uploadChunkMesh(chunkPtr);
+                        g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
+                    }
+                }
+            }
+            g_vboRenderer->endDepthPass(m_windowWidth, m_windowHeight);
+            g_vboRenderer->setLightVP(lightVP);
+        }
     }
 
     // Render all islands
@@ -715,10 +718,7 @@ void GameClient::renderWorld()
     // Render fluid particles
     {
         PROFILE_SCOPE("renderFluidParticles");
-        std::vector<EntityID> visibleParticles = g_fluidSystem.getVisibleParticles(m_camera.position, 100.0f);
-        if (!visibleParticles.empty() && g_vboRenderer) {
-            g_vboRenderer->renderFluidParticles(visibleParticles);
-        }
+        // TODO: Hook up fluid particle renderer when available
     }
 
     // Render block highlighter (disabled in core profile; reimplement with modern pipeline if needed)
@@ -828,7 +828,8 @@ void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& p
     }
 }
 
-void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition, const uint8_t* voxelData, uint32_t dataSize)
+void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& chunkCoord, const Vec3& islandPosition,
+                                               const uint8_t* voxelData, uint32_t dataSize)
 {
     if (!m_gameState)
     {
@@ -843,14 +844,14 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
         return;
     }
 
-    // Create or get the island 
+    // Create or get the island
     FloatingIsland* island = islandSystem->getIsland(islandID);
     if (!island)
     {
         // Create the island if it doesn't exist
         uint32_t localIslandID = islandSystem->createIsland(islandPosition);
         island = islandSystem->getIsland(localIslandID);
-        
+
         if (!island)
         {
             std::cerr << "Failed to create island " << islandID << std::endl;
@@ -875,7 +876,7 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
     }
     else
     {
-        std::cerr << "Failed to create chunk " << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z 
+        std::cerr << "Failed to create chunk " << chunkCoord.x << "," << chunkCoord.y << "," << chunkCoord.z
                   << " for island " << islandID << std::endl;
     }
 }
@@ -968,11 +969,4 @@ void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update)
     }
 }
 
-void GameClient::windowResizeCallback(GLFWwindow* window, int width, int height)
-{
-    GameClient* client = static_cast<GameClient*>(glfwGetWindowUserPointer(window));
-    if (client)
-    {
-        client->onWindowResize(width, height);
-    }
-}
+// Window resize callback handled via Engine::Core::Window::setResizeCallback

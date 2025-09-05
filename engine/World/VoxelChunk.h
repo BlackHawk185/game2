@@ -5,6 +5,7 @@
 #include <array>
 #include <vector>
 #include <cstdint>
+#include <mutex>
 
 // Forward declaration for OpenGL types
 using GLuint = uint32_t;
@@ -130,6 +131,7 @@ class VoxelChunk
     // Mesh access for VBO rendering
     VoxelMesh& getMesh() { return mesh; }
     const VoxelMesh& getMesh() const { return mesh; }
+    std::mutex& getMeshMutex() const { return meshMutex; }
     
     // Light mapping access
     ChunkLightMaps& getLightMaps() { return lightMaps; }
@@ -157,6 +159,7 @@ class VoxelChunk
    private:
     std::array<uint8_t, VOLUME> voxels;
     VoxelMesh mesh;
+    mutable std::mutex meshMutex;
     CollisionMesh collisionMesh;
     ChunkLightMaps lightMaps;  // NEW: Per-face light mapping data
     bool meshDirty = true;

@@ -18,6 +18,7 @@ void printHelp()
               << std::endl;
     std::cout << "  --server:              Server-only mode (headless)" << std::endl;
     std::cout << "  --client <address>:    Connect to remote server" << std::endl;
+    std::cout << "  --debug:               Enable OpenGL debug output" << std::endl;
     std::cout << "  --help:                Show this help" << std::endl;
     std::cout << std::endl;
     std::cout << "💡 All modes now use unified networking for consistent debugging" << std::endl;
@@ -28,8 +29,8 @@ void printHelp()
 #include "engine/Threading/JobSystem.h"
 #include "engine/Time/TimeEffects.h"
 #include "engine/Time/TimeManager.h"
-#include "engine/Core/DebugDiagnostics.h"
-#include "engine/Core/Profiler.h"
+#include "engine/Profiling/DebugDiagnostics.h"
+#include "engine/Profiling/Profiler.h"
 #include "engine/Physics/FluidSystem.h"
 
 // Global systems (external declarations - defined in engine library)
@@ -64,6 +65,7 @@ int main(int argc, char* argv[])
     std::string serverAddress = "localhost";
     uint16_t serverPort = 12346;    // Changed from 7777 to a higher port number
     bool enableNetworking = false;  // Allow external connections in integrated mode
+    bool enableDebug = false;       // Enable OpenGL debug output
 
     for (int i = 1; i < argc; i++)
     {
@@ -74,6 +76,10 @@ int main(int argc, char* argv[])
         else if (strcmp(argv[i], "--enable-networking") == 0)
         {
             enableNetworking = true;  // Allow external connections to integrated mode
+        }
+        else if (strcmp(argv[i], "--debug") == 0)
+        {
+            enableDebug = true;  // Enable OpenGL debug output
         }
         else if (strcmp(argv[i], "--client") == 0 && i + 1 < argc)
         {
@@ -145,7 +151,7 @@ int main(int argc, char* argv[])
 
             // Create and initialize client
             GameClient client;
-            if (!client.initialize())
+            if (!client.initialize(enableDebug))
             {
                 std::cerr << "Failed to initialize game client!" << std::endl;
                 server.stop();
@@ -221,7 +227,7 @@ int main(int argc, char* argv[])
 
             // Create and initialize client
             GameClient client;
-            if (!client.initialize())
+            if (!client.initialize(enableDebug))
             {
                 std::cerr << "Failed to initialize game client!" << std::endl;
                 return 1;

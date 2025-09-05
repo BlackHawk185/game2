@@ -2,7 +2,7 @@
 #include "GameServer.h"
 
 #include "pch.h"
-#include "Profiler.h"
+#include "../Profiling/Profiler.h"
 
 #include "../Network/NetworkMessages.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data

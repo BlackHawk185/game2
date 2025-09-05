@@ -4,8 +4,9 @@ add_library(engine STATIC
     Core/GameState.cpp
     Core/GameServer.cpp
     Core/GameClient.cpp
-    Core/Profiler.cpp
-    Core/DebugDiagnostics.cpp
+    Core/Window.cpp
+    Profiling/Profiler.cpp
+    Profiling/DebugDiagnostics.cpp
     
     # World systems
     World/VoxelChunk.cpp
@@ -22,6 +23,7 @@ add_library(engine STATIC
     Rendering/ShaderManager.cpp
     Rendering/SimpleShader.cpp  # Simple shader for basic rendering
     Rendering/GlobalLightingManager.cpp  # NEW: Global lighting system
+    Rendering/ShadowMap.cpp
     
     # Input systems
     Input/Camera.cpp

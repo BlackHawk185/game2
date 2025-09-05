@@ -1,4 +1,4 @@
-// DebugDiagnostics.cpp - MSVC Debug diagnostics (CRT assert and stack capture)
+// DebugDiagnostics.cpp - MSVC Debug diagnostics (CRT assert and stack capture, moved to Profiling)
 #include "DebugDiagnostics.h"
 
 #if defined(_MSC_VER) && !defined(NDEBUG)

@@ -10,7 +10,7 @@
 #include "../World/VoxelChunk.h"
 #include "../World/IslandChunkSystem.h"
 #include "../Culling/FrustumCuller.h"
-#include "../Core/Profiler.h"
+#include "../Profiling/Profiler.h"
 
 // Global instance
 GlobalLightingManager g_globalLighting;
@@ -63,6 +63,150 @@ void GlobalLightingManager::updateGlobalLighting(const Camera& camera, IslandChu
         std::cout << "[GLOBAL_LIGHTING] Processed " << m_stats.chunksLit << "/" 
                   << m_stats.chunksConsidered << " chunks in " 
                   << m_stats.updateTimeMs << "ms (Event-driven mode)" << std::endl;
+    }
+}
+
+// Recalculate occlusion-only lightmaps for all chunks within a neighborhood radius around a center
+void GlobalLightingManager::recalcOcclusionNeighborhood(IslandChunkSystem* islandSystem,
+                                                        uint32_t islandID,
+                                                        const Vec3& centerChunkCoord,
+                                                        int radiusChunks)
+{
+    if (!islandSystem) return;
+    PROFILE_SCOPE("GlobalLightingManager::recalcOcclusionNeighborhood");
+
+    FloatingIsland* island = islandSystem->getIsland(islandID);
+    if (!island) return;
+
+    // Iterate in a cube radius around the center chunk
+    for (int dz = -radiusChunks; dz <= radiusChunks; ++dz) {
+        for (int dy = -radiusChunks; dy <= radiusChunks; ++dy) {
+            for (int dx = -radiusChunks; dx <= radiusChunks; ++dx) {
+                Vec3 cc(centerChunkCoord.x + dx, centerChunkCoord.y + dy, centerChunkCoord.z + dz);
+                VoxelChunk* chunk = islandSystem->getChunkFromIsland(islandID, cc);
+                if (!chunk) continue;
+
+                // Compute world pos of chunk origin
+                Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(cc);
+
+                // Generate occlusion-only face lightmaps factoring neighbor chunks
+                ChunkLightMaps& lightMaps = chunk->getLightMaps();
+
+                // Six faces normals
+                const Vec3 faceNormals[6] = {
+                    Vec3(1, 0, 0),  Vec3(-1, 0, 0),
+                    Vec3(0, 1, 0),  Vec3(0, -1, 0),
+                    Vec3(0, 0, 1),  Vec3(0, 0, -1)
+                };
+
+                const int LIGHTMAP_SIZE = FaceLightMap::LIGHTMAP_SIZE;
+                const int SAMPLE_STEP = 4; // 4x4 texel blocks
+
+                auto sampleSolidAtIslandPos = [&](const Vec3& islandPos) -> bool {
+                    // Query voxel value via island system; returns >0 if solid
+                    return islandSystem->getVoxelFromIsland(islandID, islandPos) != 0;
+                };
+
+                auto worldToIsland = [&](const Vec3& world) -> Vec3 {
+                    return world - island->physicsCenter;
+                };
+
+                // For each face, fill the lightmap using a shared, group-anchored sampling grid
+                for (int faceIndex = 0; faceIndex < 6; ++faceIndex) {
+                    FaceLightMap& faceMap = lightMaps.getFaceMap(faceIndex);
+                    faceMap.data.resize(LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3);
+
+                    const Vec3 n = faceNormals[faceIndex];
+
+                    // Determine constant axis and varying axes per face to match mesh UV mapping
+                    // 0=+X(Y,Z), 1=-X(Z,Y), 2=+Y(Z,X), 3=-Y(X,Z), 4=+Z(X,Y), 5=-Z(Y,X)
+                    int axisConst = (faceIndex == 0 || faceIndex == 1) ? 0 : (faceIndex == 2 || faceIndex == 3) ? 1 : 2; // 0=X,1=Y,2=Z
+                    int axisU, axisV; // which axes correspond to U and V
+                    switch (faceIndex) {
+                        case 0: axisU = 1; axisV = 2; break; // +X: U=Y, V=Z
+                        case 1: axisU = 2; axisV = 1; break; // -X: U=Z, V=Y
+                        case 2: axisU = 2; axisV = 0; break; // +Y: U=Z, V=X
+                        case 3: axisU = 0; axisV = 2; break; // -Y: U=X, V=Z
+                        case 4: axisU = 0; axisV = 1; break; // +Z: U=X, V=Y
+                        case 5: axisU = 1; axisV = 0; break; // -Z: U=Y, V=X
+                        default: axisU = 0; axisV = 1; break;
+                    }
+
+                    // Constant coordinate on the face plane (exact chunk boundary to align with neighbors)
+                    float planeCoord;
+                    if (faceIndex == 0)      planeCoord = chunkWorldPos.x + VoxelChunk::SIZE; // +X
+                    else if (faceIndex == 1) planeCoord = chunkWorldPos.x;                    // -X
+                    else if (faceIndex == 2) planeCoord = chunkWorldPos.y + VoxelChunk::SIZE; // +Y
+                    else if (faceIndex == 3) planeCoord = chunkWorldPos.y;                    // -Y
+                    else if (faceIndex == 4) planeCoord = chunkWorldPos.z + VoxelChunk::SIZE; // +Z
+                    else                     planeCoord = chunkWorldPos.z;                    // -Z
+
+                    for (int v = 0; v < LIGHTMAP_SIZE; v += SAMPLE_STEP) {
+                        for (int u = 0; u < LIGHTMAP_SIZE; u += SAMPLE_STEP) {
+                            // Map (u,v) in [0..LIGHTMAP_SIZE) to world coordinates along the two varying axes
+                            float fu = (static_cast<float>(u) + 0.5f) / static_cast<float>(LIGHTMAP_SIZE);
+                            float fv = (static_cast<float>(v) + 0.5f) / static_cast<float>(LIGHTMAP_SIZE);
+                            float coordU = fu * VoxelChunk::SIZE;
+                            float coordV = fv * VoxelChunk::SIZE;
+
+                            // Build world position vector [X,Y,Z]
+                            float worldCoord[3] = { chunkWorldPos.x, chunkWorldPos.y, chunkWorldPos.z };
+                            worldCoord[axisConst] = planeCoord;
+                            worldCoord[axisU] = (axisU == 0 ? chunkWorldPos.x : axisU == 1 ? chunkWorldPos.y : chunkWorldPos.z) + coordU;
+                            worldCoord[axisV] = (axisV == 0 ? chunkWorldPos.x : axisV == 1 ? chunkWorldPos.y : chunkWorldPos.z) + coordV;
+                            Vec3 world(worldCoord[0], worldCoord[1], worldCoord[2]);
+
+                            // Hemisphere AO sampling: a few rays in the face normal hemisphere
+                            const Vec3 dirs[6] = {
+                                n,
+                                (n + Vec3(0.5f, 0.0f, 0.0f)).normalized(),
+                                (n + Vec3(-0.5f, 0.0f, 0.0f)).normalized(),
+                                (n + Vec3(0.0f, 0.5f, 0.0f)).normalized(),
+                                (n + Vec3(0.0f, -0.5f, 0.0f)).normalized(),
+                                (n + Vec3(0.0f, 0.0f, 0.5f)).normalized()
+                            };
+
+                            int blocked = 0;
+                            const int rayCount = 6;
+                            const float maxDist = static_cast<float>(VoxelChunk::SIZE * radiusChunks);
+                            const float step = 2.0f;
+                            Vec3 start = world + n * 0.001f; // nudge off the surface
+                            for (int r = 0; r < rayCount; ++r) {
+                                bool hit = false;
+                                Vec3 p = start;
+                                float traveled = 0.0f;
+                                while (traveled < maxDist) {
+                                    p = p + dirs[r] * step;
+                                    traveled += step;
+                                    Vec3 islandPos = worldToIsland(p);
+                                    if (sampleSolidAtIslandPos(islandPos)) { hit = true; break; }
+                                }
+                                if (hit) blocked++;
+                            }
+
+                            float occlusion = 1.0f - (static_cast<float>(blocked) / static_cast<float>(rayCount));
+                            occlusion = std::max(0.0f, std::min(1.0f, occlusion));
+                            uint8_t vbyte = static_cast<uint8_t>(occlusion * 255);
+
+                            for (int dv = v; dv < std::min(v + SAMPLE_STEP, LIGHTMAP_SIZE); ++dv) {
+                                for (int du = u; du < std::min(u + SAMPLE_STEP, LIGHTMAP_SIZE); ++du) {
+                                    int idx = (dv * LIGHTMAP_SIZE + du) * 3;
+                                    faceMap.data[idx + 0] = vbyte;
+                                    faceMap.data[idx + 1] = vbyte;
+                                    faceMap.data[idx + 2] = vbyte;
+                                }
+                            }
+                        }
+                    }
+
+                    faceMap.needsUpdate = true;
+                }
+
+                // Upload or refresh textures
+                chunk->updateLightMapTextures();
+                chunk->markLightingClean();
+            }
+        }
     }
 }
 

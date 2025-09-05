@@ -24,6 +24,7 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Unified networking**: All game modes use the network layer - avoid direct GameState access from clients.
 - **Server authority**: Game state changes should go through server validation, even in integrated mode.
 - **Delete over deprecate**: Remove old systems entirely rather than commenting them out. This project evolves rapidly and needs aggressive cleanup.
+	- On Windows, always use PowerShell's `Remove-Item` command to delete files (e.g., `Remove-Item -Path "path\to\file" -Force`). This ensures reliable file removal even if standard methods fail.
 
 ## Code Quality Guidelines
 

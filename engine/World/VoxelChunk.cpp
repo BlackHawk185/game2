@@ -14,7 +14,7 @@
 #include <glad/gl.h>  // For OpenGL light map texture functions
 
 #include "Threading/JobSystem.h"
-#include "../Core/Profiler.h"
+#include "../Profiling/Profiler.h"
 #include "IslandChunkSystem.h"  // For inter-island raycast queries
 
 // External job system reference
@@ -240,6 +240,7 @@ void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& i
 
 void VoxelChunk::generateMesh()
 {
+    std::lock_guard<std::mutex> lock(meshMutex);
     mesh.vertices.clear();
     mesh.indices.clear();
     collisionMeshVertices.clear();
@@ -281,6 +282,7 @@ void VoxelChunk::updatePhysicsMesh()
 
 void VoxelChunk::buildCollisionMesh()
 {
+    std::lock_guard<std::mutex> lock(meshMutex);
     collisionMesh.faces.clear();
 
     // Build collision faces from collisionMeshVertices
@@ -740,41 +742,31 @@ void VoxelChunk::generatePerFaceLightMaps()
 }
 
 // Helper function to calculate world position from light map UV coordinates
+// IMPORTANT: Face index and (u,v)->axis mapping MUST match addGreedyQuad() lightmap mapping
+// Direction indices:
+// 0=+X (U=Y,V=Z), 1=-X (U=Z,V=Y), 2=+Y (U=Z,V=X), 3=-Y (U=X,V=Z), 4=+Z (U=X,V=Y), 5=-Z (U=Y,V=X)
 Vec3 VoxelChunk::calculateWorldPositionFromLightMapUV(int faceIndex, float u, float v) const
 {
-    // Convert light map UV (0-1) to world position within this chunk
-    // Each face maps to different axes based on face orientation
-    
-    float worldU = u * SIZE;  // Scale to chunk size
+    float worldU = u * SIZE;
     float worldV = v * SIZE;
-    
-    Vec3 worldPos;
-    
-    switch (faceIndex) {
-        case 0: // +Z face: U=X, V=Y, fixed Z=SIZE
-            worldPos = Vec3(worldU, worldV, SIZE - 0.5f);
-            break;
-        case 1: // -Z face: U=X, V=Y, fixed Z=0
-            worldPos = Vec3(worldU, worldV, 0.5f);
-            break;
-        case 2: // +Y face: U=X, V=Z, fixed Y=SIZE
-            worldPos = Vec3(worldU, SIZE - 0.5f, worldV);
-            break;
-        case 3: // -Y face: U=X, V=Z, fixed Y=0
-            worldPos = Vec3(worldU, 0.5f, worldV);
-            break;
-        case 4: // +X face: U=Y, V=Z, fixed X=SIZE
-            worldPos = Vec3(SIZE - 0.5f, worldU, worldV);
-            break;
-        case 5: // -X face: U=Y, V=Z, fixed X=0
-            worldPos = Vec3(0.5f, worldU, worldV);
-            break;
+
+    switch (faceIndex)
+    {
+        case 0: // +X: X fixed at SIZE
+            return Vec3(SIZE - 0.5f, worldU, worldV);                   // U->Y, V->Z
+        case 1: // -X: X fixed at 0
+            return Vec3(0.5f,        worldV, worldU);                   // U->Z, V->Y
+        case 2: // +Y: Y fixed at SIZE
+            return Vec3(worldV,      SIZE - 0.5f, worldU);              // U->Z, V->X
+        case 3: // -Y: Y fixed at 0
+            return Vec3(worldU,      0.5f,        worldV);              // U->X, V->Z
+        case 4: // +Z: Z fixed at SIZE
+            return Vec3(worldU,      worldV,      SIZE - 0.5f);         // U->X, V->Y
+        case 5: // -Z: Z fixed at 0
+            return Vec3(worldV,      worldU,      0.5f);                // U->Y, V->X
         default:
-            worldPos = Vec3(SIZE * 0.5f, SIZE * 0.5f, SIZE * 0.5f);
-            break;
+            return Vec3(SIZE * 0.5f, SIZE * 0.5f, SIZE * 0.5f);
     }
-    
-    return worldPos;
 }
 
 // Helper function to perform raycast toward sun for occlusion testing (local chunk only)

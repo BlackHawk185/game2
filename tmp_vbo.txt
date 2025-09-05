@@ -1,0 +1,165 @@
+// VBORenderer.cpp - Modern VBO implementation with GLAD (shader support disabled temporarily)
+#include "VBORenderer.h"
+#include <glad/gl.h>
+#include "TextureManager.h"
+#include "../Profiling/Profiler.h"
+#include "../Physics/FluidSystem.h"
+#include <iostream>
+#include <filesystem>
+
+// Define missing OpenGL constants that should be in GLAD
+#ifndef GL_TEXTURE0
+#define GL_TEXTURE0 0x84C0
+#endif
+
+// Global instances
+VBORenderer* g_vboRenderer = nullptr;
+
+VBORenderer::VBORenderer()
+    : m_initialized(false)
+    , m_projectionMatrix(1.0f)
+    , m_viewMatrix(1.0f)
+    , m_modelMatrix(1.0f)
+{
+    std::cout << "VBORenderer constructor" << std::endl;
+}
+
+VBORenderer::~VBORenderer()
+{
+    shutdown();
+}
+
+bool VBORenderer::initialize()
+{
+    if (m_initialized) {
+        return true;
+    }
+
+    std::cout << "VBORenderer::initialize - using GLAD loader and simple shader..." << std::endl;
+    
+    // Initialize simple shader
+    if (!m_shader.initialize()) {
+        std::cout << "Failed to initialize simple shader" << std::endl;
+        return false;
+    }
+    
+    // Initialize UBO for batch rendering
+    if (!m_shader.initializeUBO()) {
+        std::cout << "Failed to initialize UBO" << std::endl;
+        return false;
+    }
+    
+    // Set basic OpenGL state
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    
+    // Initialize texture manager if not already done
+    if (!g_textureManager) {
+        g_textureManager = new TextureManager();
+    }
+    
+    // Locate and load dirt texture from common project-relative paths
+    auto findTexturePath = [](const std::string& name) -> std::string {
+        const char* candidates[] = {
+            "textures/",            // run from project root
+            "../textures/",         // run from build/bin
+            "../../textures/",      // alternative build layout
+            "../../../textures/"     // deeper nesting
+        };
+        for (const auto& dir : candidates) {
+            std::filesystem::path p = std::filesystem::path(dir) / name;
+            if (std::filesystem::exists(p)) {
+                return p.string();
+            }
+        }
+        // Fallback to original absolute path if present
+        std::filesystem::path fallback("C:/Users/steve-17/Desktop/game2/textures/");
+        fallback /= name;
+        if (std::filesystem::exists(fallback)) {
+            return fallback.string();
+        }
+        return {};
+    };
+
+    std::string dirtPath = findTexturePath("dirt.png");
+    GLuint grassTexture = 0;
+    if (!dirtPath.empty()) {
+        grassTexture = g_textureManager->loadTexture(dirtPath, false, true);
+    }
+    if (grassTexture == 0) {
+        std::cout << "ERROR: Could not load dirt.png texture!" << std::endl;
+        return false;
+    } else {
+        std::cout << "Loaded dirt texture (ID: " << grassTexture << ") from '" << dirtPath << "'" << std::endl;
+    }
+
+    m_initialized = true;
+    std::cout << "VBORenderer initialized successfully with simple shader support" << std::endl;
+    return true;
+}
+
+void VBORenderer::shutdown()
+{
+    if (!m_initialized) {
+        return;
+    }
+    
+    std::cout << "VBORenderer::shutdown" << std::endl;
+    
+    // Cleanup shader
+    m_shader.cleanup();
+    
+    m_initialized = false;
+}
+
+void VBORenderer::setProjectionMatrix(const glm::mat4& projection)
+{
+    m_projectionMatrix = projection;
+}
+
+void VBORenderer::setViewMatrix(const glm::mat4& view)
+{
+    m_viewMatrix = view;
+}
+
+void VBORenderer::setModelMatrix(const glm::mat4& model)
+{
+    m_modelMatrix = model;
+}
+
+void VBORenderer::setupVAO(VoxelChunk* chunk)
+{
+    VoxelMesh& mesh = chunk->getMesh();
+    
+    // Generate VAO if needed
+    if (mesh.VAO == 0) {
+        glGenVertexArrays(1, &mesh.VAO);
+    }
+    
+    // Bind VAO
+    glBindVertexArray(mesh.VAO);
+    
+    // Bind buffers
+    glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO);
+    
+    // Setup vertex attributes: position(3) + normal(3) + texcoord(2)
+
+    // Position attribute (location 0)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+    glEnableVertexAttribArray(0);
+    
+    // Texture coordinate attribute (location 1) - matches shader
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    
+    // Normal attribute (location 2) - matches shader
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    // Disable unused attributes (3,4,5)
+    glDisableVertexAttribArray(3);
+    glDisableVertexAttribArray(4);
+    glDisableVertexAttribArray(5);
+}
+

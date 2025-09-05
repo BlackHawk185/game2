@@ -17,6 +17,11 @@ public:
 
     // Main update function - call once per frame
     void updateGlobalLighting(const Camera& camera, IslandChunkSystem* islandSystem, float aspect = 16.0f/9.0f);
+    // Recalculate occlusion-only lightmaps for a neighborhood around a chunk
+    void recalcOcclusionNeighborhood(IslandChunkSystem* islandSystem,
+                                     uint32_t islandID,
+                                     const Vec3& centerChunkCoord,
+                                     int radiusChunks = 5);
 
     // Configuration
     void setEnabled(bool enabled) { m_enabled = enabled; }
