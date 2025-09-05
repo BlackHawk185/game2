@@ -147,9 +147,9 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (3 floating islands)..." << std::endl;
 
     // **OPTIMIZED ISLAND SPACING** - Calculate safe distances to prevent overlap
-    // Main island: Half size for testing lightmaps - 160-unit radius = 320 units diameter
-    // Start with smaller island for lightmap testing
-    float mainRadius = 160.0f;     // Halved from 320.0f for lightmap testing
+    // Main island: Full size for enhanced gameplay - 320-unit radius = 640 units diameter
+    // Doubled from previous size for larger exploration area
+    float mainRadius = 320.0f;     // Doubled from 160.0f for larger islands
     float spacing = 200.0f;        // Not needed for single island but kept for consistency
     
     // Create 1 island for testing and optimization
