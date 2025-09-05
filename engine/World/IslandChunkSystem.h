@@ -5,6 +5,7 @@
 #include <map>
 #include <vector>
 #include <cmath>
+#include <mutex>
 
 #include "Math/Vec3.h"
 #include "VoxelChunk.h"
@@ -106,6 +107,8 @@ class IslandChunkSystem
 
     // Rendering interface
     void getAllChunks(std::vector<VoxelChunk*>& outChunks);
+    // Thread-safe snapshot of all chunks with computed world positions
+    void getAllChunksWithWorldPos(std::vector<std::pair<VoxelChunk*, Vec3>>& out) const;
     void getVisibleChunks(const Vec3& viewPosition, std::vector<VoxelChunk*>& outChunks);
     void renderAllIslands();  // Render all islands with proper positioning
 
@@ -122,6 +125,7 @@ class IslandChunkSystem
     std::unordered_map<uint32_t, FloatingIsland> m_islands;
     uint32_t m_nextIslandID = 1;
     int m_renderDistance = 8;
+    mutable std::mutex m_islandsMutex;
 
     // Generate chunks around a center point (for infinite worlds)
     void generateChunksAroundPoint(const Vec3& center);

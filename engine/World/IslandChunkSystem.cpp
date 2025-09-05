@@ -9,7 +9,7 @@
 #include <string>
 
 #include "VoxelChunk.h"
-#include "../Core/Profiler.h"
+#include "../Profiling/Profiler.h"
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED - VBO only, no immediate mode
 
 IslandChunkSystem g_islandSystem;
@@ -40,6 +40,7 @@ IslandChunkSystem::~IslandChunkSystem()
 
 uint32_t IslandChunkSystem::createIsland(const Vec3& physicsCenter)
 {
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     uint32_t islandID = m_nextIslandID++;
     FloatingIsland& island = m_islands[islandID];
     island.islandID = islandID;
@@ -56,6 +57,7 @@ uint32_t IslandChunkSystem::createIsland(const Vec3& physicsCenter)
 
 void IslandChunkSystem::destroyIsland(uint32_t islandID)
 {
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     auto it = m_islands.find(islandID);
     if (it == m_islands.end())
         return;
@@ -65,18 +67,21 @@ void IslandChunkSystem::destroyIsland(uint32_t islandID)
 
 FloatingIsland* IslandChunkSystem::getIsland(uint32_t islandID)
 {
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     auto it = m_islands.find(islandID);
     return (it != m_islands.end()) ? &it->second : nullptr;
 }
 
 const FloatingIsland* IslandChunkSystem::getIsland(uint32_t islandID) const
 {
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     auto it = m_islands.find(islandID);
     return (it != m_islands.end()) ? &it->second : nullptr;
 }
 
 Vec3 IslandChunkSystem::getIslandCenter(uint32_t islandID) const
 {
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     auto it = m_islands.find(islandID);
     if (it != m_islands.end())
     {
@@ -87,6 +92,7 @@ Vec3 IslandChunkSystem::getIslandCenter(uint32_t islandID) const
 
 Vec3 IslandChunkSystem::getIslandVelocity(uint32_t islandID) const
 {
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     auto it = m_islands.find(islandID);
     if (it != m_islands.end())
     {
@@ -97,7 +103,9 @@ Vec3 IslandChunkSystem::getIslandVelocity(uint32_t islandID) const
 
 void IslandChunkSystem::addChunkToIsland(uint32_t islandID, const Vec3& chunkCoord)
 {
-    FloatingIsland* island = getIsland(islandID);
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
+    auto itIsl = m_islands.find(islandID);
+    FloatingIsland* island = (itIsl != m_islands.end()) ? &itIsl->second : nullptr;
     if (!island)
         return;
 
@@ -111,7 +119,9 @@ void IslandChunkSystem::addChunkToIsland(uint32_t islandID, const Vec3& chunkCoo
 
 void IslandChunkSystem::removeChunkFromIsland(uint32_t islandID, const Vec3& chunkCoord)
 {
-    FloatingIsland* island = getIsland(islandID);
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
+    auto itIsl = m_islands.find(islandID);
+    FloatingIsland* island = (itIsl != m_islands.end()) ? &itIsl->second : nullptr;
     if (!island)
         return;
 
@@ -124,7 +134,9 @@ void IslandChunkSystem::removeChunkFromIsland(uint32_t islandID, const Vec3& chu
 
 VoxelChunk* IslandChunkSystem::getChunkFromIsland(uint32_t islandID, const Vec3& chunkCoord)
 {
-    FloatingIsland* island = getIsland(islandID);
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
+    auto itIsl = m_islands.find(islandID);
+    FloatingIsland* island = (itIsl != m_islands.end()) ? &itIsl->second : nullptr;
     if (!island)
         return nullptr;
 
@@ -452,7 +464,7 @@ void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& isl
 void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks)
 {
     outChunks.clear();
-
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     for (auto& [id, island] : m_islands)
     {
         // Add all chunks from this island
@@ -461,6 +473,23 @@ void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks)
             if (chunk)
             {
                 outChunks.push_back(chunk.get());
+            }
+        }
+    }
+}
+
+void IslandChunkSystem::getAllChunksWithWorldPos(std::vector<std::pair<VoxelChunk*, Vec3>>& out) const
+{
+    out.clear();
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
+    for (const auto& [id, island] : m_islands)
+    {
+        for (const auto& [chunkCoord, chunk] : island.chunks)
+        {
+            if (chunk)
+            {
+                Vec3 worldPos = island.physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                out.emplace_back(chunk.get(), worldPos);
             }
         }
     }
@@ -476,43 +505,21 @@ void IslandChunkSystem::getVisibleChunks(const Vec3& viewPosition,
 void IslandChunkSystem::renderAllIslands()
 {
     PROFILE_SCOPE("IslandChunkSystem::renderAllIslands");
-    
-    // VBO-ONLY RENDERING - NO IMMEDIATE MODE FALLBACK
-    if (!g_vboRenderer) {
-        // No renderer available - don't render anything
-        return;
-    }
-    
-    // Start batch rendering for all chunks
+    if (!g_vboRenderer) return;
+    std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
+    getAllChunksWithWorldPos(snapshot);
     g_vboRenderer->beginBatch();
-    
-    // Render each island at its physics center position
-    for (auto& [id, island] : m_islands)
+    for (auto& p : snapshot)
     {
-        PROFILE_SCOPE("Render single island");
-        
-        // Render all chunks in this island
-        for (const auto& [chunkCoord, chunk] : island.chunks)
-        {
-            if (chunk)
-            {
-                PROFILE_SCOPE("Add chunk to batch");
-                // Calculate world position for this chunk
-                Vec3 chunkWorldPos = island.physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
-                
-                // Upload and batch render this chunk - VBO ONLY
-                g_vboRenderer->uploadChunkMesh(chunk.get());
-                g_vboRenderer->renderChunk(chunk.get(), chunkWorldPos);
-            }
-        }
+        g_vboRenderer->uploadChunkMesh(p.first);
+        g_vboRenderer->renderChunk(p.first, p.second);
     }
-    
-    // Finish batch rendering
     g_vboRenderer->endBatch();
 }
 
 void IslandChunkSystem::updateIslandPhysics(float deltaTime)
 {
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     for (auto& [id, island] : m_islands)
     {
         // Only apply random drift, no gravity, bobbing, or wind
@@ -526,6 +533,7 @@ void IslandChunkSystem::updateIslandPhysics(float deltaTime)
 void IslandChunkSystem::syncPhysicsToChunks()
 {
     // Sync physics positions to chunk rendering positions
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
     for (auto& [id, island] : m_islands)
     {
         if (island.needsPhysicsUpdate)
