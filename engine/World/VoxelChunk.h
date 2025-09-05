@@ -150,6 +150,7 @@ class VoxelChunk
     Vec3 calculateWorldPositionFromLightMapUV(int faceIndex, float u, float v) const;  // Convert UV to world pos
     
     void buildCollisionMesh();
+    void buildCollisionMeshFromVertices();  // Internal method called during generateMesh()
     bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
                            Vec3& hitPoint, Vec3& hitNormal) const;
 

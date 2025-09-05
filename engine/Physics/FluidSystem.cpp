@@ -2,6 +2,7 @@
 #include "FluidSystem.h"
 #include "PhysicsSystem.h"
 #include "Math/Vec3.h"
+#include "../World/IslandChunkSystem.h"
 #include <iostream>
 #include <algorithm>
 #include <cmath>
@@ -31,12 +32,11 @@ bool FluidSystem::initialize()
 
 void FluidSystem::update(float deltaTime)
 {
-    // Update spatial partitioning every frame (needed for collisions)
+    // Update spatial partitioning every frame (needed for neighbor queries)
     updateSpatialGrid();
     
-    // Apply physics every frame (needed for smooth movement)
-    applyGravity(deltaTime);
-    handleCollisions(deltaTime);
+    // All physics (gravity, collision, island friction) now handled by PhysicsSystem
+    // This system only handles fluid-specific logic like containers and evaporation
     
     // Throttle expensive operations
     static float containerUpdateTimer = 0.0f;
@@ -90,14 +90,13 @@ EntityID FluidSystem::spawnFluidParticle(const Vec3& position, const Vec3& veloc
     transform.position = position;
     g_ecs.addComponent(particleEntity, transform);
     
-    // Add velocity component
+    // Add velocity component (single source of truth for velocity)
     VelocityComponent vel;
     vel.velocity = velocity;
     g_ecs.addComponent(particleEntity, vel);
     
-    // Add fluid particle component
+    // Add fluid particle component (no duplicate velocity)
     FluidParticleComponent fluid;
-    fluid.velocity = velocity;
     fluid.parentEntity = parentEntity;
     g_ecs.addComponent(particleEntity, fluid);
     
@@ -135,80 +134,12 @@ void FluidSystem::destroyFluidParticle(EntityID particleEntity)
     g_ecs.destroyEntity(particleEntity);
 }
 
-void FluidSystem::applyGravity(float deltaTime)
-{
-    auto* fluidStorage = g_ecs.getStorage<FluidParticleComponent>();
-    auto* velocityStorage = g_ecs.getStorage<VelocityComponent>();
-    auto* transformStorage = g_ecs.getStorage<TransformComponent>();
-    
-    if (!fluidStorage || !velocityStorage || !transformStorage)
-        return;
-    
-    // Apply gravity to all fluid particles
-    for (size_t i = 0; i < fluidStorage->entities.size(); ++i)
-    {
-        EntityID entity = fluidStorage->entities[i];
-        auto* velocity = velocityStorage->getComponent(entity);
-        auto* transform = transformStorage->getComponent(entity);
-        auto* fluid = &fluidStorage->components[i];
-        
-        if (!velocity || !transform)
-            continue;
-            
-        // Apply gravity
-        velocity->acceleration = m_gravity;
-        velocity->velocity = velocity->velocity + velocity->acceleration * deltaTime;
-        
-        // Update position
-        Vec3 newPosition = transform->position + velocity->velocity * deltaTime;
-        
-        // Simple collision with ground (y = 0)
-        if (newPosition.y <= fluid->radius)
-        {
-            newPosition.y = fluid->radius;
-            velocity->velocity.y = 0.0f;  // Stop falling
-            velocity->velocity = velocity->velocity * 0.8f;  // Apply some friction
-        }
-        
-        transform->position = newPosition;
-        fluid->velocity = velocity->velocity;
-        fluid->lifeTime += deltaTime;
-    }
-}
+
 
 void FluidSystem::handleCollisions(float deltaTime)
 {
-    // For now, just handle basic terrain collision
-    auto* fluidStorage = g_ecs.getStorage<FluidParticleComponent>();
-    auto* transformStorage = g_ecs.getStorage<TransformComponent>();
-    auto* velocityStorage = g_ecs.getStorage<VelocityComponent>();
-    
-    if (!fluidStorage || !transformStorage || !velocityStorage)
-        return;
-        
-    for (size_t i = 0; i < fluidStorage->entities.size(); ++i)
-    {
-        EntityID entity = fluidStorage->entities[i];
-        auto* transform = transformStorage->getComponent(entity);
-        auto* velocity = velocityStorage->getComponent(entity);
-        auto* fluid = &fluidStorage->components[i];
-        
-        if (!transform || !velocity)
-            continue;
-            
-        // Check collision with terrain using physics system
-        Vec3 normal;
-        if (g_physics.checkPlayerCollision(transform->position, normal, fluid->radius))
-        {
-            // Bounce off surface
-            float restitution = 0.3f;  // Bounciness
-            Vec3 reflection = velocity->velocity - normal * (2.0f * velocity->velocity.dot(normal));
-            velocity->velocity = reflection * restitution;
-            
-            // Move particle slightly away from surface to prevent penetration
-            transform->position = transform->position + normal * 0.1f;
-        }
-    }
+    // All collision handling now done by PhysicsSystem
+    // This method kept for future fluid-specific collision features
 }
 
 void FluidSystem::updateContainers(float deltaTime)

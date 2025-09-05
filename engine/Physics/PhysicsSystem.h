@@ -7,6 +7,7 @@
 // Forward declarations
 class IslandChunkSystem;
 class VoxelChunk;
+struct FloatingIsland;
 
 // Simple collision detection system using voxel face culling
 class PhysicsSystem
@@ -17,6 +18,10 @@ class PhysicsSystem
 
     bool initialize();
     void update(float deltaTime);
+    void updateEntities(float deltaTime);
+    bool checkEntityCollision(const Vec3& entityPos, Vec3& outNormal, float entityRadius, const FloatingIsland** outIsland = nullptr);
+    bool checkEntityCollisionWithPenetration(const Vec3& entityPos, Vec3& outNormal, float entityRadius,
+                                           const FloatingIsland** outIsland = nullptr, float* outPenetrationDepth = nullptr);
     void shutdown();
 
     // Collision detection methods
@@ -25,6 +30,10 @@ class PhysicsSystem
     
     // Island system integration
     void setIslandSystem(IslandChunkSystem* islandSystem) { m_islandSystem = islandSystem; }
+
+    // Debug and testing methods
+    void debugCollisionInfo(const Vec3& playerPos, float playerRadius = 0.5f);
+    int getTotalCollisionFaces() const;
 
     // Stub body creation - returns dummy IDs (for future physics engine)
     uint32_t createFloatingIslandBody(const Vec3& position, float mass = 1000.0f);
@@ -41,6 +50,8 @@ class PhysicsSystem
     
     // Helper methods
     bool checkChunkCollision(const VoxelChunk* chunk, const Vec3& playerPos, const Vec3& chunkWorldPos, Vec3& outNormal, float playerRadius);
+    bool checkChunkCollisionWithPenetration(const VoxelChunk* chunk, const Vec3& playerPos, const Vec3& chunkWorldPos,
+                                          Vec3& outNormal, float playerRadius, float* outPenetrationDepth = nullptr);
 };
 
 // Global physics system

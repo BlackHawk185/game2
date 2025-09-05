@@ -8,7 +8,6 @@
 // Fluid particle component
 struct FluidParticleComponent
 {
-    Vec3 velocity{0, 0, 0};
     float mass = 1.0f;
     float radius = 0.5f;        // Particle size (half a block)
     float density = 1000.0f;    // Water density
@@ -43,6 +42,8 @@ public:
 
     bool initialize();
     void update(float deltaTime);
+    void handleCollisions(float deltaTime);
+    void evaporateParticles(float deltaTime);
     void shutdown();
 
     // Particle creation/destruction
@@ -57,18 +58,11 @@ public:
     void updateParticleConnections();
     std::vector<EntityID> getVisibleParticles(const Vec3& cameraPos, float maxDistance = 100.0f);
 
-    // Physics simulation
-    void applyGravity(float deltaTime);
-    void handleCollisions(float deltaTime);
-    void evaporateParticles(float deltaTime);
-
     // Configuration
-    void setGravity(const Vec3& gravity) { m_gravity = gravity; }
     void setEvaporationTime(float time) { m_evaporationTime = time; }
     void setMaxParticles(size_t max) { m_maxParticles = max; }
 
 private:
-    Vec3 m_gravity{0, -9.81f, 0};
     float m_evaporationTime = 30.0f;  // Particles evaporate after 30 seconds if not in container
     size_t m_maxParticles = 1000;
     

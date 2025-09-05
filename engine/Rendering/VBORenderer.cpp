@@ -375,3 +375,124 @@ void VBORenderer::deleteChunkVBO(VoxelChunk* chunk)
     if (mesh.EBO) { glDeleteBuffers(1, &mesh.EBO); mesh.EBO = 0; }
 }
 
+// **FLUID PARTICLE RENDERING IMPLEMENTATION**
+
+void VBORenderer::renderFluidParticles(const std::vector<EntityID>& particles)
+{
+    if (particles.empty() || !m_initialized) return;
+
+    // Use simple shader for fluid particles
+    m_shader.use();
+
+    // Set fluid material properties
+    m_shader.setMaterialType(1); // Fluid material type
+    m_shader.setMaterialColor(glm::vec4(0.2f, 0.4f, 0.8f, 0.8f)); // Blue semi-transparent
+
+    // Set matrices
+    m_shader.setMatrix4("uProjection", m_projectionMatrix);
+    m_shader.setMatrix4("uView", m_viewMatrix);
+
+    // Disable depth writing for transparency
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Render each particle as a sphere
+    for (EntityID particleID : particles)
+    {
+        // Get particle components
+        auto* transform = g_ecs.getComponent<TransformComponent>(particleID);
+        auto* fluidComp = g_ecs.getComponent<FluidParticleComponent>(particleID);
+        auto* renderComp = g_ecs.getComponent<FluidRenderComponent>(particleID);
+
+        if (!transform || !fluidComp || !renderComp) continue;
+
+        // Set model matrix for this particle
+        glm::mat4 model = glm::translate(glm::mat4(1.0f),
+            glm::vec3(transform->position.x, transform->position.y, transform->position.z));
+
+        // Scale based on particle radius
+        float scale = renderComp->renderRadius;
+        model = glm::scale(model, glm::vec3(scale, scale, scale));
+
+        m_shader.setMatrix4("uModel", model);
+
+        // Render a simple sphere (using cube approximation for now)
+        renderSphere();
+    }
+
+    // Restore depth writing and blending
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    
+    // Reset material settings back to voxel defaults
+    m_shader.setMaterialType(0); // Voxel material type
+    m_shader.setMaterialColor(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)); // White opaque
+}
+
+void VBORenderer::renderSphere()
+{
+    // Simple sphere approximation using a scaled cube
+    // TODO: Replace with proper icosphere geometry for better sphere appearance
+
+    static const float vertices[] = {
+        // Front face (scaled to create sphere-like appearance)
+        -0.8f, -0.8f,  0.8f,    0.8f, -0.8f,  0.8f,    0.8f,  0.8f,  0.8f,   -0.8f,  0.8f,  0.8f,
+        // Back face
+        -0.8f, -0.8f, -0.8f,   -0.8f,  0.8f, -0.8f,    0.8f,  0.8f, -0.8f,    0.8f, -0.8f, -0.8f,
+        // Left face
+        -0.8f, -0.8f, -0.8f,   -0.8f, -0.8f,  0.8f,   -0.8f,  0.8f,  0.8f,   -0.8f,  0.8f, -0.8f,
+        // Right face
+         0.8f, -0.8f, -0.8f,    0.8f,  0.8f, -0.8f,    0.8f,  0.8f,  0.8f,    0.8f, -0.8f,  0.8f,
+        // Top face
+        -0.8f,  0.8f, -0.8f,   -0.8f,  0.8f,  0.8f,    0.8f,  0.8f,  0.8f,    0.8f,  0.8f, -0.8f,
+        // Bottom face
+        -0.8f, -0.8f, -0.8f,    0.8f, -0.8f, -0.8f,    0.8f, -0.8f,  0.8f,   -0.8f, -0.8f,  0.8f
+    };
+
+    static const unsigned int indices[] = {
+        // Front
+        0, 1, 2, 2, 3, 0,
+        // Back
+        4, 5, 6, 6, 7, 4,
+        // Left
+        8, 9, 10, 10, 11, 8,
+        // Right
+        12, 13, 14, 14, 15, 12,
+        // Top
+        16, 17, 18, 18, 19, 16,
+        // Bottom
+        20, 21, 22, 22, 23, 20
+    };
+
+    // Create temporary VAO/VBO for sphere
+    static unsigned int sphereVAO = 0;
+    static unsigned int sphereVBO = 0;
+    static unsigned int sphereEBO = 0;
+    static bool sphereInitialized = false;
+
+    if (!sphereInitialized)
+    {
+        glGenVertexArrays(1, &sphereVAO);
+        glGenBuffers(1, &sphereVBO);
+        glGenBuffers(1, &sphereEBO);
+
+        glBindVertexArray(sphereVAO);
+
+        glBindBuffer(GL_ARRAY_BUFFER, sphereVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sphereEBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        sphereInitialized = true;
+    }
+
+    glBindVertexArray(sphereVAO);
+    glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+    glBindVertexArray(0);
+}
+

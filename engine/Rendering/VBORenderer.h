@@ -54,6 +54,7 @@ public:
 
     // Fluid particle rendering
     void renderFluidParticles(const std::vector<EntityID>& particles);
+    void renderSphere();
 
     // Performance stats
     struct RenderStats {

@@ -156,6 +156,16 @@ private:
     void renderWorld();
     
     /**
+     * Render shadow depth pass for cascaded shadow mapping
+     */
+    void renderShadowPass();
+    
+    /**
+     * Handle camera movement and collision detection
+     */
+    void handleCameraMovement(float deltaTime);
+    
+    /**
      * Handle received world state from server
      */
     void handleWorldStateReceived(const WorldStateMessage& worldState);

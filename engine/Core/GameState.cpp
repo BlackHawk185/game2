@@ -218,7 +218,8 @@ void GameState::createDefaultWorld()
 
 void GameState::updatePhysics(float deltaTime)
 {
-    // Physics integration with Jolt Physics will be implemented when needed for gameplay
+    // Update generic entity physics (including fluid particles)
+    g_physics.update(deltaTime);
 }
 
 void GameState::updatePlayer(float deltaTime)

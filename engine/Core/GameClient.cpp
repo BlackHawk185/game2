@@ -396,94 +396,8 @@ bool GameClient::initializeGraphics()
 
 void GameClient::processKeyboard(float deltaTime)
 {
-    // Camera movement
-    float moveSpeed = 10.0f;
-    Vec3 movement(0, 0, 0);
-
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
-    {
-        movement = movement + m_camera.front * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
-    {
-        movement = movement - m_camera.front * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
-    {
-        movement = movement - m_camera.right * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
-    {
-        movement = movement + m_camera.right * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
-    {
-        movement = movement + m_camera.up * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-    {
-        movement = movement - m_camera.up * moveSpeed * deltaTime;
-    }
-
-    // **NEW: Collision Detection**
-    Vec3 intendedPosition = m_camera.position + movement;
-    const float PLAYER_RADIUS = 0.5f;  // Player collision radius
-
-    // Verbose per-frame movement logging disabled
-
-    // Check for collision with islands
-    Vec3 collisionNormal;
-    bool hasCollision = false;
-
-    if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
-    {
-        // Initial collision detected; suppress verbose log
-        // Collision detected - implement friction-based sliding collision
-        const float FRICTION_COEFFICIENT =
-            0.3f;  // Friction factor (0 = no friction, 1 = full stop)
-
-        // Project movement onto the collision plane
-        float dotProduct = movement.dot(collisionNormal);
-        Vec3 slideMovement = movement - collisionNormal * dotProduct;
-
-        // Apply friction to the sliding movement
-        slideMovement *= (1.0f - FRICTION_COEFFICIENT);
-
-        // Apply sliding movement with friction
-        intendedPosition = m_camera.position + slideMovement;
-
-        // Check if sliding movement also collides
-        if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
-        {
-            // Sliding also collides; suppress verbose log
-            // If sliding also collides, apply stronger friction instead of blocking completely
-            const float STRONG_FRICTION = 0.7f;
-            Vec3 strongFrictionMovement = movement * (1.0f - STRONG_FRICTION);
-            intendedPosition = m_camera.position + strongFrictionMovement;
-        }
-        else
-        {
-            // Slide movement succeeded; suppress verbose log
-        }
-
-        hasCollision = true;
-    }
-    else
-    {
-    m_camera.position = intendedPosition;
-
-    // Update player position in game state if local
-    if (m_gameState && m_gameState->getPrimaryPlayer())
-    {
-        m_gameState->setPrimaryPlayerPosition(m_camera.position);
-    }
-
-    // Send movement to server if we're a remote client
-    if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f)
-    {
-        Vec3 velocity = movement / deltaTime;  // Calculate velocity
-        m_networkManager->sendPlayerMovement(m_camera.position, velocity, deltaTime);
-    }
+    // Handle camera movement and collision detection
+    handleCameraMovement(deltaTime);
 
     // Time effects (temporary, will be refactored)
     if (g_timeEffects)
@@ -520,12 +434,21 @@ void GameClient::processKeyboard(float deltaTime)
     }
     wasWaterKeyPressed = isWaterKeyPressed;
 
+    // Debug collision info (press C to debug collision system)
+    static bool wasDebugKeyPressed = false;
+    bool isDebugKeyPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_C) == GLFW_PRESS;
+    
+    if (isDebugKeyPressed && !wasDebugKeyPressed)
+    {
+        g_physics.debugCollisionInfo(m_camera.position, 0.5f);
+    }
+    wasDebugKeyPressed = isDebugKeyPressed;
+
     // Exit
     if (glfwGetKey(m_window->getHandle(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
     {
         m_window->setShouldClose(true);
     }
-}
 }
 
 void GameClient::processMouse(float deltaTime)
@@ -673,67 +596,7 @@ void GameClient::renderWorld()
 
     // Shadow depth pass (cascaded)
     {
-        PROFILE_SCOPE("Shadow depth pass");
-        Vec3 sunDir = Vec3(-0.3f, -1.0f, -0.2f).normalized();
-        glm::vec3 camPos(m_camera.position.x, m_camera.position.y, m_camera.position.z);
-        glm::vec3 lightDir(sunDir.x, sunDir.y, sunDir.z);
-        glm::vec3 lightTarget = camPos;
-        glm::vec3 lightPos = camPos - lightDir * 100.0f;
-        glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
-        
-        // Frustum splits (lambda blend)
-        float nearPlane = 0.1f;
-        float farPlane = 1000.0f;
-        const int C = 3;
-        float lambda = 0.7f;
-        float splits[C] = {0};
-        for (int i = 0; i < C; ++i) {
-            float si = (i+1) / float(C);
-            float logd = nearPlane * powf(farPlane/nearPlane, si);
-            float lind = nearPlane + (farPlane-nearPlane) * si;
-            splits[i] = lambda * (logd - nearPlane) + (1.0f - lambda) * (lind - nearPlane);
-        }
-
-        // For each cascade, compute ortho box around camera frustum slice and render depth
-        float orthoRanges[C] = {60.0f, 180.0f, 500.0f}; // conservative boxes per split
-        if (g_vboRenderer) {
-            g_vboRenderer->setLightDir(lightDir);
-        }
-        auto* islandSystem = m_gameState->getIslandSystem();
-        std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
-        if (islandSystem) islandSystem->getAllChunksWithWorldPos(snapshot);
-        // Provide splits to renderer (view-space distances)
-        if (g_vboRenderer) {
-            g_vboRenderer->setCascadeCount(C);
-            g_vboRenderer->setCascadeSplits(splits, C);
-        }
-        for (int ci = 0; ci < C; ++ci) {
-            float ortho = orthoRanges[ci];
-            glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
-            // Stable snap per cascade using CSM texture size
-            glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
-            int smWidth = g_csm.getSize(ci);
-            float texelSize = (2.0f * ortho) / float(smWidth);
-            glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
-            glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
-            glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
-            glm::mat4 lightVP = lightProj * snapMat * lightView;
-
-            if (g_vboRenderer) {
-                g_vboRenderer->setCascadeMatrix(ci, lightVP);
-                g_vboRenderer->beginDepthPassCascade(ci, lightVP);
-                for (auto& p : snapshot) {
-                    VoxelChunk* chunkPtr = p.first;
-                    const Vec3& worldPos = p.second;
-                    VoxelMesh& mesh = chunkPtr->getMesh();
-                    if (mesh.VAO == 0 || mesh.needsUpdate)
-                        g_vboRenderer->uploadChunkMesh(chunkPtr);
-                    g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
-                }
-                g_vboRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
-            }
-        }
-        // Forward pass will read cascade data set on renderer
+        renderShadowPass();
     }
 
     // Render all islands
@@ -750,11 +613,183 @@ void GameClient::renderWorld()
     // Render fluid particles
     {
         PROFILE_SCOPE("renderFluidParticles");
-        // TODO: Hook up fluid particle renderer when available
+        
+        // Get all fluid particles
+        auto* fluidStorage = g_ecs.getStorage<FluidParticleComponent>();
+        if (fluidStorage)
+        {
+            std::vector<EntityID> fluidParticles;
+            fluidParticles.reserve(fluidStorage->entities.size());
+            
+            for (EntityID entity : fluidStorage->entities)
+            {
+                fluidParticles.push_back(entity);
+            }
+            
+            // Render fluid particles
+            if (g_vboRenderer && !fluidParticles.empty())
+            {
+                g_vboRenderer->renderFluidParticles(fluidParticles);
+            }
+        }
     }
 
     // Render block highlighter (disabled in core profile; reimplement with modern pipeline if needed)
     (void)0;
+}
+
+void GameClient::renderShadowPass()
+{
+    PROFILE_SCOPE("GameClient::renderShadowPass");
+    
+    // Shadow depth pass (cascaded)
+    Vec3 sunDir = Vec3(-0.3f, -1.0f, -0.2f).normalized();
+    glm::vec3 camPos(m_camera.position.x, m_camera.position.y, m_camera.position.z);
+    glm::vec3 lightDir(sunDir.x, sunDir.y, sunDir.z);
+    glm::vec3 lightTarget = camPos;
+    glm::vec3 lightPos = camPos - lightDir * 100.0f;
+    glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
+    
+    // Frustum splits (lambda blend)
+    float nearPlane = 0.1f;
+    float farPlane = 1000.0f;
+    const int C = 3;
+    float lambda = 0.7f;
+    float splits[C] = {0};
+    for (int i = 0; i < C; ++i) {
+        float si = (i+1) / float(C);
+        float logd = nearPlane * powf(farPlane/nearPlane, si);
+        float lind = nearPlane + (farPlane-nearPlane) * si;
+        splits[i] = lambda * (logd - nearPlane) + (1.0f - lambda) * (lind - nearPlane);
+    }
+
+    // For each cascade, compute ortho box around camera frustum slice and render depth
+    float orthoRanges[C] = {60.0f, 180.0f, 500.0f}; // conservative boxes per split
+    if (g_vboRenderer) {
+        g_vboRenderer->setLightDir(lightDir);
+    }
+    auto* islandSystem = m_gameState->getIslandSystem();
+    std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
+    if (islandSystem) islandSystem->getAllChunksWithWorldPos(snapshot);
+    // Provide splits to renderer (view-space distances)
+    if (g_vboRenderer) {
+        g_vboRenderer->setCascadeCount(C);
+        g_vboRenderer->setCascadeSplits(splits, C);
+    }
+    for (int ci = 0; ci < C; ++ci) {
+        float ortho = orthoRanges[ci];
+        glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
+        // Stable snap per cascade using CSM texture size
+        glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
+        int smWidth = g_csm.getSize(ci);
+        float texelSize = (2.0f * ortho) / float(smWidth);
+        glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
+        glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
+        glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
+        glm::mat4 lightVP = lightProj * snapMat * lightView;
+
+        if (g_vboRenderer) {
+            g_vboRenderer->setCascadeMatrix(ci, lightVP);
+            g_vboRenderer->beginDepthPassCascade(ci, lightVP);
+            for (auto& p : snapshot) {
+                VoxelChunk* chunkPtr = p.first;
+                const Vec3& worldPos = p.second;
+                VoxelMesh& mesh = chunkPtr->getMesh();
+                if (mesh.VAO == 0 || mesh.needsUpdate)
+                    g_vboRenderer->uploadChunkMesh(chunkPtr);
+                g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
+            }
+            g_vboRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
+        }
+    }
+    // Forward pass will read cascade data set on renderer
+}
+
+void GameClient::handleCameraMovement(float deltaTime)
+{
+    // Camera movement input
+    float moveSpeed = 10.0f;
+    Vec3 movement(0, 0, 0);
+
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
+    {
+        movement = movement + m_camera.front * moveSpeed * deltaTime;
+    }
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
+    {
+        movement = movement - m_camera.front * moveSpeed * deltaTime;
+    }
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
+    {
+        movement = movement - m_camera.right * moveSpeed * deltaTime;
+    }
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
+    {
+        movement = movement + m_camera.right * moveSpeed * deltaTime;
+    }
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
+    {
+        movement = movement + m_camera.up * moveSpeed * deltaTime;
+    }
+    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+    {
+        movement = movement - m_camera.up * moveSpeed * deltaTime;
+    }
+
+    // Collision Detection
+    Vec3 intendedPosition = m_camera.position + movement;
+    const float PLAYER_RADIUS = 0.5f;  // Player collision radius
+
+    // Check for collision with islands
+    Vec3 collisionNormal;
+    bool hasCollision = false;
+
+    if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
+    {
+        // Collision detected - implement friction-based sliding collision
+        const float FRICTION_COEFFICIENT = 0.3f;  // Friction factor (0 = no friction, 1 = full stop)
+
+        // Project movement onto the collision plane
+        float dotProduct = movement.dot(collisionNormal);
+        Vec3 slideMovement = movement - collisionNormal * dotProduct;
+
+        // Apply friction to the sliding movement
+        slideMovement *= (1.0f - FRICTION_COEFFICIENT);
+
+        // Apply sliding movement with friction
+        intendedPosition = m_camera.position + slideMovement;
+
+        // Check if sliding movement also collides
+        if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
+        {
+            // If sliding also collides, apply stronger friction instead of blocking completely
+            const float STRONG_FRICTION = 0.7f;
+            Vec3 strongFrictionMovement = movement * (1.0f - STRONG_FRICTION);
+            intendedPosition = m_camera.position + strongFrictionMovement;
+        }
+
+        hasCollision = true;
+    }
+    else
+    {
+        // No collision - use intended position directly
+    }
+
+    // Apply the calculated position
+    m_camera.position = intendedPosition;
+
+    // Update player position in game state if local
+    if (m_gameState && m_gameState->getPrimaryPlayer())
+    {
+        m_gameState->setPrimaryPlayerPosition(m_camera.position);
+    }
+
+    // Send movement to server if we're a remote client
+    if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f)
+    {
+        Vec3 velocity = movement / deltaTime;  // Calculate velocity
+        m_networkManager->sendPlayerMovement(m_camera.position, velocity, deltaTime);
+    }
 }
 
 void GameClient::renderWaitingScreen()

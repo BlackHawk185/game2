@@ -248,8 +248,11 @@ void VoxelChunk::generateMesh()
     // Use greedy meshing for optimal performance
     generateGreedyMesh();
     
+    // Build collision mesh immediately after generating vertices
+    buildCollisionMeshFromVertices();
+    
     mesh.needsUpdate = true;
-    collisionMesh.needsUpdate = true;
+    collisionMesh.needsUpdate = false; // Collision mesh is now up-to-date
     meshDirty = false;
     
     // NEW: Mark lighting as needing recalculation since geometry changed
@@ -280,9 +283,9 @@ void VoxelChunk::updatePhysicsMesh()
     // This method exists for compatibility with physics system
 }
 
-void VoxelChunk::buildCollisionMesh()
+void VoxelChunk::buildCollisionMeshFromVertices()
 {
-    std::lock_guard<std::mutex> lock(meshMutex);
+    // Build collision faces from collisionMeshVertices (called during generateMesh)
     collisionMesh.faces.clear();
 
     // Build collision faces from collisionMeshVertices
@@ -307,7 +310,13 @@ void VoxelChunk::buildCollisionMesh()
 
         collisionMesh.faces.push_back({faceCenter, normal});
     }
+}
 
+void VoxelChunk::buildCollisionMesh()
+{
+    // Legacy method - now just calls the new implementation
+    std::lock_guard<std::mutex> lock(meshMutex);
+    buildCollisionMeshFromVertices();
     collisionMesh.needsUpdate = false;
 }
 
