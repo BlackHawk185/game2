@@ -89,43 +89,27 @@ bool NetworkManager::startHosting(uint16_t port)
             //           << ") (velocity: (" << request.velocity.x << ", " << request.velocity.y
             //           << ", " << request.velocity.z << "))" << std::endl;
 
-            // Validate movement against collision
-            Vec3 collisionNormal;
-            const float PLAYER_RADIUS = 0.5f;
-
-            if (g_physics.checkPlayerCollision(request.intendedPosition, collisionNormal,
-                                               PLAYER_RADIUS))
+            // **SIMPLIFIED SERVER VALIDATION**: Let PhysicsSystem handle collision response
+            // Server just validates position is reasonable and broadcasts
+            // The client's PhysicsSystem will handle proper axis-separated collision
+            
+            // Basic validation - reject obviously invalid positions
+            bool positionValid = true;
+            if (request.intendedPosition.y < -1000.0f || request.intendedPosition.y > 1000.0f)
             {
-                // Debug: Uncomment for collision debugging
-                // std::cout
-                //     << "[SERVER] Collision detected, applying friction-based response (normal: ("
-                //     << collisionNormal.x << ", " << collisionNormal.y << ", " << collisionNormal.z
-                //     << "))" << std::endl;
-
-                // Apply friction-based collision response instead of instant stop
-                const float FRICTION_COEFFICIENT =
-                    0.3f;  // Friction factor (0 = no friction, 1 = full stop)
-                Vec3 frictionVelocity = request.velocity * (1.0f - FRICTION_COEFFICIENT);
-
-                // Project velocity onto collision plane to prevent penetration
-                float velocityDotNormal = request.velocity.dot(collisionNormal);
-                if (velocityDotNormal < 0)
-                {
-                    // Only apply friction if moving towards the collision surface
-                    Vec3 tangentialVelocity =
-                        request.velocity - collisionNormal * velocityDotNormal;
-                    frictionVelocity = tangentialVelocity * (1.0f - FRICTION_COEFFICIENT);
-                }
-
-                // Send corrected position with friction-applied velocity
-                this->broadcastPlayerPosition(0, request.intendedPosition, frictionVelocity);
+                positionValid = false; // Reject extreme Y positions
+            }
+            
+            if (positionValid)
+            {
+                // Position is reasonable - broadcast to all clients
+                // Let each client's PhysicsSystem handle collision properly
+                this->broadcastPlayerPosition(0, request.intendedPosition, request.velocity);
             }
             else
             {
-                // Debug: Uncomment for movement debugging
-                // std::cout << "[SERVER] Movement validated, broadcasting to clients" << std::endl;
-                // Movement is valid, broadcast to all clients
-                this->broadcastPlayerPosition(0, request.intendedPosition, request.velocity);
+                // Position invalid - reject movement
+                this->broadcastPlayerPosition(0, Vec3(0, 50, 0), Vec3(0, 0, 0)); // Reset to safe position
             }
         };
 

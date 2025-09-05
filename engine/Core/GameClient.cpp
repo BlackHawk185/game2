@@ -736,46 +736,9 @@ void GameClient::handleCameraMovement(float deltaTime)
         movement = movement - m_camera.up * moveSpeed * deltaTime;
     }
 
-    // Collision Detection
+    // **DIRECT MOVEMENT**: Camera moves freely without collision
+    // If you want camera collision, add VelocityComponent to camera and let PhysicsSystem handle it
     Vec3 intendedPosition = m_camera.position + movement;
-    const float PLAYER_RADIUS = 0.5f;  // Player collision radius
-
-    // Check for collision with islands
-    Vec3 collisionNormal;
-    bool hasCollision = false;
-
-    if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
-    {
-        // Collision detected - implement friction-based sliding collision
-        const float FRICTION_COEFFICIENT = 0.3f;  // Friction factor (0 = no friction, 1 = full stop)
-
-        // Project movement onto the collision plane
-        float dotProduct = movement.dot(collisionNormal);
-        Vec3 slideMovement = movement - collisionNormal * dotProduct;
-
-        // Apply friction to the sliding movement
-        slideMovement *= (1.0f - FRICTION_COEFFICIENT);
-
-        // Apply sliding movement with friction
-        intendedPosition = m_camera.position + slideMovement;
-
-        // Check if sliding movement also collides
-        if (g_physics.checkPlayerCollision(intendedPosition, collisionNormal, PLAYER_RADIUS))
-        {
-            // If sliding also collides, apply stronger friction instead of blocking completely
-            const float STRONG_FRICTION = 0.7f;
-            Vec3 strongFrictionMovement = movement * (1.0f - STRONG_FRICTION);
-            intendedPosition = m_camera.position + strongFrictionMovement;
-        }
-
-        hasCollision = true;
-    }
-    else
-    {
-        // No collision - use intended position directly
-    }
-
-    // Apply the calculated position
     m_camera.position = intendedPosition;
 
     // Update player position in game state if local

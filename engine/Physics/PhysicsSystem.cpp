@@ -254,36 +254,40 @@ bool PhysicsSystem::checkChunkCollision(const VoxelChunk* chunk, const Vec3& pla
         const_cast<VoxelChunk*>(chunk)->buildCollisionMesh();
     }
 
-    // Check if player sphere intersects with any collision faces
+    // Check if player box intersects with any collision faces
     for (const auto& face : collisionMesh.faces)
     {
-        // Simple sphere-plane collision detection
+        // **BOX-TO-PLANE COLLISION DETECTION** for box entities
         Vec3 faceToPlayer = playerPos - face.position;
         float distanceToPlane = faceToPlayer.dot(face.normal);
 
-        // If player is within radius of the face plane
+        // For box collision, check if any part of the box intersects the face plane
+        // Box extends playerRadius in all directions from center
         if (abs(distanceToPlane) <= playerRadius)
         {
             // Project player position onto the face plane
             Vec3 projectedPoint = playerPos - face.normal * distanceToPlane;
 
-            // Check if projected point is within the 1x1 face bounds
+            // Check if projected box overlaps with the 1x1 face bounds
             Vec3 faceCenter = face.position;
             Vec3 localPoint = projectedPoint - faceCenter;
 
-            // Determine which axes to check based on face normal
+            // **BOX OVERLAP CHECK**: Check if box (with radius playerRadius) overlaps face
             bool withinBounds = true;
             if (abs(face.normal.x) > 0.5f)
-            {  // X-facing face
-                withinBounds = abs(localPoint.y) <= 0.5f && abs(localPoint.z) <= 0.5f;
+            {  // X-facing face - check Y,Z box overlap
+                withinBounds = (abs(localPoint.y) <= (0.5f + playerRadius)) && 
+                              (abs(localPoint.z) <= (0.5f + playerRadius));
             }
             else if (abs(face.normal.y) > 0.5f)
-            {  // Y-facing face
-                withinBounds = abs(localPoint.x) <= 0.5f && abs(localPoint.z) <= 0.5f;
+            {  // Y-facing face - check X,Z box overlap  
+                withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
+                              (abs(localPoint.z) <= (0.5f + playerRadius));
             }
             else
-            {  // Z-facing face
-                withinBounds = abs(localPoint.x) <= 0.5f && abs(localPoint.y) <= 0.5f;
+            {  // Z-facing face - check X,Y box overlap
+                withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
+                              (abs(localPoint.y) <= (0.5f + playerRadius));
             }
 
             if (withinBounds)
@@ -311,56 +315,60 @@ bool PhysicsSystem::checkChunkCollisionWithPenetration(const VoxelChunk* chunk, 
         const_cast<VoxelChunk*>(chunk)->buildCollisionMesh();
     }
 
-    // Check if player sphere intersects with any collision faces
+    // Check if player box intersects with any collision faces
     for (const auto& face : collisionMesh.faces)
     {
-        // Simple sphere-plane collision detection
+        // **BOX-TO-PLANE COLLISION DETECTION** for box entities
         Vec3 faceToPlayer = playerPos - face.position;
         float distanceToPlane = faceToPlayer.dot(face.normal);
 
-        // If player is within radius of the face plane
+        // For box collision, check if any part of the box intersects the face plane
+        // Box extends playerRadius in all directions from center
         if (abs(distanceToPlane) <= playerRadius)
         {
             // Project player position onto the face plane
             Vec3 projectedPoint = playerPos - face.normal * distanceToPlane;
 
-            // Check if projected point is within the 1x1 face bounds
+            // Check if projected box overlaps with the 1x1 face bounds
             Vec3 faceCenter = face.position;
             Vec3 localPoint = projectedPoint - faceCenter;
 
-            // Determine which axes to check based on face normal
+            // **BOX OVERLAP CHECK**: Check if box (with radius playerRadius) overlaps face
             bool withinBounds = true;
             if (abs(face.normal.x) > 0.5f)
-            {  // X-facing face
-                withinBounds = abs(localPoint.y) <= 0.5f && abs(localPoint.z) <= 0.5f;
+            {  // X-facing face - check Y,Z box overlap
+                withinBounds = (abs(localPoint.y) <= (0.5f + playerRadius)) && 
+                              (abs(localPoint.z) <= (0.5f + playerRadius));
             }
             else if (abs(face.normal.y) > 0.5f)
-            {  // Y-facing face
-                withinBounds = abs(localPoint.x) <= 0.5f && abs(localPoint.z) <= 0.5f;
+            {  // Y-facing face - check X,Z box overlap  
+                withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
+                              (abs(localPoint.z) <= (0.5f + playerRadius));
             }
             else
-            {  // Z-facing face
-                withinBounds = abs(localPoint.x) <= 0.5f && abs(localPoint.y) <= 0.5f;
+            {  // Z-facing face - check X,Y box overlap
+                withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
+                              (abs(localPoint.y) <= (0.5f + playerRadius));
             }
 
             if (withinBounds)
             {
                 outNormal = face.normal;
 
-                // Calculate penetration depth
+                // Calculate penetration depth for box collision
                 if (outPenetrationDepth)
                 {
-                    // Penetration depth is how much the sphere overlaps with the plane
-                    // Positive distanceToPlane means player is in front of plane
+                    // For box collision, penetration depth is box surface to plane distance
+                    // Positive distanceToPlane means box center is in front of plane
                     // Negative means behind (inside the collision volume)
                     if (distanceToPlane >= 0)
                     {
-                        // Player is in front but within radius - calculate overlap
+                        // Box center is in front but box surface overlaps - calculate overlap
                         *outPenetrationDepth = playerRadius - distanceToPlane;
                     }
                     else
                     {
-                        // Player is behind plane (inside collision volume)
+                        // Box center is behind plane (inside collision volume)
                         *outPenetrationDepth = playerRadius + abs(distanceToPlane);
                     }
                 }
@@ -403,89 +411,67 @@ void PhysicsSystem::updateEntities(float deltaTime)
             entityRadius = fluidComp->radius;
         }
         
-        // Calculate intended new position
-        Vec3 intendedPosition = transform->position + velocity->velocity * deltaTime;
-
-        // **PREVENTIVE COLLISION SYSTEM** - Check intended position first
-        Vec3 intendedCollisionNormal;
-        const FloatingIsland* intendedCollidedIsland = nullptr;
-        float intendedPenetrationDepth = 0.0f;
-        bool willCollideAtIntended = checkEntityCollisionWithPenetration(
-            intendedPosition, intendedCollisionNormal, entityRadius,
-            &intendedCollidedIsland, &intendedPenetrationDepth);
-
-        if (willCollideAtIntended && intendedPenetrationDepth > 0.0f)
+        // **AXIS-SEPARATED COLLISION**: Test X, Y, Z movement independently to prevent Y-blocking
+        Vec3 currentPos = transform->position;
+        Vec3 deltaMovement = velocity->velocity * deltaTime;
+        Vec3 finalPosition = currentPos;
+        
+        // Try X movement
+        if (abs(deltaMovement.x) > 0.001f)
         {
-            // **BLOCKING RESPONSE**: Stop ALL movement when collision detected
-            // Kill velocity towards the surface to prevent re-penetration
-            float normalVelocity = velocity->velocity.dot(intendedCollisionNormal);
-            if (normalVelocity < 0) {
-                velocity->velocity -= intendedCollisionNormal * normalVelocity;
-            }
-
-            // **BARRIER APPROACH**: Don't move into collision - stay at current position
-            // This prevents any penetration from occurring on ALL axes
-            transform->position = transform->position; // Explicit no-op for clarity
-        }
-        else
-        {
-            // No collision at intended position - safe to move
-            transform->position = intendedPosition;
-        }
-
-        // **ISLAND VELOCITY INHERITANCE**: Apply friction-based velocity matching
-        // Check for both penetration and proximity to island surfaces
-        Vec3 currentCollisionNormal;
-        const FloatingIsland* currentIsland = nullptr;
-        float currentPenetrationDepth = 0.0f;
-        bool isOnIsland = checkEntityCollisionWithPenetration(
-            transform->position, currentCollisionNormal, entityRadius,
-            &currentIsland, &currentPenetrationDepth);
-
-        // If not penetrating, check proximity with slightly larger radius
-        if (!isOnIsland)
-        {
-            Vec3 proximityNormal;
-            const FloatingIsland* proximityIsland = nullptr;
-            isOnIsland = checkEntityCollision(
-                transform->position, proximityNormal, entityRadius + 0.1f, // Small proximity threshold
-                &proximityIsland);
-            if (isOnIsland)
+            Vec3 testPosX = currentPos + Vec3(deltaMovement.x, 0, 0);
+            Vec3 normalX;
+            const FloatingIsland* islandX = nullptr;
+            float depthX = 0.0f;
+            
+            if (!checkEntityCollisionWithPenetration(testPosX, normalX, entityRadius, &islandX, &depthX) || depthX <= 0.0f)
             {
-                currentIsland = proximityIsland;
+                finalPosition.x = testPosX.x; // X movement is safe
+            }
+            else
+            {
+                velocity->velocity.x = islandX ? islandX->velocity.x : 0.0f; // Stop X velocity
             }
         }
-
-        // Apply gradual island velocity inheritance if on or near any island
-        if (isOnIsland && currentIsland)
+        
+        // Try Z movement  
+        if (abs(deltaMovement.z) > 0.001f)
         {
-            // Apply gradual island velocity inheritance (10% per tick)
-            // This allows wind/other forces to overcome slow islands while fast islands dominate
-            Vec3 velocityDifference = currentIsland->velocity - velocity->velocity;
-            // Only apply to XZ plane, preserve Y for jumping/falling
-            velocity->velocity.x += velocityDifference.x * 0.1f;
-            velocity->velocity.z += velocityDifference.z * 0.1f;
-        }
-
-        // **SIMPLIFIED FALLBACK: Teleport out of blocks** (rare edge cases only)
-        Vec3 fallbackCollisionNormal;
-        const FloatingIsland* fallbackIsland = nullptr;
-        float fallbackPenetrationDepth = 0.0f;
-        bool isCurrentlyStuck = checkEntityCollisionWithPenetration(
-            transform->position, fallbackCollisionNormal, entityRadius,
-            &fallbackIsland, &fallbackPenetrationDepth);
-
-        if (isCurrentlyStuck && fallbackPenetrationDepth > 0.0f)
-        {
-            // **TELEPORT OUT**: Simple fix - move completely out of penetration
-            transform->position += fallbackCollisionNormal * (fallbackPenetrationDepth + 0.01f);
-
-            // Kill velocity towards the surface to prevent re-penetration
-            float normalVelocity = velocity->velocity.dot(fallbackCollisionNormal);
-            if (normalVelocity < 0) {
-                velocity->velocity -= fallbackCollisionNormal * normalVelocity;
+            Vec3 testPosZ = Vec3(finalPosition.x, currentPos.y, currentPos.z + deltaMovement.z);
+            Vec3 normalZ;
+            const FloatingIsland* islandZ = nullptr;
+            float depthZ = 0.0f;
+            
+            if (!checkEntityCollisionWithPenetration(testPosZ, normalZ, entityRadius, &islandZ, &depthZ) || depthZ <= 0.0f)
+            {
+                finalPosition.z = testPosZ.z; // Z movement is safe
+            }
+            else
+            {
+                velocity->velocity.z = islandZ ? islandZ->velocity.z : 0.0f; // Stop Z velocity
             }
         }
+        
+        // Try Y movement (falling/jumping) - this should almost always work unless on ground
+        if (abs(deltaMovement.y) > 0.001f)
+        {
+            Vec3 testPosY = Vec3(finalPosition.x, currentPos.y + deltaMovement.y, finalPosition.z);
+            Vec3 normalY;
+            const FloatingIsland* islandY = nullptr;
+            float depthY = 0.0f;
+            
+            if (!checkEntityCollisionWithPenetration(testPosY, normalY, entityRadius, &islandY, &depthY) || depthY <= 0.0f)
+            {
+                finalPosition.y = testPosY.y; // Y movement is safe
+            }
+            else
+            {
+                velocity->velocity.y = islandY ? islandY->velocity.y : 0.0f; // Stop Y velocity (hit ground/ceiling)
+            }
+        }
+        
+        // Apply the final position
+        transform->position = finalPosition;
     }
 }
 
