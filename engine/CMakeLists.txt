@@ -24,6 +24,7 @@ add_library(engine STATIC
     Rendering/SimpleShader.cpp  # Simple shader for basic rendering
     Rendering/GlobalLightingManager.cpp  # NEW: Global lighting system
     Rendering/ShadowMap.cpp
+    Rendering/CascadedShadowMap.cpp
     
     # Input systems
     Input/Camera.cpp

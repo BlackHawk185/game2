@@ -20,15 +20,15 @@ class TerrainGenerator;
  */
 class Island {
 public:
-    static constexpr int ISLAND_WIDTH = 1000;
-    static constexpr int ISLAND_HEIGHT = 100;
-    static constexpr int ISLAND_DEPTH = 1000;
+    static constexpr int ISLAND_WIDTH = 2000;
+    static constexpr int ISLAND_HEIGHT = 200;
+    static constexpr int ISLAND_DEPTH = 2000;
     static constexpr int CHUNK_SIZE = 16;
     
     // Calculate chunks per island (rounded up)
-    static constexpr int CHUNKS_X = (ISLAND_WIDTH + CHUNK_SIZE - 1) / CHUNK_SIZE;   // ~63
-    static constexpr int CHUNKS_Y = (ISLAND_HEIGHT + CHUNK_SIZE - 1) / CHUNK_SIZE;  // ~7
-    static constexpr int CHUNKS_Z = (ISLAND_DEPTH + CHUNK_SIZE - 1) / CHUNK_SIZE;   // ~63
+    static constexpr int CHUNKS_X = (ISLAND_WIDTH + CHUNK_SIZE - 1) / CHUNK_SIZE;   // ~125
+    static constexpr int CHUNKS_Y = (ISLAND_HEIGHT + CHUNK_SIZE - 1) / CHUNK_SIZE;  // ~13
+    static constexpr int CHUNKS_Z = (ISLAND_DEPTH + CHUNK_SIZE - 1) / CHUNK_SIZE;   // ~125
 
 public:
     Island(int islandX, int islandZ, uint32_t seed);

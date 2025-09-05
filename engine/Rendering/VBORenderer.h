@@ -12,6 +12,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "SimpleShader.h"
+#include "CascadedShadowMap.h"
 
 class VBORenderer
 {
@@ -29,6 +30,9 @@ public:
     void setModelMatrix(const glm::mat4& model);
     void setLightVP(const glm::mat4& lightVP);
     void setLightDir(const glm::vec3& lightDir);
+    void setCascadeMatrix(int index, const glm::mat4& lightVP);
+    void setCascadeCount(int count);
+    void setCascadeSplits(const float* splits, int count);
 
     // Chunk VBO management with VAO support
     void uploadChunkMesh(VoxelChunk* chunk);
@@ -39,6 +43,9 @@ public:
     void beginDepthPass(const glm::mat4& lightVP);
     void renderDepthChunk(VoxelChunk* chunk, const Vec3& worldOffset);
     void endDepthPass(int screenWidth, int screenHeight);
+    // Cascaded
+    void beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP);
+    void endDepthPassCascade(int screenWidth, int screenHeight);
 
     // Batch rendering for multiple chunks
     void beginBatch();
@@ -72,11 +79,15 @@ private:
     glm::mat4 m_modelMatrix;
     glm::mat4 m_lightVP{1.0f};
     glm::vec3 m_lightDir{ -0.3f, -1.0f, -0.2f };
+    int m_cascadeCount = 1;
+    glm::mat4 m_lightVPs[4];
+    float m_cascadeSplits[4] = { 333.0f, 666.0f, 1000.0f, 1000.0f };
 
     // Depth-only shader for shadow map pass
     unsigned int m_depthProgram = 0;
     int m_depth_uLightVP = -1;
     int m_depth_uModel = -1;
+    int m_activeCascade = -1;
 
     // Helper methods
     void setupVertexAttributes();

@@ -11,19 +11,12 @@ JobSystem::JobSystem() = default;
 
 JobSystem::~JobSystem()
 {
-    // During global destruction, avoid complex cleanup that might
-    // interfere with STL container destruction order
+    // Ensure threads are joined before destruction; std::thread destructor
+    // will call std::terminate if joinable.
     try {
-        if (m_initialized.load()) {
-            // Signal shutdown quickly
-            m_shutdown.store(true);
-            m_workCondition.notify_all();
-            
-            // Don't wait for threads during global destruction
-            // The OS will clean them up
-        }
+        shutdown();
     } catch (...) {
-        // Ignore any exceptions during global destruction
+        // Swallow exceptions during global teardown
     }
 }
 

@@ -671,47 +671,79 @@ void GameClient::renderWorld()
         return;
     }
 
-    // Shadow depth pass (single map, inverse lighting)
+    // Shadow depth pass (cascaded)
     {
         PROFILE_SCOPE("Shadow depth pass");
         Vec3 sunDir = Vec3(-0.3f, -1.0f, -0.2f).normalized();
         glm::vec3 camPos(m_camera.position.x, m_camera.position.y, m_camera.position.z);
+        glm::vec3 lightDir(sunDir.x, sunDir.y, sunDir.z);
         glm::vec3 lightTarget = camPos;
-        glm::vec3 lightPos = camPos - glm::vec3(sunDir.x, sunDir.y, sunDir.z) * 100.0f;
+        glm::vec3 lightPos = camPos - lightDir * 100.0f;
         glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
-        float ortho = 120.0f;
-        glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
-        glm::mat4 lightVP = lightProj * lightView;
-        if (g_vboRenderer)
-        {
-            // Pass light direction for forward shading
-            g_vboRenderer->setLightDir(glm::vec3(sunDir.x, sunDir.y, sunDir.z));
-            g_vboRenderer->beginDepthPass(lightVP);
-            {
-                auto* islandSystem = m_gameState->getIslandSystem();
-                if (islandSystem)
-                {
-                    std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
-                    islandSystem->getAllChunksWithWorldPos(snapshot);
-                    for (auto& p : snapshot)
-                    {
-                        VoxelChunk* chunkPtr = p.first;
-                        const Vec3& worldPos = p.second;
-                        VoxelMesh& mesh = chunkPtr->getMesh();
-                        if (mesh.VAO == 0 || mesh.needsUpdate)
-                            g_vboRenderer->uploadChunkMesh(chunkPtr);
-                        g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
-                    }
-                }
-            }
-            g_vboRenderer->endDepthPass(m_windowWidth, m_windowHeight);
-            g_vboRenderer->setLightVP(lightVP);
+        
+        // Frustum splits (lambda blend)
+        float nearPlane = 0.1f;
+        float farPlane = 1000.0f;
+        const int C = 3;
+        float lambda = 0.7f;
+        float splits[C] = {0};
+        for (int i = 0; i < C; ++i) {
+            float si = (i+1) / float(C);
+            float logd = nearPlane * powf(farPlane/nearPlane, si);
+            float lind = nearPlane + (farPlane-nearPlane) * si;
+            splits[i] = lambda * (logd - nearPlane) + (1.0f - lambda) * (lind - nearPlane);
         }
+
+        // For each cascade, compute ortho box around camera frustum slice and render depth
+        float orthoRanges[C] = {60.0f, 180.0f, 500.0f}; // conservative boxes per split
+        if (g_vboRenderer) {
+            g_vboRenderer->setLightDir(lightDir);
+        }
+        auto* islandSystem = m_gameState->getIslandSystem();
+        std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
+        if (islandSystem) islandSystem->getAllChunksWithWorldPos(snapshot);
+        // Provide splits to renderer (view-space distances)
+        if (g_vboRenderer) {
+            g_vboRenderer->setCascadeCount(C);
+            g_vboRenderer->setCascadeSplits(splits, C);
+        }
+        for (int ci = 0; ci < C; ++ci) {
+            float ortho = orthoRanges[ci];
+            glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
+            // Stable snap per cascade using CSM texture size
+            glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
+            int smWidth = g_csm.getSize(ci);
+            float texelSize = (2.0f * ortho) / float(smWidth);
+            glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
+            glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
+            glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
+            glm::mat4 lightVP = lightProj * snapMat * lightView;
+
+            if (g_vboRenderer) {
+                g_vboRenderer->setCascadeMatrix(ci, lightVP);
+                g_vboRenderer->beginDepthPassCascade(ci, lightVP);
+                for (auto& p : snapshot) {
+                    VoxelChunk* chunkPtr = p.first;
+                    const Vec3& worldPos = p.second;
+                    VoxelMesh& mesh = chunkPtr->getMesh();
+                    if (mesh.VAO == 0 || mesh.needsUpdate)
+                        g_vboRenderer->uploadChunkMesh(chunkPtr);
+                    g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
+                }
+                g_vboRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
+            }
+        }
+        // Forward pass will read cascade data set on renderer
     }
 
     // Render all islands
     {
         PROFILE_SCOPE("renderAllIslands");
+        // Before rendering, set cascade matrices and splits on the shader via renderer
+        if (g_vboRenderer) {
+            // Set matrices individually via names: uLightVP[0..2] and splits
+            // This is done inside renderChunk to avoid extra API here.
+        }
         m_gameState->getIslandSystem()->renderAllIslands();
     }
 

@@ -1,6 +1,7 @@
 // VBORenderer.cpp - Modern VBO implementation with GLAD (shader support disabled temporarily)
 #include "VBORenderer.h"
 #include "ShadowMap.h"
+#include "CascadedShadowMap.h"
 #include <glad/gl.h>
 #include "TextureManager.h"
 #include "../Profiling/Profiler.h"
@@ -56,11 +57,13 @@ bool VBORenderer::initialize()
         return false;
     }
 
-    // Initialize shadow map target
-    if (!g_shadowMap.initialize(2048, 2048)) {
-        std::cout << "Failed to initialize shadow map" << std::endl;
+    // Initialize cascaded shadow map (3 cascades)
+    if (!g_csm.initialize(3, 2048)) {
+        std::cout << "Failed to initialize cascaded shadow map" << std::endl;
         return false;
     }
+    // Double resolution for near cascade
+    g_csm.resizeCascade(0, 8192);
 
     // Set basic OpenGL state
     glEnable(GL_DEPTH_TEST);
@@ -217,11 +220,26 @@ void VBORenderer::setLightVP(const glm::mat4& lightVP)
     m_lightVP = lightVP;
 }
 
+void VBORenderer::setCascadeMatrix(int index, const glm::mat4& lightVP)
+{
+    if (index >= 0 && index < 4) m_lightVPs[index] = lightVP;
+}
+
+void VBORenderer::setCascadeCount(int count)
+{
+    m_cascadeCount = (count < 1) ? 1 : (count > 4 ? 4 : count);
+}
+
+void VBORenderer::setCascadeSplits(const float* splits, int count)
+{
+    int n = (count < 1) ? 1 : (count > 4 ? 4 : count);
+    for (int i = 0; i < n; ++i) m_cascadeSplits[i] = splits[i];
+}
+
 void VBORenderer::beginDepthPass(const glm::mat4& lightVP)
 {
     setLightVP(lightVP);
-    g_shadowMap.setLightVP(lightVP);
-    g_shadowMap.beginRender();
+    // Kept for compatibility if single shadow path is used
     glUseProgram(m_depthProgram);
     if (m_depth_uLightVP != -1) glUniformMatrix4fv(m_depth_uLightVP,1,GL_FALSE,glm::value_ptr(lightVP));
 }
@@ -241,7 +259,22 @@ void VBORenderer::renderDepthChunk(VoxelChunk* chunk, const Vec3& worldOffset)
 
 void VBORenderer::endDepthPass(int screenWidth, int screenHeight)
 {
-    g_shadowMap.endRender(screenWidth, screenHeight);
+    // No-op in CSM path
+}
+
+void VBORenderer::beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP)
+{
+    m_activeCascade = cascadeIndex;
+    setLightVP(lightVP);
+    g_csm.beginCascade(cascadeIndex);
+    glUseProgram(m_depthProgram);
+    if (m_depth_uLightVP != -1) glUniformMatrix4fv(m_depth_uLightVP,1,GL_FALSE,glm::value_ptr(lightVP));
+}
+
+void VBORenderer::endDepthPassCascade(int screenWidth, int screenHeight)
+{
+    g_csm.endCascade(screenWidth, screenHeight);
+    m_activeCascade = -1;
 }
 
 void VBORenderer::uploadChunkMesh(VoxelChunk* chunk)
@@ -287,14 +320,33 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     m_shader.setMatrix4("uModel", modelMatrix);
     m_shader.setMatrix4("uView", m_viewMatrix);
     m_shader.setMatrix4("uProjection", m_projectionMatrix);
-    m_shader.setMatrix4("uLightVP", m_lightVP);
+    // Cascades
+    m_shader.setInt("uCascadeCount", m_cascadeCount);
+    for (int i = 0; i < m_cascadeCount; ++i) {
+        char name[32];
+        snprintf(name, sizeof(name), "uLightVP[%d]", i);
+        m_shader.setMatrix4(name, m_lightVPs[i]);
+        snprintf(name, sizeof(name), "uCascadeSplits[%d]", i);
+        m_shader.setFloat(name, m_cascadeSplits[i]);
+        snprintf(name, sizeof(name), "uShadowTexel[%d]", i);
+        float texel = 1.0f / float(g_csm.getSize(i) > 0 ? g_csm.getSize(i) : 2048);
+        m_shader.setFloat(name, texel);
+    }
     // Set light direction for slope-bias + lambert
     m_shader.setVector3("uLightDir", Vec3(m_lightDir.x, m_lightDir.y, m_lightDir.z));
 
-    // Shadow map
-    glActiveTexture(GL_TEXTURE7);
-    glBindTexture(GL_TEXTURE_2D, g_shadowMap.getDepthTexture());
-    m_shader.setInt("uShadowMap", 7);
+    // Bind cascaded shadow maps
+    if (g_csm.getCascadeCount() >= 3) {
+        glActiveTexture(GL_TEXTURE7);
+        glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
+        m_shader.setInt("uShadowMaps[0]", 7);
+        glActiveTexture(GL_TEXTURE8);
+        glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(1));
+        m_shader.setInt("uShadowMaps[1]", 8);
+        glActiveTexture(GL_TEXTURE9);
+        glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(2));
+        m_shader.setInt("uShadowMaps[2]", 9);
+    }
 
     // Albedo texture
     GLuint tex = g_textureManager->getTexture("dirt.png");
