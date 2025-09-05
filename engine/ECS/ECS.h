@@ -145,12 +145,5 @@ struct VoxelChunkComponent
     float* meshVertices = nullptr;  // Generated mesh data
 };
 
-struct PhysicsBodyComponent
-{
-    uint32_t physicsBodyID = 0;  // Physics body ID
-    float mass = 1.0f;
-    bool isStatic = false;
-};
-
 // Global ECS instance
 extern ECSWorld g_ecs;

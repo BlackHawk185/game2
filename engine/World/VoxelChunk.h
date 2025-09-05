@@ -101,7 +101,6 @@ class VoxelChunk
 
     // Mesh generation and management
     void generateMesh();
-    void updatePhysicsMesh();
 
     // Rendering
     void render();                                        // Render at origin (0,0,0)
@@ -115,12 +114,6 @@ class VoxelChunk
     // **LOD AND CULLING SUPPORT**
     int calculateLOD(const Vec3& cameraPos) const;
     bool shouldRender(const Vec3& cameraPos, float maxDistance = 256.0f) const;
-
-    // Physics integration
-    uint32_t getPhysicsBodyID() const
-    {
-        return physicsBodyID;
-    }
 
     // Collision detection methods
     const CollisionMesh& getCollisionMesh() const
@@ -165,7 +158,6 @@ class VoxelChunk
     ChunkLightMaps lightMaps;  // NEW: Per-face light mapping data
     bool meshDirty = true;
     bool lightingDirty = true;  // NEW: Lighting needs recalculation
-    uint32_t physicsBodyID = 0;  // Physics body ID
 
     // **FACE CULLING OPTIMIZATION HELPER**
     bool shouldRenderFace(int x, int y, int z, int faceDir) const;

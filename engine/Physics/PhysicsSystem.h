@@ -35,16 +35,6 @@ class PhysicsSystem
     void debugCollisionInfo(const Vec3& playerPos, float playerRadius = 0.5f);
     int getTotalCollisionFaces() const;
 
-    // Stub body creation - returns dummy IDs (for future physics engine)
-    uint32_t createFloatingIslandBody(const Vec3& position, float mass = 1000.0f);
-    uint32_t createStaticBox(const Vec3& position, const Vec3& halfExtent);
-
-    // Stub body manipulation - does nothing (for future physics engine)
-    void setBodyPosition(uint32_t bodyID, const Vec3& position);
-    Vec3 getBodyPosition(uint32_t bodyID);
-    void addForce(uint32_t bodyID, const Vec3& force);
-    void addBuoyancyForce(uint32_t bodyID, float buoyancy = 500.0f);
-
    private:
     IslandChunkSystem* m_islandSystem = nullptr;
     

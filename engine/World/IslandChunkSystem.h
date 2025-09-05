@@ -13,7 +13,6 @@
 // An Island is a collection of chunks that move together as one physics body
 struct FloatingIsland
 {
-    uint32_t physicsBodyHandle;                                      // Our internal handle for the physics body
     Vec3 physicsCenter{0, 0, 0};                                     // Center of mass for physics
     Vec3 velocity{0, 0, 0};                                          // Island velocity for physics simulation
     Vec3 acceleration{0, 0, 0};                                      // Island acceleration (gravity, wind, etc.)

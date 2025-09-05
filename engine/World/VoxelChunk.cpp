@@ -277,12 +277,6 @@ void VoxelChunk::generateMesh()
     // Note: updateLightMapTextures() will be called during rendering when OpenGL context is available
 }
 
-void VoxelChunk::updatePhysicsMesh()
-{
-    // Collision mesh is already generated in generateMesh()
-    // This method exists for compatibility with physics system
-}
-
 void VoxelChunk::buildCollisionMeshFromVertices()
 {
     // Build collision faces from collisionMeshVertices (called during generateMesh)
