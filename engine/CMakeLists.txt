@@ -12,6 +12,7 @@ add_library(engine STATIC
     World/VoxelChunk.cpp
     World/IslandChunkSystem.cpp
     World/VoxelRaycaster.cpp
+    World/BlockType.cpp
     
     # Game objects
     Player.cpp

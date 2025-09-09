@@ -11,7 +11,11 @@ static const char* VERTEX_SHADER_SOURCE = R"(
 
 layout (location = 0) in vec3 aPosition;
 layout (location = 1) in vec2 aTexCoord;
-layout (location = 2) in vec3 aNormal; // Optional
+layout (location = 2) in vec3 aNormal;
+layout (location = 3) in vec2 aLightMapCoord;
+layout (location = 4) in float aAmbientOcclusion;
+layout (location = 5) in float aFaceIndex;
+layout (location = 6) in float aBlockType;
 
 // Retain UBO signature for compatibility, though not used for lighting
 layout (std140, binding = 0) uniform ChunkLightingData {
@@ -35,6 +39,7 @@ out vec3 Normal;
 out vec3 WorldPos;
 out vec4 LightSpacePos[4];
 out float ViewZ;
+out float BlockType;
 
 void main()
 {
@@ -46,6 +51,7 @@ void main()
     TexCoord = aTexCoord;
     Normal = aNormal;
     WorldPos = world.xyz;
+    BlockType = aBlockType;
     for (int i=0;i<uCascadeCount;i++) {
         LightSpacePos[i] = uLightVP[i] * world;
     }
@@ -63,8 +69,11 @@ in vec3 Normal;
 in vec3 WorldPos;
 in vec4 LightSpacePos[4];
 in float ViewZ;
+in float BlockType;
 
-uniform sampler2D uTexture;
+uniform sampler2D uTexture;      // Default/dirt texture
+uniform sampler2D uStoneTexture; // Stone texture
+uniform sampler2D uGrassTexture; // Grass texture
 uniform sampler2D uShadowMaps[4];
 uniform int uCascadeCount;
 uniform float uCascadeSplits[4];
@@ -116,7 +125,24 @@ void main()
         vec4 texColor = texture(uTexture, TexCoord);
         finalColor = texColor * uMaterialColor;
     } else {
-        vec4 texColor = texture(uTexture, TexCoord);
+        // Voxel Material - select texture based on block type
+        vec4 texColor;
+        int blockID = int(BlockType + 0.5); // Round to nearest integer
+        
+        if (blockID == 1) {
+            // Stone blocks
+            texColor = texture(uStoneTexture, TexCoord);
+        } else if (blockID == 2) {
+            // Dirt blocks  
+            texColor = texture(uTexture, TexCoord);
+        } else if (blockID == 3) {
+            // Grass blocks
+            texColor = texture(uGrassTexture, TexCoord);
+        } else {
+            // Default fallback (air/unknown)
+            texColor = texture(uTexture, TexCoord);
+        }
+        
         if (texColor.a < 0.1) { discard; }
 
         // Transform to [0,1] shadow map coords
@@ -130,7 +156,7 @@ void main()
         float start = (ci==0)? 0.0 : uCascadeSplits[ci-1];
         float endV = uCascadeSplits[ci];
         float span = max(endV - start, 1e-3);
-        float band = 0.1 * span;
+    float band = 0.2 * span; // Increased to 20% for wider overlap
         float tBlend = 0.0;
         if (ViewZ > endV - band && ci < uCascadeCount-1) {
             tBlend = clamp((ViewZ - (endV - band)) / band, 0.0, 1.0);

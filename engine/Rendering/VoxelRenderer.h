@@ -69,7 +69,7 @@ public:
     
     /**
      * Load texture from file
-     * @param filePath Path to texture file (e.g., "textures/dirt.png")
+     * @param filePath Path to texture file (e.g., "assets/textures/dirt.png")
      * @return Texture object (textureId will be 0 if failed)
      */
     Texture loadTexture(const std::string& filePath);

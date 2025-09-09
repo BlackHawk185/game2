@@ -10,6 +10,7 @@
 
 #include "GameState.h"
 #include "../Profiling/Profiler.h"
+#include "../World/BlockType.h"
 
 #include "../Network/NetworkManager.h"
 #include "../Network/NetworkMessages.h"
@@ -563,11 +564,11 @@ void GameClient::processBlockInteraction(float deltaTime)
                     m_networkManager->getClient()->isConnected())
                 {
                     m_networkManager->getClient()->sendVoxelChangeRequest(
-                        m_inputState.cachedTargetBlock.islandID, placePos, 1);
+                        m_inputState.cachedTargetBlock.islandID, placePos, getBlockLegacyID("stone"));
                 }
 
                 // Apply optimistically for immediate visual feedback
-                m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, 1);
+                m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, getBlockLegacyID("stone"));
 
                 // Clear the cached target block to refresh the selection
                 m_inputState.cachedTargetBlock = RayHit();

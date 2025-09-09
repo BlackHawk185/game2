@@ -2,10 +2,12 @@
 #pragma once
 
 #include "../Math/Vec3.h"
+#include "BlockType.h"
 #include <array>
 #include <vector>
 #include <cstdint>
 #include <mutex>
+#include <string>
 
 // Forward declaration for OpenGL types
 using GLuint = uint32_t;
@@ -18,6 +20,7 @@ struct Vertex
     float lu, lv;      // Light map coordinates
     float ao;          // Ambient occlusion (0.0 = fully occluded, 1.0 = no occlusion)
     float faceIndex;   // Face index (0-5) for selecting correct light map texture
+    float blockType;   // Block type ID for texture selection
 };
 
 struct VoxelMesh
@@ -88,6 +91,11 @@ class VoxelChunk
     // Voxel data access
     uint8_t getVoxel(int x, int y, int z) const;
     void setVoxel(int x, int y, int z, uint8_t type);
+    
+    // String-based block type access
+    std::string getBlockType(int x, int y, int z) const;
+    void setBlockType(int x, int y, int z, const std::string& blockType);
+    bool hasBlockType(int x, int y, int z, const std::string& blockType) const;
 
     // Network serialization - get raw voxel data for transmission
     const uint8_t* getRawVoxelData() const

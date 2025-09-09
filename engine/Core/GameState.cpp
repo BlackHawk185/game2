@@ -45,7 +45,7 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
     m_primaryPlayer = std::make_unique<Player>();
 
     // Configure lighting system for maximum performance
-    g_globalLighting.setUpdateFrequency(10.0f);   // Reduced from 60 FPS to 10 FPS for performance
+    g_globalLighting.setUpdateFrequency(20.0f);   // Increased from 10 FPS to 20 FPS for smoother lighting
     g_globalLighting.setOcclusionEnabled(false);  // Disable occlusion for maximum performance
     
     std::cout << "💡 Configured lighting: Simple face-orientation lighting at 10 FPS for performance" << std::endl;

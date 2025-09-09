@@ -6,9 +6,11 @@
 #include <vector>
 #include <cmath>
 #include <mutex>
+#include <string>
 
 #include "Math/Vec3.h"
 #include "VoxelChunk.h"
+#include "BlockType.h"
 
 // An Island is a collection of chunks that move together as one physics body
 struct FloatingIsland
@@ -92,6 +94,10 @@ class IslandChunkSystem
     // **DYNAMIC VOXEL PLACEMENT** (Creates chunks as needed)
     // Uses island-relative coordinates - automatically creates chunks on grid-aligned boundaries
     void setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType);
+    
+    // String-based block type methods
+    void setBlockTypeWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, const std::string& blockType);
+    std::string getBlockTypeInIsland(uint32_t islandID, const Vec3& islandRelativePosition) const;
 
     // Physics integration
     void updateIslandPhysics(float deltaTime);

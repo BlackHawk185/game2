@@ -216,7 +216,7 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     // **DYNAMIC HEIGHT SCALING** - Larger islands get taller, but maintain wide/low proportions
     // Base height ratio is 0.075f (half of previous 0.15f)
     // Add scaling factor so larger islands get proportionally more height
-    float baseHeightRatio = 0.075f;
+    float baseHeightRatio = 0.01875f; // Halved for shorter islands
     float heightScaling = 1.0f + (radius / 200.0f); // Gradual increase: +50% height at 100 units, +100% at 200 units
     int islandHeight = static_cast<int>(radius * baseHeightRatio * heightScaling);
     
@@ -267,16 +267,10 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                         float heightFactor = 1.0f;
                         
                         if (normalizedY < 0.2f) {
-                            // Bottom foundation - very solid
-                            heightFactor = 1.5f;
-                        } else if (normalizedY < 0.6f) {
-                            // Middle bulk - main island mass
+                            // Only keep the middle layer (main island mass)
                             heightFactor = 1.2f;
-                        } else {
-                            // Upper surface - lighter, creates hills/peaks
-                            heightFactor = 0.4f;
                         }
-                        
+
                         // **3D NOISE FOR SURFACE DETAIL** - Multiple octaves for realism
                         float surfaceNoise = 0.0f;
                         float amplitude = 1.0f;
@@ -313,6 +307,14 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                         
                         // **FINAL ISLAND DENSITY** - Combine all factors
                         float finalDensity = islandBase * heightFactor * (surfaceNoise * 0.7f + terrainNoise * 0.3f);
+                        
+                        // Apply gentle top falloff only when we're in the upper portion of the island
+                        if (normalizedY > 0.6f) {
+                            float topFactor = (normalizedY - 0.6f) / 0.4f; // 0.0 at Y=0.6, 1.0 at Y=1.0
+                            float topFalloff = 1.0f - (topFactor * 0.3f); // Gentle 30% reduction at the very top
+                            finalDensity *= topFalloff;
+                        }
+                        
                         shouldPlaceVoxel = (finalDensity > densityThreshold);
                     }
                 } else {
@@ -328,9 +330,39 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                     
                     // Use island-relative coordinates for placement
                     Vec3 islandRelativePos(dx, dy, dz);
-                    setVoxelWithAutoChunk(islandID, islandRelativePos, 1); // Rock/stone
+                    
+                    // **BLOCK TYPE SELECTION** - 50% dirt, 50% stone for testing
+                    std::string blockType;
+                    
+                    // More random per-voxel distribution using multiple noise sources
+                    float blockNoise1 = (std::sin(dx * 0.31f + seed * 0.7f) + 1.0f) * 0.5f;
+                    float blockNoise2 = (std::cos(dz * 0.37f + seed * 1.3f) + 1.0f) * 0.5f;
+                    float blockNoise3 = (std::sin(dy * 0.23f + seed * 2.1f) + 1.0f) * 0.5f;
+                    
+                    // Combine noise sources for more randomness
+                    float combinedNoise = (blockNoise1 + blockNoise2 + blockNoise3) / 3.0f;
+                    
+                    if (combinedNoise > 0.5f) {
+                        blockType = "dirt";
+                    } else {
+                        blockType = "stone";
+                    }
+                    
+                    setBlockTypeWithAutoChunk(islandID, islandRelativePos, blockType);
                     
                     voxelsGenerated++;
+                    
+                    // Debug: Count block types for verification
+                    static int dirtCount = 0, stoneCount = 0;
+                    if (blockType == "dirt") dirtCount++;
+                    else if (blockType == "stone") stoneCount++;
+                    
+                    // Print stats every 10000 voxels
+                    if (voxelsGenerated % 10000 == 0) {
+                        float dirtPercent = (float)dirtCount / (float)(dirtCount + stoneCount) * 100.0f;
+                        float stonePercent = (float)stoneCount / (float)(dirtCount + stoneCount) * 100.0f;
+                        std::cout << "[DEBUG] Block distribution: " << dirtPercent << "% dirt, " << stonePercent << "% stone (total: " << (dirtCount + stoneCount) << ")" << std::endl;
+                    }
                     
                     // Check if a new chunk was created
                     if (island->chunks.size() > chunksBefore)
@@ -450,6 +482,46 @@ void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& isl
     if (!chunk) return;
     chunk->setVoxel(localX, localY, localZ, voxelType);
     // Mesh generation can be deferred/batched; leave as-is to avoid stutters
+}
+
+// String-based block type methods
+void IslandChunkSystem::setBlockTypeWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, const std::string& blockType)
+{
+    const BlockTypeInfo* blockInfo = BlockTypeRegistry::getInstance().getBlockType(blockType);
+    if (blockInfo) {
+        setVoxelWithAutoChunk(islandID, islandRelativePos, blockInfo->legacyID);
+    } else {
+        std::cout << "Warning: Unknown block type '" << blockType << "', defaulting to air" << std::endl;
+        setVoxelWithAutoChunk(islandID, islandRelativePos, 0); // Default to air
+    }
+}
+
+std::string IslandChunkSystem::getBlockTypeInIsland(uint32_t islandID, const Vec3& islandRelativePosition) const
+{
+    std::lock_guard<std::mutex> lock(m_islandsMutex);
+    auto itIsl = m_islands.find(islandID);
+    if (itIsl == m_islands.end())
+        return "air";
+    
+    const FloatingIsland& island = itIsl->second;
+    
+    int chunkX = static_cast<int>(std::floor(islandRelativePosition.x / VoxelChunk::SIZE));
+    int chunkY = static_cast<int>(std::floor(islandRelativePosition.y / VoxelChunk::SIZE));
+    int chunkZ = static_cast<int>(std::floor(islandRelativePosition.z / VoxelChunk::SIZE));
+    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+    
+    auto itChunk = island.chunks.find(chunkCoord);
+    if (itChunk == island.chunks.end() || !itChunk->second)
+        return "air";
+    
+    int localX = static_cast<int>(islandRelativePosition.x) % VoxelChunk::SIZE;
+    int localY = static_cast<int>(islandRelativePosition.y) % VoxelChunk::SIZE;
+    int localZ = static_cast<int>(islandRelativePosition.z) % VoxelChunk::SIZE;
+    if (localX < 0) localX += VoxelChunk::SIZE;
+    if (localY < 0) localY += VoxelChunk::SIZE;
+    if (localZ < 0) localZ += VoxelChunk::SIZE;
+    
+    return itChunk->second->getBlockType(localX, localY, localZ);
 }
 
 void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks)

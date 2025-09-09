@@ -84,6 +84,11 @@ private:
     glm::mat4 m_lightVPs[4];
     float m_cascadeSplits[4] = { 333.0f, 666.0f, 1000.0f, 1000.0f };
 
+    // Texture IDs for different block types
+    unsigned int m_dirtTextureID = 0;
+    unsigned int m_stoneTextureID = 0;
+    unsigned int m_grassTextureID = 0;
+
     // Depth-only shader for shadow map pass
     unsigned int m_depthProgram = 0;
     int m_depth_uLightVP = -1;

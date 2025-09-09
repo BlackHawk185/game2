@@ -98,7 +98,7 @@ bool VoxelRenderer::initialize() {
     }
     
     // Load dirt texture
-    m_dirtTexture = loadTexture("textures/dirt.png");
+    m_dirtTexture = loadTexture("assets/textures/dirt.png");
     if (m_dirtTexture.textureId == 0) {
         std::cerr << "VoxelRenderer: Failed to load dirt.png texture" << std::endl;
         return false;

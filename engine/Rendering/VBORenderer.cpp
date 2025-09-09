@@ -78,10 +78,10 @@ bool VBORenderer::initialize()
     // Locate and load dirt texture from common project-relative paths
     auto findTexturePath = [](const std::string& name) -> std::string {
         const char* candidates[] = {
-            "textures/",            // run from project root
-            "../textures/",         // run from build/bin
-            "../../textures/",      // alternative build layout
-            "../../../textures/"     // deeper nesting
+            "assets/textures/",            // run from project root
+            "../assets/textures/",         // run from build/bin
+            "../../assets/textures/",      // alternative build layout
+            "../../../assets/textures/"    // deeper nesting
         };
         for (const auto& dir : candidates) {
             std::filesystem::path p = std::filesystem::path(dir) / name;
@@ -90,7 +90,7 @@ bool VBORenderer::initialize()
             }
         }
         // Fallback to original absolute path if present
-        std::filesystem::path fallback("C:/Users/steve-17/Desktop/game2/textures/");
+        std::filesystem::path fallback("C:/Users/steve-17/Desktop/game2/assets/textures/");
         fallback /= name;
         if (std::filesystem::exists(fallback)) {
             return fallback.string();
@@ -99,15 +99,39 @@ bool VBORenderer::initialize()
     };
 
     std::string dirtPath = findTexturePath("dirt.png");
-    GLuint grassTexture = 0;
+    m_dirtTextureID = 0;
     if (!dirtPath.empty()) {
-        grassTexture = g_textureManager->loadTexture(dirtPath, false, true);
+        m_dirtTextureID = g_textureManager->loadTexture(dirtPath, false, true);
     }
-    if (grassTexture == 0) {
+    if (m_dirtTextureID == 0) {
         std::cout << "ERROR: Could not load dirt.png texture!" << std::endl;
         return false;
     } else {
-        std::cout << "Loaded dirt texture (ID: " << grassTexture << ") from '" << dirtPath << "'" << std::endl;
+        std::cout << "Loaded dirt texture (ID: " << m_dirtTextureID << ") from '" << dirtPath << "'" << std::endl;
+    }
+
+    std::string stonePath = findTexturePath("stone.png");
+    m_stoneTextureID = 0;
+    if (!stonePath.empty()) {
+        m_stoneTextureID = g_textureManager->loadTexture(stonePath, false, true);
+    }
+    if (m_stoneTextureID == 0) {
+        std::cout << "ERROR: Could not load stone.png texture!" << std::endl;
+        return false;
+    } else {
+        std::cout << "Loaded stone texture (ID: " << m_stoneTextureID << ") from '" << stonePath << "'" << std::endl;
+    }
+
+    std::string grassPath = findTexturePath("grass.png");
+    m_grassTextureID = 0;
+    if (!grassPath.empty()) {
+        m_grassTextureID = g_textureManager->loadTexture(grassPath, false, true);
+    }
+    if (m_grassTextureID == 0) {
+        std::cout << "WARNING: Could not load grass.png texture, using dirt as fallback" << std::endl;
+        m_grassTextureID = m_dirtTextureID; // Fallback to dirt texture
+    } else {
+        std::cout << "Loaded grass texture (ID: " << m_grassTextureID << ") from '" << grassPath << "'" << std::endl;
     }
 
     m_initialized = true;
@@ -165,7 +189,7 @@ void VBORenderer::setupVAO(VoxelChunk* chunk)
     glBindBuffer(GL_ARRAY_BUFFER, mesh.VBO);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.EBO);
     
-    // Setup vertex attributes: position(3) + normal(3) + texcoord(2)
+    // Setup vertex attributes: position(3) + normal(3) + texcoord(2) + lightmap(2) + ao(1) + faceIndex(1) + blockType(1)
 
     // Position attribute (location 0)
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
@@ -178,10 +202,22 @@ void VBORenderer::setupVAO(VoxelChunk* chunk)
     // Normal attribute (location 2) - matches shader
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(2);
-    // Disable unused attributes (3,4,5)
-    glDisableVertexAttribArray(3);
-    glDisableVertexAttribArray(4);
-    glDisableVertexAttribArray(5);
+    
+    // Light map coordinates (location 3)
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(8 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+    
+    // Ambient occlusion (location 4)
+    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(10 * sizeof(float)));
+    glEnableVertexAttribArray(4);
+    
+    // Face index (location 5)
+    glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(11 * sizeof(float)));
+    glEnableVertexAttribArray(5);
+    
+    // Block type (location 6)
+    glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(12 * sizeof(float)));
+    glEnableVertexAttribArray(6);
 
     // Important: unbind VAO so subsequent buffer unbinds don't alter VAO state
     glBindVertexArray(0);
@@ -348,13 +384,21 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
         m_shader.setInt("uShadowMaps[2]", 9);
     }
 
-    // Albedo texture
-    GLuint tex = g_textureManager->getTexture("dirt.png");
-    if (tex != 0) {
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex);
-        m_shader.setInt("uTexture", 0);
-    }
+    // Bind all block textures to different texture units
+    // Dirt texture (texture unit 0)
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_dirtTextureID);
+    m_shader.setInt("uTexture", 0);
+    
+    // Stone texture (texture unit 1)
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_stoneTextureID);
+    m_shader.setInt("uStoneTexture", 1);
+    
+    // Grass texture (texture unit 2)
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, m_grassTextureID);
+    m_shader.setInt("uGrassTexture", 2);
 
     glBindVertexArray(mesh.VAO);
     glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, 0);

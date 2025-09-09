@@ -1,5 +1,6 @@
 // VoxelChunk.cpp - 32x32x32 dynamic physics-enabled voxel chunks
 #include "VoxelChunk.h"
+#include "BlockType.h"
 
 #include "../Rendering/VBORenderer.h"
 #include "../Time/DayNightCycle.h"  // For dynamic sun direction
@@ -62,6 +63,30 @@ void VoxelChunk::setVoxel(int x, int y, int z, uint8_t type)
     meshDirty = true;
     lightingDirty = true;  // NEW: Mark lighting as needing update when voxels change
     collisionMesh.needsUpdate = true;
+}
+
+// String-based block type methods
+std::string VoxelChunk::getBlockType(int x, int y, int z) const
+{
+    uint8_t legacyID = getVoxel(x, y, z);
+    const BlockTypeInfo* blockInfo = BlockTypeRegistry::getInstance().getBlockTypeByLegacyID(legacyID);
+    return blockInfo ? blockInfo->name : "air";
+}
+
+void VoxelChunk::setBlockType(int x, int y, int z, const std::string& blockType)
+{
+    const BlockTypeInfo* blockInfo = BlockTypeRegistry::getInstance().getBlockType(blockType);
+    if (blockInfo) {
+        setVoxel(x, y, z, blockInfo->legacyID);
+    } else {
+        std::cout << "Warning: Unknown block type '" << blockType << "', defaulting to air" << std::endl;
+        setVoxel(x, y, z, 0); // Default to air
+    }
+}
+
+bool VoxelChunk::hasBlockType(int x, int y, int z, const std::string& blockType) const
+{
+    return getBlockType(x, y, z) == blockType;
 }
 
 void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
@@ -523,7 +548,7 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
 
                             if (distance < rLocal)
                                 {
-                                    setVoxel(x, y, z, 1);  // Simple solid block
+                                    setVoxel(x, y, z, getBlockLegacyID("stone"));  // Stone block for legacy island generation
                                 }
                         }
                     }
@@ -587,7 +612,7 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
 
                     if (distance < rLocal)
                         {
-                            setVoxel(x, y, z, 1);  // Simple solid block
+                            setVoxel(x, y, z, getBlockLegacyID("stone"));  // Stone block for legacy island generation
                         }
                 }
             }
@@ -1352,6 +1377,7 @@ void VoxelChunk::addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32
         vertex.lv = lightMapCoords[i][1];
         vertex.ao = computeAmbientOcclusion(x, y, z, direction);
         vertex.faceIndex = static_cast<float>(direction);  // Store face index for shader
+        vertex.blockType = static_cast<float>(blockType);  // Store block type for texture selection
         
         vertices.push_back(vertex);
     }
