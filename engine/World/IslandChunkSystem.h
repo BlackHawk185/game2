@@ -95,9 +95,9 @@ class IslandChunkSystem
     // Uses island-relative coordinates - automatically creates chunks on grid-aligned boundaries
     void setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType);
     
-    // String-based block type methods
-    void setBlockTypeWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, const std::string& blockType);
-    std::string getBlockTypeInIsland(uint32_t islandID, const Vec3& islandRelativePosition) const;
+    // ID-based block methods (clean and efficient)
+    void setBlockIDWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t blockID);
+    uint8_t getBlockIDInIsland(uint32_t islandID, const Vec3& islandRelativePosition) const;
 
     // Physics integration
     void updateIslandPhysics(float deltaTime);

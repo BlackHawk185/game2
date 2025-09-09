@@ -65,30 +65,6 @@ void VoxelChunk::setVoxel(int x, int y, int z, uint8_t type)
     collisionMesh.needsUpdate = true;
 }
 
-// String-based block type methods
-std::string VoxelChunk::getBlockType(int x, int y, int z) const
-{
-    uint8_t legacyID = getVoxel(x, y, z);
-    const BlockTypeInfo* blockInfo = BlockTypeRegistry::getInstance().getBlockTypeByLegacyID(legacyID);
-    return blockInfo ? blockInfo->name : "air";
-}
-
-void VoxelChunk::setBlockType(int x, int y, int z, const std::string& blockType)
-{
-    const BlockTypeInfo* blockInfo = BlockTypeRegistry::getInstance().getBlockType(blockType);
-    if (blockInfo) {
-        setVoxel(x, y, z, blockInfo->legacyID);
-    } else {
-        std::cout << "Warning: Unknown block type '" << blockType << "', defaulting to air" << std::endl;
-        setVoxel(x, y, z, 0); // Default to air
-    }
-}
-
-bool VoxelChunk::hasBlockType(int x, int y, int z, const std::string& blockType) const
-{
-    return getBlockType(x, y, z) == blockType;
-}
-
 void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
 {
     if (size != VOLUME)
@@ -548,7 +524,7 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
 
                             if (distance < rLocal)
                                 {
-                                    setVoxel(x, y, z, getBlockLegacyID("stone"));  // Stone block for legacy island generation
+                                    setVoxel(x, y, z, BlockID::STONE);  // Stone block for legacy island generation
                                 }
                         }
                     }
@@ -612,7 +588,7 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
 
                     if (distance < rLocal)
                         {
-                            setVoxel(x, y, z, getBlockLegacyID("stone"));  // Stone block for legacy island generation
+                            setVoxel(x, y, z, BlockID::STONE);  // Stone block for legacy island generation
                         }
                 }
             }

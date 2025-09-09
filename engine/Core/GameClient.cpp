@@ -564,11 +564,11 @@ void GameClient::processBlockInteraction(float deltaTime)
                     m_networkManager->getClient()->isConnected())
                 {
                     m_networkManager->getClient()->sendVoxelChangeRequest(
-                        m_inputState.cachedTargetBlock.islandID, placePos, getBlockLegacyID("stone"));
+                        m_inputState.cachedTargetBlock.islandID, placePos, BlockID::STONE);
                 }
 
                 // Apply optimistically for immediate visual feedback
-                m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, getBlockLegacyID("stone"));
+                m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, BlockID::STONE);
 
                 // Clear the cached target block to refresh the selection
                 m_inputState.cachedTargetBlock = RayHit();

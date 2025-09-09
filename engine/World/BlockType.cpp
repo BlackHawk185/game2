@@ -1,52 +1,51 @@
-// BlockType.cpp - Implementation of string-based block type system
+// BlockType.cpp - Implementation of ID-based block type system
 #include "BlockType.h"
 #include <iostream>
 
-void BlockTypeRegistry::registerBlockType(const std::string& name, BlockRenderType renderType, const std::string& assetPath, uint8_t legacyID) {
-    m_blockTypes.emplace(name, BlockTypeInfo(name, renderType, assetPath, legacyID));
-    if (legacyID != 0) {
-        m_legacyIDMap[legacyID] = name;
+const std::string BlockTypeRegistry::UNKNOWN_BLOCK_NAME = "unknown";
+
+void BlockTypeRegistry::registerBlockType(uint8_t id, const std::string& name, BlockRenderType renderType, const std::string& assetPath) {
+    // Ensure we have enough space in the vector
+    if (id >= m_blockTypes.size()) {
+        m_blockTypes.resize(id + 1, BlockTypeInfo(0, "", BlockRenderType::VOXEL));
     }
-    std::cout << "Registered block type: " << name << " (legacy ID: " << (int)legacyID << ")" << std::endl;
+    
+    m_blockTypes[id] = BlockTypeInfo(id, name, renderType, assetPath);
+    std::cout << "Registered block type: " << name << " (ID: " << (int)id << ")" << std::endl;
 }
 
-const BlockTypeInfo* BlockTypeRegistry::getBlockType(const std::string& name) const {
-    auto it = m_blockTypes.find(name);
-    return (it != m_blockTypes.end()) ? &it->second : nullptr;
-}
-
-const BlockTypeInfo* BlockTypeRegistry::getBlockTypeByLegacyID(uint8_t id) const {
-    auto it = m_legacyIDMap.find(id);
-    if (it != m_legacyIDMap.end()) {
-        return getBlockType(it->second);
+const BlockTypeInfo* BlockTypeRegistry::getBlockType(uint8_t id) const {
+    if (id < m_blockTypes.size() && !m_blockTypes[id].name.empty()) {
+        return &m_blockTypes[id];
     }
     return nullptr;
 }
 
-bool BlockTypeRegistry::hasBlockType(const std::string& name) const {
-    return m_blockTypes.find(name) != m_blockTypes.end();
+const std::string& BlockTypeRegistry::getBlockName(uint8_t id) const {
+    if (id < m_blockTypes.size() && !m_blockTypes[id].name.empty()) {
+        return m_blockTypes[id].name;
+    }
+    return UNKNOWN_BLOCK_NAME;
 }
 
-uint8_t BlockTypeRegistry::getLegacyID(const std::string& name) const {
-    auto it = m_blockTypes.find(name);
-    return (it != m_blockTypes.end()) ? it->second.legacyID : 0;
+bool BlockTypeRegistry::hasBlockType(uint8_t id) const {
+    return id < m_blockTypes.size() && !m_blockTypes[id].name.empty();
 }
 
 BlockTypeRegistry::BlockTypeRegistry() {
+    m_blockTypes.reserve(BlockID::MAX_BLOCK_TYPES);
     initializeDefaultBlocks();
 }
 
 void BlockTypeRegistry::initializeDefaultBlocks() {
-    // Register default block types
-    registerBlockType("air", BlockRenderType::VOXEL, "", 0);
-    registerBlockType("stone", BlockRenderType::VOXEL, "", 1);
-    registerBlockType("dirt", BlockRenderType::VOXEL, "", 2);
-    registerBlockType("grass", BlockRenderType::VOXEL, "", 3);
-    
-    // Example OBJ block types (you can add OBJ files to assets/models/)
-    registerBlockType("tree", BlockRenderType::OBJ, "assets/models/tree.obj", 10);
-    registerBlockType("lamp", BlockRenderType::OBJ, "assets/models/lamp.obj", 11);
-    registerBlockType("rock", BlockRenderType::OBJ, "assets/models/rock.obj", 12);
+    // Register default block types using the new ID-based system
+    registerBlockType(BlockID::AIR, "air", BlockRenderType::VOXEL);
+    registerBlockType(BlockID::STONE, "stone", BlockRenderType::VOXEL);
+    registerBlockType(BlockID::DIRT, "dirt", BlockRenderType::VOXEL);
+    registerBlockType(BlockID::GRASS, "grass", BlockRenderType::VOXEL);
+    registerBlockType(BlockID::TREE, "tree", BlockRenderType::OBJ, "assets/models/tree.obj");
+    registerBlockType(BlockID::LAMP, "lamp", BlockRenderType::OBJ, "assets/models/lamp.obj");
+    registerBlockType(BlockID::ROCK, "rock", BlockRenderType::OBJ, "assets/models/rock.obj");
     
     std::cout << "BlockTypeRegistry initialized with " << m_blockTypes.size() << " block types" << std::endl;
 }

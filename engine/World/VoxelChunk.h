@@ -88,14 +88,14 @@ class VoxelChunk
     VoxelChunk();
     ~VoxelChunk();
 
-    // Voxel data access
+    // Voxel data access (ID-based - clean and efficient)
     uint8_t getVoxel(int x, int y, int z) const;
     void setVoxel(int x, int y, int z, uint8_t type);
     
-    // String-based block type access
-    std::string getBlockType(int x, int y, int z) const;
-    void setBlockType(int x, int y, int z, const std::string& blockType);
-    bool hasBlockType(int x, int y, int z, const std::string& blockType) const;
+    // Block type access using IDs (for debugging only)
+    uint8_t getBlockID(int x, int y, int z) const { return getVoxel(x, y, z); }
+    void setBlockID(int x, int y, int z, uint8_t blockID) { setVoxel(x, y, z, blockID); }
+    bool hasBlockID(int x, int y, int z, uint8_t blockID) const { return getVoxel(x, y, z) == blockID; }
 
     // Network serialization - get raw voxel data for transmission
     const uint8_t* getRawVoxelData() const

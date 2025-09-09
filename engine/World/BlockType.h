@@ -1,9 +1,22 @@
-// BlockType.h - String-based block type system with compile-time registration
+// BlockType.h - ID-based block type system
 #pragma once
 
 #include <string>
-#include <unordered_map>
+#include <vector>
 #include <cstdint>
+
+// Block type IDs - simple, efficient, and network-friendly
+namespace BlockID {
+    constexpr uint8_t AIR = 0;
+    constexpr uint8_t STONE = 1;
+    constexpr uint8_t DIRT = 2;
+    constexpr uint8_t GRASS = 3;
+    constexpr uint8_t TREE = 10;
+    constexpr uint8_t LAMP = 11;
+    constexpr uint8_t ROCK = 12;
+    
+    constexpr uint8_t MAX_BLOCK_TYPES = 255;
+}
 
 enum class BlockRenderType {
     VOXEL,    // Traditional meshed voxel blocks
@@ -11,13 +24,13 @@ enum class BlockRenderType {
 };
 
 struct BlockTypeInfo {
-    std::string name;
+    uint8_t id;
+    std::string name;           // For debugging/display only
     BlockRenderType renderType;
-    std::string assetPath;  // For OBJ blocks, path to the model file
-    uint8_t legacyID;       // For compatibility with existing numeric system
+    std::string assetPath;      // For OBJ blocks, path to the model file
     
-    BlockTypeInfo(const std::string& blockName, BlockRenderType type, const std::string& asset = "", uint8_t id = 0)
-        : name(blockName), renderType(type), assetPath(asset), legacyID(id) {}
+    BlockTypeInfo(uint8_t blockID, const std::string& blockName, BlockRenderType type, const std::string& asset = "")
+        : id(blockID), name(blockName), renderType(type), assetPath(asset) {}
 };
 
 class BlockTypeRegistry {
@@ -28,41 +41,26 @@ public:
     }
     
     // Register a new block type
-    void registerBlockType(const std::string& name, BlockRenderType renderType, const std::string& assetPath = "", uint8_t legacyID = 0);
+    void registerBlockType(uint8_t id, const std::string& name, BlockRenderType renderType, const std::string& assetPath = "");
     
-    // Get block type info by name
-    const BlockTypeInfo* getBlockType(const std::string& name) const;
+    // Get block type info by ID (primary method)
+    const BlockTypeInfo* getBlockType(uint8_t id) const;
     
-    // Get block type info by legacy ID (for backward compatibility)
-    const BlockTypeInfo* getBlockTypeByLegacyID(uint8_t id) const;
-    
-    // Get legacy ID by block name (for network compatibility)
-    uint8_t getLegacyID(const std::string& name) const;
+    // Get block name for debugging (should rarely be used)
+    const std::string& getBlockName(uint8_t id) const;
     
     // Check if a block type exists
-    bool hasBlockType(const std::string& name) const;
+    bool hasBlockType(uint8_t id) const;
     
     // Get all registered block types
-    const std::unordered_map<std::string, BlockTypeInfo>& getAllBlockTypes() const { return m_blockTypes; }
+    const std::vector<BlockTypeInfo>& getAllBlockTypes() const { return m_blockTypes; }
 
 private:
     BlockTypeRegistry();
-    std::unordered_map<std::string, BlockTypeInfo> m_blockTypes;
-    std::unordered_map<uint8_t, std::string> m_legacyIDMap;
-    
-    // Initialize default block types
     void initializeDefaultBlocks();
+    
+    std::vector<BlockTypeInfo> m_blockTypes;  // Simple array indexed by block ID
+    static const std::string UNKNOWN_BLOCK_NAME;
 };
 
-// Convenience functions
-inline const BlockTypeInfo* getBlockType(const std::string& name) {
-    return BlockTypeRegistry::getInstance().getBlockType(name);
-}
 
-inline bool isValidBlockType(const std::string& name) {
-    return BlockTypeRegistry::getInstance().hasBlockType(name);
-}
-
-inline uint8_t getBlockLegacyID(const std::string& name) {
-    return BlockTypeRegistry::getInstance().getLegacyID(name);
-}
