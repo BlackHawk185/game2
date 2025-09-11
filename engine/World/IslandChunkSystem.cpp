@@ -350,6 +350,14 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                     }
                     
                     setBlockIDWithAutoChunk(islandID, islandRelativePos, blockID);
+                    // Occasionally place decorative grass above dirt
+                    if (blockID == BlockID::DIRT) {
+                        // Only place if above within island bounds and with low probability
+                        if ((std::rand() % 100) < 3) { // ~3%
+                            Vec3 above = islandRelativePos + Vec3(0, 1, 0);
+                            setBlockIDWithAutoChunk(islandID, above, BlockID::DECOR_GRASS);
+                        }
+                    }
                     
                     voxelsGenerated++;
                     

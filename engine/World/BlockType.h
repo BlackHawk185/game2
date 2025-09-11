@@ -11,6 +11,8 @@ namespace BlockID {
     constexpr uint8_t STONE = 1;
     constexpr uint8_t DIRT = 2;
     constexpr uint8_t GRASS = 3;
+    // Decorative grass tuft model (instanced, non-voxel meshing)
+    constexpr uint8_t DECOR_GRASS = 13;
     constexpr uint8_t TREE = 10;
     constexpr uint8_t LAMP = 11;
     constexpr uint8_t ROCK = 12;

@@ -17,6 +17,7 @@
 #include "../Rendering/Renderer.h"
 #include "../Core/Window.h"
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED
+#include "../Rendering/ModelInstanceRenderer.h"
 #include "../Rendering/ShadowMap.h"
 #include "../Rendering/GlobalLightingManager.h"  // NEW: Global lighting system
 #include "../Physics/FluidSystem.h"
@@ -210,6 +211,12 @@ bool GameClient::update(float deltaTime)
         }
     }
 
+    // Update model instancing time (wind animation)
+    if (g_modelRenderer)
+    {
+        g_modelRenderer->update(deltaTime);
+    }
+
     // Process input
     {
         PROFILE_SCOPE("processInput");
@@ -254,6 +261,14 @@ void GameClient::shutdown()
         delete g_vboRenderer;
         g_vboRenderer = nullptr;
         std::cout << "VBO renderer shutdown" << std::endl;
+    }
+
+    // Cleanup model instance renderer
+    if (g_modelRenderer)
+    {
+        g_modelRenderer->shutdown();
+        delete g_modelRenderer;
+        g_modelRenderer = nullptr;
     }
 
     // Cleanup window
@@ -384,6 +399,21 @@ bool GameClient::initializeGraphics()
         return false;
     }
     std::cout << "VBO renderer initialized successfully" << std::endl;
+
+    // Initialize model instancing renderer (decorative GLB like grass)
+    g_modelRenderer = new ModelInstanceRenderer();
+    if (!g_modelRenderer->initialize())
+    {
+        std::cerr << "Failed to initialize ModelInstanceRenderer!" << std::endl;
+        delete g_modelRenderer;
+        g_modelRenderer = nullptr;
+        return false;
+    }
+    // Load grass model asset
+    if (!g_modelRenderer->loadGrassModel("assets/models/grass.glb"))
+    {
+        std::cerr << "Warning: could not load assets/models/grass.glb. Grass will not render." << std::endl;
+    }
 
     // Initialize ImGui
     IMGUI_CHECKVERSION();
@@ -609,6 +639,25 @@ void GameClient::renderWorld()
             // This is done inside renderChunk to avoid extra API here.
         }
         m_gameState->getIslandSystem()->renderAllIslands();
+        // Render decorative grass instances per chunk
+        if (g_modelRenderer)
+        {
+            std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
+            m_gameState->getIslandSystem()->getAllChunksWithWorldPos(snapshot);
+            float aspect = (float) m_windowWidth / (float) m_windowHeight;
+            float fov = 45.0f;
+            glm::mat4 projectionMatrix = glm::perspective(fov * 3.14159265358979323846f / 180.0f, aspect, 0.1f, 1000.0f);
+            glm::mat4 viewMatrix = m_camera.getViewMatrix();
+            // Provide cascade data
+            if (g_vboRenderer)
+            {
+                // Pull light dir & splits from renderer state not exposed; set reasonable defaults here
+            }
+            for (auto& p : snapshot)
+            {
+                g_modelRenderer->renderGrassChunk(p.first, p.second, viewMatrix, projectionMatrix);
+            }
+        }
     }
 
     // Render fluid particles
@@ -669,6 +718,9 @@ void GameClient::renderShadowPass()
     if (g_vboRenderer) {
         g_vboRenderer->setLightDir(lightDir);
     }
+    if (g_modelRenderer) {
+        g_modelRenderer->setLightDir(lightDir);
+    }
     auto* islandSystem = m_gameState->getIslandSystem();
     std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
     if (islandSystem) islandSystem->getAllChunksWithWorldPos(snapshot);
@@ -676,6 +728,10 @@ void GameClient::renderShadowPass()
     if (g_vboRenderer) {
         g_vboRenderer->setCascadeCount(C);
         g_vboRenderer->setCascadeSplits(splits, C);
+    }
+    if (g_modelRenderer) {
+        g_modelRenderer->setCascadeCount(C);
+        g_modelRenderer->setCascadeSplits(splits, C);
     }
     for (int ci = 0; ci < C; ++ci) {
         float ortho = orthoRanges[ci];
@@ -701,6 +757,17 @@ void GameClient::renderShadowPass()
                 g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
             }
             g_vboRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
+        }
+        // Also render grass into the shadow map for this cascade
+        if (g_modelRenderer)
+        {
+            g_modelRenderer->setCascadeMatrix(ci, lightVP);
+            g_modelRenderer->beginDepthPassCascade(ci, lightVP);
+            for (auto& p : snapshot)
+            {
+                g_modelRenderer->renderDepthGrassChunk(p.first, p.second);
+            }
+            g_modelRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
         }
     }
     // Forward pass will read cascade data set on renderer

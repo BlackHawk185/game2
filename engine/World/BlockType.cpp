@@ -43,6 +43,8 @@ void BlockTypeRegistry::initializeDefaultBlocks() {
     registerBlockType(BlockID::STONE, "stone", BlockRenderType::VOXEL);
     registerBlockType(BlockID::DIRT, "dirt", BlockRenderType::VOXEL);
     registerBlockType(BlockID::GRASS, "grass", BlockRenderType::VOXEL);
+    // Decorative instanced grass from GLB (treated as model, not meshed)
+    registerBlockType(BlockID::DECOR_GRASS, "decor_grass", BlockRenderType::OBJ, "assets/models/grass.glb");
     registerBlockType(BlockID::TREE, "tree", BlockRenderType::OBJ, "assets/models/tree.obj");
     registerBlockType(BlockID::LAMP, "lamp", BlockRenderType::OBJ, "assets/models/lamp.obj");
     registerBlockType(BlockID::ROCK, "rock", BlockRenderType::OBJ, "assets/models/rock.obj");

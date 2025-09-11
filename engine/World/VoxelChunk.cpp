@@ -155,7 +155,11 @@ bool VoxelChunk::shouldRenderFace(int x, int y, int z, int faceDir) const
 
 bool VoxelChunk::isVoxelSolid(int x, int y, int z) const
 {
-    return getVoxel(x, y, z) != 0;
+    uint8_t v = getVoxel(x, y, z);
+    if (v == 0) return false;
+    // Treat decorative instanced grass as non-solid for meshing/collision
+    if (v == BlockID::DECOR_GRASS) return false;
+    return true;
 }
 
 void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, float x,
@@ -245,6 +249,20 @@ void VoxelChunk::generateMesh()
     mesh.vertices.clear();
     mesh.indices.clear();
     collisionMeshVertices.clear();
+    grassInstancePositions.clear();
+
+    // Pre-scan for decorative grass blocks to create instance anchors (and ensure they are not meshed)
+    for (int z = 0; z < SIZE; ++z) {
+        for (int y = 0; y < SIZE; ++y) {
+            for (int x = 0; x < SIZE; ++x) {
+                uint8_t v = getVoxel(x, y, z);
+                if (v == BlockID::DECOR_GRASS) {
+                    // Anchor at voxel center
+                    grassInstancePositions.emplace_back((float)x + 0.5f, (float)y, (float)z + 0.5f);
+                }
+            }
+        }
+    }
 
     // Use greedy meshing for optimal performance
     generateGreedyMesh();

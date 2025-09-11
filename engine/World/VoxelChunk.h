@@ -133,6 +133,10 @@ class VoxelChunk
     VoxelMesh& getMesh() { return mesh; }
     const VoxelMesh& getMesh() const { return mesh; }
     std::mutex& getMeshMutex() const { return meshMutex; }
+
+    // Decorative/model instance positions (e.g., instanced grass)
+    const std::vector<Vec3>& getGrassInstancePositions() const { return grassInstancePositions; }
+    void clearGrassInstances() { grassInstancePositions.clear(); }
     
     // Light mapping access
     ChunkLightMaps& getLightMaps() { return lightMaps; }
@@ -166,6 +170,9 @@ class VoxelChunk
     ChunkLightMaps lightMaps;  // NEW: Per-face light mapping data
     bool meshDirty = true;
     bool lightingDirty = true;  // NEW: Lighting needs recalculation
+
+    // Cached instance anchors for DECOR_GRASS blocks within this chunk
+    std::vector<Vec3> grassInstancePositions;
 
     // **FACE CULLING OPTIMIZATION HELPER**
     bool shouldRenderFace(int x, int y, int z, int faceDir) const;

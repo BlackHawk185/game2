@@ -26,6 +26,8 @@ add_library(engine STATIC
     Rendering/GlobalLightingManager.cpp  # NEW: Global lighting system
     Rendering/ShadowMap.cpp
     Rendering/CascadedShadowMap.cpp
+    Rendering/ModelInstanceRenderer.cpp
+    Assets/GLBLoader.cpp
     
     # Input systems
     Input/Camera.cpp
@@ -75,6 +77,7 @@ target_precompile_headers(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/pch.h")
 target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/libs/imgui
+    ${CMAKE_SOURCE_DIR}/libs/tinygltf
 )
 
 target_compile_features(engine PUBLIC cxx_std_17)
