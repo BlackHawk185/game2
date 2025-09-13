@@ -129,7 +129,10 @@ void main()
         vec4 texColor;
         int blockID = int(BlockType + 0.5); // Round to nearest integer
         
-        if (blockID == 1) {
+        if (blockID == 13) {
+            // Decorative grass placeholder: fully transparent (no voxel draw)
+            discard;
+        } else if (blockID == 1) {
             // Stone blocks
             texColor = texture(uStoneTexture, TexCoord);
         } else if (blockID == 2) {

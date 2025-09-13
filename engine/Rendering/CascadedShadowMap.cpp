@@ -80,5 +80,8 @@ void CascadedShadowMap::endCascade(int screenWidth, int screenHeight)
 {
     glDisable(GL_POLYGON_OFFSET_FILL);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // Restore default framebuffer draw/read buffers to avoid accidental color suppression
+    glDrawBuffer(GL_BACK);
+    glReadBuffer(GL_BACK);
     glViewport(0, 0, screenWidth, screenHeight);
 }

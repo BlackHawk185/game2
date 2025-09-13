@@ -86,6 +86,8 @@ private:
     // GPU model
     ModelGPU m_grassModel;
     std::string m_grassPath;
+    GLuint m_albedoTex = 0;       // GLB baseColor texture if available
+    GLuint m_engineGrassTex = 0;  // Engine grass.png texture (preferred)
 
     // Instance buffers per chunk
     std::unordered_map<VoxelChunk*, ChunkInstanceBuffer> m_chunkInstances;

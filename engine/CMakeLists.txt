@@ -78,6 +78,8 @@ target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/libs/imgui
     ${CMAKE_SOURCE_DIR}/libs/tinygltf
+    ${CMAKE_SOURCE_DIR}/libs/stb
+    ${CMAKE_SOURCE_DIR}/libs/bimg/3rdparty/stb
 )
 
 target_compile_features(engine PUBLIC cxx_std_17)

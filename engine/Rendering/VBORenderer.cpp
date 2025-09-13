@@ -350,7 +350,17 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     const VoxelMesh& mesh = chunk->getMesh();
     if (mesh.vertices.empty() || mesh.indices.empty() || mesh.VAO == 0) return;
 
+    // Ensure sane fixed-function state for color rendering
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDrawBuffer(GL_BACK);
+    glReadBuffer(GL_BACK);
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
     m_shader.use();
+    // Ensure vertex shader uses uModel path (not uninitialized UBO transforms)
+    m_shader.setChunkIndex(-1);
 
     glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
     m_shader.setMatrix4("uModel", modelMatrix);

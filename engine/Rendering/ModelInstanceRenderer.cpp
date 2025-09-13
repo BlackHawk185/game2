@@ -2,10 +2,13 @@
 #include "../Assets/GLBLoader.h"
 #include "CascadedShadowMap.h"
 #include <glad/gl.h>
+#include "TextureManager.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include <filesystem>
 #include <iostream>
 #include <cmath>
 #include <cstdio>
+#include <tiny_gltf.h>
 
 ModelInstanceRenderer* g_modelRenderer = nullptr;
 
@@ -24,23 +27,20 @@ uniform mat4 uLightVP[4];
 uniform int  uCascadeCount;
 uniform float uTime;
 
-out vec2 vUV;
+out vec2 vUV;   
 out vec3 vNormalWS;
 out vec3 vWorldPos;
 out vec4 vLightSpacePos[4];
 out float vViewZ;
 
 void main(){
-    // Simple wind sway: horizontal offset proportional to vertex local height (y)
-    float height = max(aPos.y, 0.0);
-    float swayAmp = 0.08 * clamp(height, 0.0, 1.0);
-    float phi = uTime * 1.7 + aInstance.w + (aInstance.x * 0.2) + (aInstance.z * 0.2);
-    vec3 windOffset = vec3(sin(phi), 0.0, cos(phi)) * swayAmp;
-
-    vec4 world = uModel * vec4(aPos + aInstance.xyz + windOffset, 1.0);
+    // DEBUG: No instancing test - render single grass at origin
+    vec3 windOffset = vec3(0.0);
+    
+    vec4 world = uModel * vec4(aPos + windOffset, 1.0);
     gl_Position = uProjection * uView * world;
     vUV = aUV;
-    vNormalWS = mat3(uModel) * aNormal; // model has only translation; OK
+    vNormalWS = mat3(uModel) * aNormal;
     vWorldPos = world.xyz;
     for (int i=0;i<uCascadeCount;i++) {
         vLightSpacePos[i] = uLightVP[i] * world;
@@ -62,6 +62,7 @@ uniform int uCascadeCount;
 uniform float uCascadeSplits[4];
 uniform float uShadowTexel[4];
 uniform vec3 uLightDir;
+uniform sampler2D uGrassTexture; // engine grass texture with alpha
 
 out vec4 FragColor;
 
@@ -104,8 +105,10 @@ void main(){
     float bias = 0.0015;
     float visibility = sampleCascadePCF(idx, bias);
 
-    vec3 baseColor = vec3(0.35, 0.55, 0.25);
-    vec3 lit = baseColor * (0.2 + 0.8 * NdotL * visibility);
+    vec4 albedo = texture(uGrassTexture, vUV);
+    // Alpha cutout
+    if (albedo.a < 0.3) discard;
+    vec3 lit = albedo.rgb * (0.2 + 0.8 * NdotL * visibility);
     FragColor = vec4(lit, 1.0);
 }
 )GLSL";
@@ -121,12 +124,13 @@ uniform mat4 uModel; // chunk/world offset
 uniform mat4 uLightVP;
 uniform float uTime;
 
+out vec2 vUV;
+
 void main(){
-    float height = max(aPos.y, 0.0);
-    float swayAmp = 0.08 * clamp(height, 0.0, 1.0);
-    float phi = uTime * 1.7 + aInstance.w + (aInstance.x * 0.2) + (aInstance.z * 0.2);
-    vec3 windOffset = vec3(sin(phi), 0.0, cos(phi)) * swayAmp;
+    // Wind sway disabled for debugging
+    vec3 windOffset = vec3(0.0);
     vec4 world = uModel * vec4(aPos + aInstance.xyz + windOffset, 1.0);
+    vUV = aUV;
     gl_Position = uLightVP * world;
 }
 )GLSL";
@@ -172,9 +176,11 @@ bool ModelInstanceRenderer::ensureShaders() {
     if (!m_program) return false;
 
     GLuint dvs = Compile(GL_VERTEX_SHADER, kDepthVS);
-    if (!dvs) return false;
-    m_depthProgram = Link(dvs, 0);
-    glDeleteShader(dvs);
+    const char* kDepthFS = "#version 460 core\n in vec2 vUV; uniform sampler2D uCutout; void main(){ if(texture(uCutout, vUV).a < 0.3) discard; }";
+    GLuint dfs = Compile(GL_FRAGMENT_SHADER, kDepthFS);
+    if (!dvs || !dfs) return false;
+    m_depthProgram = Link(dvs, dfs);
+    glDeleteShader(dvs); glDeleteShader(dfs);
     if (!m_depthProgram) return false;
 
     // Cache uniforms
@@ -228,33 +234,89 @@ bool ModelInstanceRenderer::loadGrassModel(const std::string& path) {
     }
     if (!ok) return false;
 
-    // Build GPU
     m_grassModel.primitives.clear();
-    for (auto& cp : cpu.primitives) {
+    for (auto& cpuPrim : cpu.primitives) {
         ModelPrimitiveGPU gp;
         glGenVertexArrays(1, &gp.vao);
         glBindVertexArray(gp.vao);
         glGenBuffers(1, &gp.vbo);
         glBindBuffer(GL_ARRAY_BUFFER, gp.vbo);
-        glBufferData(GL_ARRAY_BUFFER, cp.interleaved.size()*sizeof(float), cp.interleaved.data(), GL_STATIC_DRAW);
-        glGenBuffers(1, &gp.ebo);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gp.ebo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, cp.indices.size()*sizeof(unsigned int), cp.indices.data(), GL_STATIC_DRAW);
-        // Vertex attribs: pos(0), normal(1), uv(2)
-        GLsizei stride = sizeof(float)*8;
+        glBufferData(GL_ARRAY_BUFFER, cpuPrim.interleaved.size() * sizeof(float), cpuPrim.interleaved.data(), GL_STATIC_DRAW);
+        if (!cpuPrim.indices.empty()) {
+            glGenBuffers(1, &gp.ebo);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gp.ebo);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER, cpuPrim.indices.size() * sizeof(unsigned int), cpuPrim.indices.data(), GL_STATIC_DRAW);
+        }
+        GLsizei stride = sizeof(float) * 8; // pos(3) + normal(3) + uv(2)
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(sizeof(float)*3));
         glEnableVertexAttribArray(2);
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(sizeof(float)*6));
-        // Instance attrib at location 3 (vec4)
-        GLuint dummyVBO = 0; // will be bound per-chunk
         glBindVertexArray(0);
-        gp.indexCount = static_cast<GLsizei>(cp.indices.size());
+        gp.indexCount = (int)cpuPrim.indices.size();
         m_grassModel.primitives.emplace_back(gp);
     }
     m_grassModel.valid = !m_grassModel.primitives.empty();
+
+    // Load base color texture from GLB (first material's baseColorTexture)
+    if (m_albedoTex) { glDeleteTextures(1, &m_albedoTex); m_albedoTex = 0; }
+    try {
+        tinygltf::TinyGLTF gltf;
+        tinygltf::Model model;
+        std::string err, warn;
+        // Try the selected path (m_grassPath), which may be absolute from earlier search
+        if (gltf.LoadBinaryFromFile(&model, &err, &warn, m_grassPath)) {
+            int texIndex = -1;
+            if (!model.materials.empty()) {
+                const auto& mat = model.materials[0];
+                if (mat.pbrMetallicRoughness.baseColorTexture.index >= 0) {
+                    texIndex = mat.pbrMetallicRoughness.baseColorTexture.index;
+                }
+            }
+            if (texIndex >= 0 && texIndex < (int)model.textures.size()) {
+                int imgIndex = model.textures[texIndex].source;
+                if (imgIndex >= 0 && imgIndex < (int)model.images.size()) {
+                    const auto& img = model.images[imgIndex];
+                    GLenum fmt = (img.component == 4) ? GL_RGBA : (img.component == 3) ? GL_RGB : GL_RED;
+                    glGenTextures(1, &m_albedoTex);
+                    glBindTexture(GL_TEXTURE_2D, m_albedoTex);
+                    glTexImage2D(GL_TEXTURE_2D, 0, fmt, img.width, img.height, 0, fmt, GL_UNSIGNED_BYTE, img.image.data());
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                    glGenerateMipmap(GL_TEXTURE_2D);
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                }
+            }
+        }
+    } catch (...) {
+        // ignore
+    }
+
+    // Prefer engine grass.png texture for consistency with voxel blocks
+    if (!g_textureManager) g_textureManager = new TextureManager();
+    // Try to reuse already-loaded texture
+    m_engineGrassTex = g_textureManager->getTexture("grass.png");
+    if (m_engineGrassTex == 0) {
+        const char* candidates[] = {
+            "assets/textures/",
+            "../assets/textures/",
+            "../../assets/textures/",
+            "../../../assets/textures/"
+        };
+        for (const auto& dir : candidates) {
+            std::filesystem::path p = std::filesystem::path(dir) / "grass.png";
+            if (std::filesystem::exists(p)) { m_engineGrassTex = g_textureManager->loadTexture(p.string(), false, true); break; }
+        }
+        if (m_engineGrassTex == 0) {
+            std::filesystem::path fallback("C:/Users/steve-17/Desktop/game2/assets/textures/grass.png");
+            if (std::filesystem::exists(fallback)) m_engineGrassTex = g_textureManager->loadTexture(fallback.string(), false, true);
+        }
+    }
+
     return m_grassModel.valid;
 }
 
@@ -315,6 +377,14 @@ void ModelInstanceRenderer::renderGrassChunk(VoxelChunk* chunk, const Vec3& worl
     if (!m_grassModel.valid || !ensureShaders()) return;
     if (!ensureChunkInstancesUploaded(chunk)) return;
 
+    // Ensure sane fixed-function state before color draw
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDrawBuffer(GL_BACK);
+    glReadBuffer(GL_BACK);
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
     glUseProgram(m_program);
 
     // Matrices
@@ -349,14 +419,30 @@ void ModelInstanceRenderer::renderGrassChunk(VoxelChunk* chunk, const Vec3& worl
     GLint loc0 = glGetUniformLocation(m_program, "uShadowMaps[0]"); if (loc0>=0) glUniform1i(loc0, 7);
     GLint loc1 = glGetUniformLocation(m_program, "uShadowMaps[1]"); if (loc1>=0) glUniform1i(loc1, 8);
     GLint loc2 = glGetUniformLocation(m_program, "uShadowMaps[2]"); if (loc2>=0) glUniform1i(loc2, 9);
+    // Bind grass texture (engine grass preferred; fallback to GLB albedo)
+    GLint locGrass = glGetUniformLocation(m_program, "uGrassTexture");
+    if (locGrass>=0) {
+        glActiveTexture(GL_TEXTURE5);
+        GLuint tex = m_engineGrassTex ? m_engineGrassTex : m_albedoTex;
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glUniform1i(locGrass, 5);
+    }
 
     // Draw instanced for each primitive
     ChunkInstanceBuffer& buf = m_chunkInstances[chunk];
+    // Render two-sided foliage
+    GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
+    if (wasCull) glDisable(GL_CULL_FACE);
+    
+    // DEBUG: Test single grass blade without instancing to isolate instancing issues
     for (auto& prim : m_grassModel.primitives) {
         glBindVertexArray(prim.vao);
-        glDrawElementsInstanced(GL_TRIANGLES, prim.indexCount, GL_UNSIGNED_INT, 0, buf.count);
+        // Render just one grass blade at origin without instancing
+        glDrawElements(GL_TRIANGLES, prim.indexCount, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
+        break; // Only render first primitive, single instance
     }
+    if (wasCull) glEnable(GL_CULL_FACE);
 }
 
 void ModelInstanceRenderer::beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP) {
@@ -372,6 +458,9 @@ void ModelInstanceRenderer::endDepthPassCascade(int screenWidth, int screenHeigh
 }
 
 void ModelInstanceRenderer::renderDepthGrassChunk(VoxelChunk* chunk, const Vec3& worldOffset) {
+    // DEBUG: Disable shadow pass rendering to test if this is causing the blue speckling
+    return;
+    
     if (!m_grassModel.valid || !ensureShaders()) return;
     if (!ensureChunkInstancesUploaded(chunk)) return;
     glUseProgram(m_depthProgram);
@@ -382,6 +471,15 @@ void ModelInstanceRenderer::renderDepthGrassChunk(VoxelChunk* chunk, const Vec3&
     // But to avoid querying per cascade, we expect the caller to set d_uLightVP before calls
     // For simplicity, set it from the first lightVP (caller should update per-cascade)
     // This is updated externally in GameClient per cascade.
+
+    // Bind alpha-cutout texture so shadows match grass shape
+    GLint locCut = glGetUniformLocation(m_depthProgram, "uCutout");
+    if (locCut>=0) {
+        glActiveTexture(GL_TEXTURE5);
+        GLuint tex = m_engineGrassTex ? m_engineGrassTex : m_albedoTex;
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glUniform1i(locCut, 5);
+    }
 
     // Bind and draw
     ChunkInstanceBuffer& buf = m_chunkInstances[chunk];
