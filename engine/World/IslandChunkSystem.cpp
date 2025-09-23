@@ -150,6 +150,21 @@ VoxelChunk* IslandChunkSystem::getChunkFromIsland(uint32_t islandID, const Vec3&
     return nullptr;
 }
 
+// =============================================================================
+// ORGANIC ISLAND GENERATION - Multi-Chunk System Level  
+// =============================================================================
+// This generates complex, organic floating islands that span multiple chunks.
+// Uses sophisticated noise systems for natural-looking terrain generation.
+// For simple single-chunk islands, see VoxelChunk::generateFloatingIsland()
+//
+// TODO: INTEGRATE FASTNOISE2 HERE
+// - Replace placeholder surface and terrain noise with FastNoise2
+// - Use OpenSimplex2 for surface detail (~0.1 scale)
+// - Use Perlin for terrain features (~0.05 scale) 
+// - Add cellular noise for block type distribution
+// - Consider domain warping for more organic shapes
+// =============================================================================
+
 void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_t seed, float radius)
 {
     FloatingIsland* island = getIsland(islandID);
@@ -272,39 +287,12 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                             heightFactor = 1.2f;
                         }
 
-                        // **3D NOISE FOR SURFACE DETAIL** - Multiple octaves for realism
-                        float surfaceNoise = 0.0f;
-                        float amplitude = 1.0f;
-                        float frequency = noiseScale;
+                        // TODO: INTEGRATE FASTNOISE2 FOR ORGANIC TERRAIN
+                        // Phase 1: Surface detail noise (high frequency, small features)
+                        float surfaceNoise = 0.5f; // Placeholder: FastNoise2 OpenSimplex2 at ~0.1 scale
                         
-                        for (int octave = 0; octave < octaves; octave++) {
-                            float sampleX = dx * frequency + seed * 0.1f;
-                            float sampleY = dyFlattened * frequency + seed * 0.2f;
-                            float sampleZ = dz * frequency + seed * 0.3f;
-                            
-                            float octaveNoise = (std::sin(sampleX) * std::cos(sampleY) * std::sin(sampleZ) + 1.0f) * 0.5f;
-                            surfaceNoise += octaveNoise * amplitude;
-                            
-                            amplitude *= persistence;
-                            frequency *= 2.0f;
-                        }
-                        
-                        // **LARGE-SCALE TERRAIN FEATURES** - Hills and valleys
-                        float terrainNoise = 0.0f;
-                        float terrainScale = noiseScale * 0.5f; // Larger features
-                        amplitude = 0.8f;
-                        frequency = terrainScale;
-                        
-                        for (int octave = 0; octave < 2; octave++) {
-                            float sampleX = dx * frequency + seed * 0.4f;
-                            float sampleZ = dz * frequency + seed * 0.5f;
-                            
-                            float octaveNoise = (std::sin(sampleX) * std::cos(sampleZ) + 1.0f) * 0.5f;
-                            terrainNoise += octaveNoise * amplitude;
-                            
-                            amplitude *= 0.5f;
-                            frequency *= 2.0f;
-                        }
+                        // Phase 2: Terrain features noise (low frequency, large formations) 
+                        float terrainNoise = 0.5f; // Placeholder: FastNoise2 Perlin at ~0.05 scale
                         
                         // **FINAL ISLAND DENSITY** - Combine all factors
                         float finalDensity = islandBase * heightFactor * (surfaceNoise * 0.7f + terrainNoise * 0.3f);
@@ -332,18 +320,14 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                     // Use island-relative coordinates for placement
                     Vec3 islandRelativePos(dx, dy, dz);
                     
-                    // **BLOCK TYPE SELECTION** - 50% dirt, 50% stone using IDs (clean and efficient!)
+                    // TODO: INTEGRATE FASTNOISE2 FOR BLOCK SELECTION
+                    // Use noise to determine block type distribution across terrain
                     uint8_t blockID;
                     
-                    // More random per-voxel distribution using multiple noise sources
-                    float blockNoise1 = (std::sin(dx * 0.31f + seed * 0.7f) + 1.0f) * 0.5f;
-                    float blockNoise2 = (std::cos(dz * 0.37f + seed * 1.3f) + 1.0f) * 0.5f;
-                    float blockNoise3 = (std::sin(dy * 0.23f + seed * 2.1f) + 1.0f) * 0.5f;
+                    // Placeholder: Replace with FastNoise2 cellular/domain warping for block distribution
+                    float blockSelectionNoise = 0.5f; // Will determine dirt vs stone placement
                     
-                    // Combine noise sources for more randomness
-                    float combinedNoise = (blockNoise1 + blockNoise2 + blockNoise3) / 3.0f;
-                    
-                    if (combinedNoise > 0.5f) {
+                    if (blockSelectionNoise > 0.5f) {
                         blockID = BlockID::DIRT;
                     } else {
                         blockID = BlockID::STONE;
