@@ -453,6 +453,41 @@ static inline float vc_hashToUnit(int xi, int zi, uint32_t seed)
     return u * 2.0f - 1.0f; // [-1,1]
 }
 
+// Smooth noise function that interpolates between grid points to avoid patterns
+static inline float vc_smoothNoise(float x, float z, uint32_t seed)
+{
+    const float freq = 1.0f / 12.0f; // sample at same frequency but smoothly
+    
+    // Get the fractional and integer parts
+    float fx = x * freq;
+    float fz = z * freq;
+    int x0 = static_cast<int>(std::floor(fx));
+    int z0 = static_cast<int>(std::floor(fz));
+    int x1 = x0 + 1;
+    int z1 = z0 + 1;
+    
+    // Get fractional parts for interpolation
+    float sx = fx - x0;
+    float sz = fz - z0;
+    
+    // Sample the four corners
+    float n00 = vc_hashToUnit(x0, z0, seed);
+    float n10 = vc_hashToUnit(x1, z0, seed);
+    float n01 = vc_hashToUnit(x0, z1, seed);
+    float n11 = vc_hashToUnit(x1, z1, seed);
+    
+    // Smooth interpolation (cosine interpolation for smoother result)
+    float ix = 0.5f * (1.0f - std::cos(sx * 3.14159265f));
+    float iz = 0.5f * (1.0f - std::cos(sz * 3.14159265f));
+    
+    // Bilinear interpolation
+    float nx0 = n00 * (1.0f - ix) + n10 * ix;
+    float nx1 = n01 * (1.0f - ix) + n11 * ix;
+    float result = nx0 * (1.0f - iz) + nx1 * iz;
+    
+    return result; // returns [-1,1]
+}
+
 void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
 {
     // Generate a floating island using simple noise (optional)
@@ -532,10 +567,8 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
                             float rLocal = radius;
                             if (useNoise)
                             {
-                                const float freq = 1.0f / 12.0f; // gentle variation
-                                int xi = static_cast<int>(std::floor(x * freq));
-                                int zi = static_cast<int>(std::floor(z * freq));
-                                float n = vc_hashToUnit(xi, zi, static_cast<uint32_t>(seed));
+                                // Use smooth noise instead of grid-based hash
+                                float n = vc_smoothNoise(static_cast<float>(x), static_cast<float>(z), static_cast<uint32_t>(seed));
                                 float noiseAmp = radius * 0.30f;
                                 rLocal = std::max(2.0f, std::min(radius + n * noiseAmp, radius * 1.6f));
                             }
@@ -596,10 +629,8 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
                     float rLocal = radius;
                     if (useNoise)
                     {
-                        const float freq = 1.0f / 12.0f;
-                        int xi = static_cast<int>(std::floor(x * freq));
-                        int zi = static_cast<int>(std::floor(z * freq));
-                        float n = vc_hashToUnit(xi, zi, static_cast<uint32_t>(seed));
+                        // Use smooth noise instead of grid-based hash
+                        float n = vc_smoothNoise(static_cast<float>(x), static_cast<float>(z), static_cast<uint32_t>(seed));
                         float noiseAmp = radius * 0.30f;
                         rLocal = std::max(2.0f, std::min(radius + n * noiseAmp, radius * 1.6f));
                     }

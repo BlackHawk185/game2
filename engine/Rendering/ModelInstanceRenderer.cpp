@@ -34,10 +34,17 @@ out vec4 vLightSpacePos[4];
 out float vViewZ;
 
 void main(){
-    // DEBUG: No instancing test - render single grass at origin
-    vec3 windOffset = vec3(0.0);
+    // Wind sway: affect vertices based on their height within the grass model
+    // Higher vertices (larger Y) sway more, creating natural grass movement
+    float windStrength = 0.15;
+    float heightFactor = max(0.0, aPos.y * 0.8); // Scale with vertex height
+    vec3 windOffset = vec3(
+        sin(uTime * 1.8 + aInstance.w * 2.0) * windStrength * heightFactor,
+        0.0,
+        cos(uTime * 1.4 + aInstance.w * 1.7) * windStrength * heightFactor * 0.7
+    );
     
-    vec4 world = uModel * vec4(aPos + windOffset, 1.0);
+    vec4 world = uModel * vec4(aPos + windOffset + aInstance.xyz, 1.0);
     gl_Position = uProjection * uView * world;
     vUV = aUV;
     vNormalWS = mat3(uModel) * aNormal;
@@ -113,27 +120,6 @@ void main(){
 }
 )GLSL";
 
-    static const char* kDepthVS = R"GLSL(
-#version 460 core
-layout (location=0) in vec3 aPos;
-layout (location=1) in vec3 aNormal;
-layout (location=2) in vec2 aUV;
-layout (location=3) in vec4 aInstance; // xyz=position offset, w=phase
-
-uniform mat4 uModel; // chunk/world offset
-uniform mat4 uLightVP;
-uniform float uTime;
-
-out vec2 vUV;
-
-void main(){
-    // Wind sway disabled for debugging
-    vec3 windOffset = vec3(0.0);
-    vec4 world = uModel * vec4(aPos + aInstance.xyz + windOffset, 1.0);
-    vUV = aUV;
-    gl_Position = uLightVP * world;
-}
-)GLSL";
 }
 
 static GLuint Compile(GLuint type, const char* src) {
@@ -167,21 +153,13 @@ ModelInstanceRenderer::ModelInstanceRenderer() {}
 ModelInstanceRenderer::~ModelInstanceRenderer() { shutdown(); }
 
 bool ModelInstanceRenderer::ensureShaders() {
-    if (m_program != 0 && m_depthProgram != 0) return true;
+    if (m_program != 0) return true;
     GLuint vs = Compile(GL_VERTEX_SHADER, kVS);
     GLuint fs = Compile(GL_FRAGMENT_SHADER, kFS);
     if (!vs || !fs) return false;
     m_program = Link(vs, fs);
     glDeleteShader(vs); glDeleteShader(fs);
     if (!m_program) return false;
-
-    GLuint dvs = Compile(GL_VERTEX_SHADER, kDepthVS);
-    const char* kDepthFS = "#version 460 core\n in vec2 vUV; uniform sampler2D uCutout; void main(){ if(texture(uCutout, vUV).a < 0.3) discard; }";
-    GLuint dfs = Compile(GL_FRAGMENT_SHADER, kDepthFS);
-    if (!dvs || !dfs) return false;
-    m_depthProgram = Link(dvs, dfs);
-    glDeleteShader(dvs); glDeleteShader(dfs);
-    if (!m_depthProgram) return false;
 
     // Cache uniforms
     uProj = glGetUniformLocation(m_program, "uProjection");
@@ -193,10 +171,13 @@ bool ModelInstanceRenderer::ensureShaders() {
     uShadowTexel = glGetUniformLocation(m_program, "uShadowTexel");
     uLightDir = glGetUniformLocation(m_program, "uLightDir");
     uTime = glGetUniformLocation(m_program, "uTime");
+    
+    // Cache shadow map sampler locations (these are queried every frame currently)
+    uShadowMaps0 = glGetUniformLocation(m_program, "uShadowMaps[0]");
+    uShadowMaps1 = glGetUniformLocation(m_program, "uShadowMaps[1]");
+    uShadowMaps2 = glGetUniformLocation(m_program, "uShadowMaps[2]");
+    uGrassTexture = glGetUniformLocation(m_program, "uGrassTexture");
 
-    d_uModel = glGetUniformLocation(m_depthProgram, "uModel");
-    d_uLightVP = glGetUniformLocation(m_depthProgram, "uLightVP");
-    d_uTime = glGetUniformLocation(m_depthProgram, "uTime");
     return true;
 }
 
@@ -216,7 +197,6 @@ void ModelInstanceRenderer::shutdown() {
     }
     m_grassModel.primitives.clear();
     if (m_program) { glDeleteProgram(m_program); m_program = 0; }
-    if (m_depthProgram) { glDeleteProgram(m_depthProgram); m_depthProgram = 0; }
 }
 
 bool ModelInstanceRenderer::loadGrassModel(const std::string& path) {
@@ -344,7 +324,15 @@ bool ModelInstanceRenderer::ensureChunkInstancesUploaded(VoxelChunk* chunk) {
         m_chunkInstances.emplace(chunk, buf);
         it = m_chunkInstances.find(chunk);
     }
+    
     ChunkInstanceBuffer& buf = it->second;
+    
+    // Only upload if data hasn't been uploaded yet or chunk mesh needs update
+    // VoxelChunk's needsUpdate flag indicates if the chunk geometry has changed
+    if (buf.isUploaded && !chunk->getMesh().needsUpdate && buf.count == count) {
+        return true; // Already up to date
+    }
+    
     // Build per-instance data vec4(x,y,z,phase). Phase derived from position for determinism
     std::vector<float> data;
     data.resize(count * 4);
@@ -360,6 +348,7 @@ bool ModelInstanceRenderer::ensureChunkInstancesUploaded(VoxelChunk* chunk) {
     glBufferData(GL_ARRAY_BUFFER, data.size()*sizeof(float), data.data(), GL_STATIC_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     buf.count = count;
+    buf.isUploaded = true;
 
     // Hook instance attrib to all model VAOs
     for (auto& prim : m_grassModel.primitives) {
@@ -415,17 +404,16 @@ void ModelInstanceRenderer::renderGrassChunk(VoxelChunk* chunk, const Vec3& worl
     if (m_cascadeCount>=1) { glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0)); }
     if (m_cascadeCount>=2) { glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(1)); }
     if (m_cascadeCount>=3) { glActiveTexture(GL_TEXTURE9); glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(2)); }
-    // Set uniform sampler indices
-    GLint loc0 = glGetUniformLocation(m_program, "uShadowMaps[0]"); if (loc0>=0) glUniform1i(loc0, 7);
-    GLint loc1 = glGetUniformLocation(m_program, "uShadowMaps[1]"); if (loc1>=0) glUniform1i(loc1, 8);
-    GLint loc2 = glGetUniformLocation(m_program, "uShadowMaps[2]"); if (loc2>=0) glUniform1i(loc2, 9);
+    // Set uniform sampler indices using cached locations
+    if (uShadowMaps0>=0) glUniform1i(uShadowMaps0, 7);
+    if (uShadowMaps1>=0) glUniform1i(uShadowMaps1, 8);
+    if (uShadowMaps2>=0) glUniform1i(uShadowMaps2, 9);
     // Bind grass texture (engine grass preferred; fallback to GLB albedo)
-    GLint locGrass = glGetUniformLocation(m_program, "uGrassTexture");
-    if (locGrass>=0) {
+    if (uGrassTexture>=0) {
         glActiveTexture(GL_TEXTURE5);
         GLuint tex = m_engineGrassTex ? m_engineGrassTex : m_albedoTex;
         glBindTexture(GL_TEXTURE_2D, tex);
-        glUniform1i(locGrass, 5);
+        glUniform1i(uGrassTexture, 5);
     }
 
     // Draw instanced for each primitive
@@ -434,58 +422,21 @@ void ModelInstanceRenderer::renderGrassChunk(VoxelChunk* chunk, const Vec3& worl
     GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
     if (wasCull) glDisable(GL_CULL_FACE);
     
-    // DEBUG: Test single grass blade without instancing to isolate instancing issues
-    for (auto& prim : m_grassModel.primitives) {
-        glBindVertexArray(prim.vao);
-        // Render just one grass blade at origin without instancing
-        glDrawElements(GL_TRIANGLES, prim.indexCount, GL_UNSIGNED_INT, 0);
-        glBindVertexArray(0);
-        break; // Only render first primitive, single instance
-    }
-    if (wasCull) glEnable(GL_CULL_FACE);
-}
-
-void ModelInstanceRenderer::beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP) {
-    // We reuse g_csm FBO via VBORenderer; set light VP on our depth program
-    (void)cascadeIndex;
-    if (!ensureShaders()) return;
-    glUseProgram(m_depthProgram);
-    glUniformMatrix4fv(d_uLightVP, 1, GL_FALSE, &lightVP[0][0]);
-}
-
-void ModelInstanceRenderer::endDepthPassCascade(int screenWidth, int screenHeight) {
-    (void)screenWidth; (void)screenHeight;
-}
-
-void ModelInstanceRenderer::renderDepthGrassChunk(VoxelChunk* chunk, const Vec3& worldOffset) {
-    // DEBUG: Disable shadow pass rendering to test if this is causing the blue speckling
-    return;
-    
-    if (!m_grassModel.valid || !ensureShaders()) return;
-    if (!ensureChunkInstancesUploaded(chunk)) return;
-    glUseProgram(m_depthProgram);
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
-    glUniformMatrix4fv(d_uModel, 1, GL_FALSE, &model[0][0]);
-    glUniform1f(d_uTime, m_time);
-    // The active light VP is provided by the caller via uniform each cascade
-    // But to avoid querying per cascade, we expect the caller to set d_uLightVP before calls
-    // For simplicity, set it from the first lightVP (caller should update per-cascade)
-    // This is updated externally in GameClient per cascade.
-
-    // Bind alpha-cutout texture so shadows match grass shape
-    GLint locCut = glGetUniformLocation(m_depthProgram, "uCutout");
-    if (locCut>=0) {
-        glActiveTexture(GL_TEXTURE5);
-        GLuint tex = m_engineGrassTex ? m_engineGrassTex : m_albedoTex;
-        glBindTexture(GL_TEXTURE_2D, tex);
-        glUniform1i(locCut, 5);
-    }
-
-    // Bind and draw
-    ChunkInstanceBuffer& buf = m_chunkInstances[chunk];
+    // Render instanced grass for each primitive
     for (auto& prim : m_grassModel.primitives) {
         glBindVertexArray(prim.vao);
         glDrawElementsInstanced(GL_TRIANGLES, prim.indexCount, GL_UNSIGNED_INT, 0, buf.count);
         glBindVertexArray(0);
     }
+    if (wasCull) glEnable(GL_CULL_FACE);
+}
+
+void ModelInstanceRenderer::beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP) {
+    // Depth pass disabled - was causing blue speckling artifacts
+    (void)cascadeIndex;
+    (void)lightVP;
+}
+
+void ModelInstanceRenderer::endDepthPassCascade(int screenWidth, int screenHeight) {
+    (void)screenWidth; (void)screenHeight;
 }

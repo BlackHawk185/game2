@@ -758,17 +758,7 @@ void GameClient::renderShadowPass()
             }
             g_vboRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
         }
-        // Also render grass into the shadow map for this cascade
-        if (g_modelRenderer)
-        {
-            g_modelRenderer->setCascadeMatrix(ci, lightVP);
-            g_modelRenderer->beginDepthPassCascade(ci, lightVP);
-            for (auto& p : snapshot)
-            {
-                g_modelRenderer->renderDepthGrassChunk(p.first, p.second);
-            }
-            g_modelRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
-        }
+        // Grass shadow pass disabled - was causing blue speckling artifacts
     }
     // Forward pass will read cascade data set on renderer
 }

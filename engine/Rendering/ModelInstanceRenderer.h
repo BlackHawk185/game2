@@ -29,6 +29,7 @@ struct ModelGPU {
 struct ChunkInstanceBuffer {
     GLuint instanceVBO = 0; // mat3x4 or per-instance vec4 data, kept minimal here
     GLsizei count = 0;
+    bool isUploaded = false; // Track if data is already uploaded to GPU
 };
 
 class ModelInstanceRenderer {
@@ -55,7 +56,6 @@ public:
     void renderGrassChunk(VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj);
     void beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP);
     void endDepthPassCascade(int screenWidth, int screenHeight);
-    void renderDepthGrassChunk(VoxelChunk* chunk, const Vec3& worldOffset);
 
 private:
     bool ensureChunkInstancesUploaded(VoxelChunk* chunk);
@@ -64,15 +64,13 @@ private:
 
     // Internal GL helpers
     GLuint m_program = 0;       // forward shader
-    GLuint m_depthProgram = 0;  // depth-only shader
 
     // Uniform locations (forward)
     int uProj = -1, uView = -1, uModel = -1;
     int uCascadeCount = -1, uLightVP = -1, uCascadeSplits = -1, uShadowMaps = -1;
     int uShadowTexel = -1, uLightDir = -1, uTime = -1;
-
-    // Uniform locations (depth)
-    int d_uModel = -1, d_uLightVP = -1, d_uTime = -1;
+    int uShadowMaps0 = -1, uShadowMaps1 = -1, uShadowMaps2 = -1; // Individual shadow map samplers
+    int uGrassTexture = -1; // Grass texture sampler
 
     // Shadow/cascade
     int m_cascadeCount = 0;
