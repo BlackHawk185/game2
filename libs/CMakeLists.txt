@@ -1,6 +1,9 @@
 # GLFW
 add_subdirectory(glfw)
 
+# FastNoise2 for terrain generation
+add_subdirectory(FastNoise2)
+
 # ENet networking - Manual build instead of subdirectory to avoid CMake version conflicts
 add_library(enet STATIC
     enet/callbacks.c

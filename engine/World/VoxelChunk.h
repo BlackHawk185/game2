@@ -109,6 +109,7 @@ class VoxelChunk
 
     // Mesh generation and management
     void generateMesh();
+    bool generateMeshGPU();  // NEW: GPU-accelerated mesh generation
 
     // Rendering
     void render();                                        // Render at origin (0,0,0)

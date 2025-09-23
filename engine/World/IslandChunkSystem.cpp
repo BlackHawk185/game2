@@ -7,11 +7,17 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <chrono>
+#include <thread>
+
+#include <glad/gl.h>  // For OpenGL functions
 
 #include "VoxelChunk.h"
 #include "BlockType.h"  // Add this include for BlockID constants
 #include "../Profiling/Profiler.h"
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED - VBO only, no immediate mode
+#include "../Rendering/GPUMeshGenerator.h"  // NEW: GPU-accelerated mesh generation
+#include "../Threading/JobSystem.h"    // For parallel chunk processing
 
 IslandChunkSystem g_islandSystem;
 
@@ -36,6 +42,72 @@ IslandChunkSystem::~IslandChunkSystem()
     for (uint32_t id : islandIDs)
     {
         destroyIsland(id);
+    }
+    
+    // Clean up GPU mesh generator
+    cleanupGPUMeshGeneration();
+}
+
+bool IslandChunkSystem::initializeGPUMeshGeneration()
+{
+    std::cout << "🚀 Initializing GPU mesh generation system..." << std::endl;
+    std::flush(std::cout);
+    
+    // First, check if OpenGL is available
+    std::cout << "� Checking OpenGL availability..." << std::endl;
+    std::flush(std::cout);
+    
+    try {
+        // Get OpenGL version to verify GL is available
+        const char* versionStr = (const char*)glGetString(GL_VERSION);
+        if (versionStr == nullptr) {
+            std::cerr << "❌ OpenGL context not available or not current" << std::endl;
+            return false;
+        }
+        
+        std::cout << "✅ OpenGL context available: " << versionStr << std::endl;
+        std::flush(std::cout);
+        
+        // Check for OpenGL errors before proceeding
+        GLenum error = glGetError();
+        if (error != GL_NO_ERROR) {
+            std::cerr << "❌ OpenGL error before GPU mesh generator creation: " << error << std::endl;
+            return false;
+        }
+        
+        std::cout << "�🔧 About to create GPUMeshGenerator instance..." << std::endl;
+        std::flush(std::cout);
+        
+        m_gpuMeshGenerator = std::make_unique<GPUMeshGenerator>();
+        std::cout << "✅ GPUMeshGenerator instance created successfully" << std::endl;
+        std::flush(std::cout);
+        
+        std::cout << "🔧 About to call initialize()..." << std::endl;
+        std::flush(std::cout);
+        
+        if (!m_gpuMeshGenerator->initialize()) {
+            std::cerr << "❌ Failed to initialize GPU mesh generator" << std::endl;
+            m_gpuMeshGenerator.reset();
+            return false;
+        }
+        
+        std::cout << "✅ GPU mesh generation system initialized successfully" << std::endl;
+        return true;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "💥 Exception in initializeGPUMeshGeneration: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cerr << "💥 Unknown exception in initializeGPUMeshGeneration" << std::endl;
+        return false;
+    }
+}
+
+void IslandChunkSystem::cleanupGPUMeshGeneration()
+{
+    if (m_gpuMeshGenerator) {
+        m_gpuMeshGenerator.reset();
+        std::cout << "🧹 GPU mesh generation system cleaned up" << std::endl;
     }
 }
 
@@ -376,6 +448,310 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
             chunk->buildCollisionMesh();
         }
     }
+}
+
+// =============================================================================
+// FASTNOISE2 ISLAND GENERATION - Full island noise generation with job system
+// =============================================================================
+void IslandChunkSystem::generateFloatingIslandFastNoise(uint32_t islandID, uint32_t seed, int width, int height, int depth)
+{
+    auto totalStartTime = std::chrono::high_resolution_clock::now();
+    
+    std::cout << "=== MEGA ISLAND GENERATION ===" << std::endl;
+    std::cout << "Generating FastNoise2 island (" << width << "x" << height << "x" << depth << ")..." << std::endl;
+    std::cout << "Total voxel volume: " << (static_cast<long long>(width) * height * depth) << " voxels" << std::endl;
+    
+    FloatingIsland* island = getIsland(islandID);
+    if (!island) {
+        std::cout << "Error: Island " << islandID << " not found!" << std::endl;
+        return;
+    }
+
+    // **STEP 1: Generate optimized chunk-level noise map using FastNoise2 SIMD**
+    auto fnSimplex = FastNoise::New<FastNoise::OpenSimplex2>();
+    auto fnGenerator = FastNoise::New<FastNoise::FractalFBm>();
+    fnGenerator->SetSource(fnSimplex);
+    fnGenerator->SetOctaveCount(2);    // REDUCED: 2 octaves instead of 4 for faster generation
+    fnGenerator->SetLacunarity(2.0f);
+    fnGenerator->SetGain(0.5f);
+    // Note: FastNoise2 uses seed in the generation call, not as a property
+    
+    // Terrain parameters
+    float terrainScale = 0.015f;               // Scale for terrain features
+    float terrainDensityThreshold = 0.03f;     // LOWERED FURTHER: Even more terrain generation (was 0.05f)
+    
+    // Falloff parameters for island shape
+    float halfWidth = width * 0.5f;
+    float halfHeight = height * 0.5f;
+    float halfDepth = depth * 0.5f;
+    float falloffRadius = std::min(halfWidth, halfDepth) * 0.9f; // INCREASED: 90% radius for more terrain (was 85%)
+    
+    // **OPTIMIZATION: Chunk-level sampling instead of per-voxel sampling**
+    // Sample noise at chunk resolution and interpolate for individual voxels
+    int chunkSampleRes = 8; // Sample every 8 voxels (reduces 16M to ~25K samples!)
+    int samplesX = (width + chunkSampleRes - 1) / chunkSampleRes;
+    int samplesY = (height + chunkSampleRes - 1) / chunkSampleRes;
+    int samplesZ = (depth + chunkSampleRes - 1) / chunkSampleRes;
+    int totalSamples = samplesX * samplesY * samplesZ;
+    
+    std::cout << "OPTIMIZED: Sampling " << totalSamples << " noise points instead of " << (width * height * depth) << " (reduction: " << ((width * height * depth) / totalSamples) << "x)" << std::endl;
+    
+    // Generate coordinate arrays for optimized SIMD processing
+    std::vector<float> coordinatesX, coordinatesY, coordinatesZ;
+    coordinatesX.reserve(totalSamples);
+    coordinatesY.reserve(totalSamples);
+    coordinatesZ.reserve(totalSamples);
+    
+    // Build coordinate arrays for chunk-level sampling
+    for (int sy = 0; sy < samplesY; sy++) {
+        for (int sx = 0; sx < samplesX; sx++) {
+            for (int sz = 0; sz < samplesZ; sz++) {
+                int x = (sx * chunkSampleRes) - halfWidth;
+                int y = (sy * chunkSampleRes) - halfHeight;
+                int z = (sz * chunkSampleRes) - halfDepth;
+                coordinatesX.push_back(x * terrainScale);
+                coordinatesY.push_back(y * terrainScale);
+                coordinatesZ.push_back(z * terrainScale);
+            }
+        }
+    }
+    
+    // Generate noise for optimized sample points in one SIMD call
+    std::cout << "Generating noise with FastNoise2 SIMD for " << coordinatesX.size() << " sample points..." << std::endl;
+    std::cout << "Expected time: ~1-2 seconds (vs 30-60 seconds for per-voxel)" << std::endl;
+    
+    auto noiseStartTime = std::chrono::high_resolution_clock::now();
+    std::vector<float> terrainNoise(coordinatesX.size());
+    fnGenerator->GenPositionArray3D(terrainNoise.data(), coordinatesX.size(),
+                                   coordinatesX.data(), coordinatesY.data(), coordinatesZ.data(),
+                                   0.0f, 0.0f, 0.0f, seed);
+    auto noiseEndTime = std::chrono::high_resolution_clock::now();
+    auto noiseTime = std::chrono::duration_cast<std::chrono::milliseconds>(noiseEndTime - noiseStartTime).count();
+    
+    std::cout << "✓ SIMD noise generation completed in " << noiseTime << "ms!" << std::endl;
+    
+    std::cout << "Noise generation complete! Processing voxels with interpolation and creating chunks..." << std::endl;
+    
+    // **STEP 2: Process voxels using interpolated noise data**
+    std::map<Vec3, std::vector<std::pair<Vec3, uint8_t>>> chunkVoxelData; // chunkCoord -> [(localPos, blockType)]
+    int solidVoxelsProcessed = 0;
+    int totalVoxelsProcessed = 0;
+    
+    // Helper function for trilinear interpolation of noise values
+    auto getInterpolatedNoise = [&](int x, int y, int z) -> float {
+        // Calculate sample grid coordinates
+        float fx = (float)(x + halfWidth) / chunkSampleRes;
+        float fy = (float)(y + halfHeight) / chunkSampleRes;
+        float fz = (float)(z + halfDepth) / chunkSampleRes;
+        
+        // Get integer coordinates and fractional parts
+        int x0 = (int)floor(fx), x1 = x0 + 1;
+        int y0 = (int)floor(fy), y1 = y0 + 1;
+        int z0 = (int)floor(fz), z1 = z0 + 1;
+        float dx = fx - x0, dy = fy - y0, dz = fz - z0;
+        
+        // Bounds checking
+        x0 = std::max(0, std::min(samplesX-1, x0));
+        x1 = std::max(0, std::min(samplesX-1, x1));
+        y0 = std::max(0, std::min(samplesY-1, y0));
+        y1 = std::max(0, std::min(samplesY-1, y1));
+        z0 = std::max(0, std::min(samplesZ-1, z0));
+        z1 = std::max(0, std::min(samplesZ-1, z1));
+        
+        // Get 8 noise samples for trilinear interpolation
+        auto getNoise = [&](int sx, int sy, int sz) -> float {
+            int index = sy * (samplesX * samplesZ) + sx * samplesZ + sz;
+            return (index >= 0 && index < terrainNoise.size()) ? terrainNoise[index] : 0.0f;
+        };
+        
+        float n000 = getNoise(x0, y0, z0), n001 = getNoise(x0, y0, z1);
+        float n010 = getNoise(x0, y1, z0), n011 = getNoise(x0, y1, z1);
+        float n100 = getNoise(x1, y0, z0), n101 = getNoise(x1, y0, z1);
+        float n110 = getNoise(x1, y1, z0), n111 = getNoise(x1, y1, z1);
+        
+        // Trilinear interpolation
+        float nx00 = n000 * (1-dx) + n100 * dx;
+        float nx01 = n001 * (1-dx) + n101 * dx;
+        float nx10 = n010 * (1-dx) + n110 * dx;
+        float nx11 = n011 * (1-dx) + n111 * dx;
+        
+        float nxy0 = nx00 * (1-dy) + nx10 * dy;
+        float nxy1 = nx01 * (1-dy) + nx11 * dy;
+        
+        return nxy0 * (1-dz) + nxy1 * dz;
+    };
+    
+    // Process each voxel position using interpolated noise
+    for (int y = -halfHeight; y < halfHeight; y++) {
+        for (int x = -halfWidth; x < halfWidth; x++) {
+            for (int z = -halfDepth; z < halfDepth; z++) {
+                totalVoxelsProcessed++;
+                
+                // Get interpolated noise value
+                float noiseValue = getInterpolatedNoise(x, y, z);
+                
+                // Apply radial falloff in X/Z
+                float dx = static_cast<float>(x);
+                float dz = static_cast<float>(z);
+                float distanceFromCenter = std::sqrt(dx * dx + dz * dz);
+                float radialFalloff = 1.0f - std::min(1.0f, distanceFromCenter / falloffRadius);
+                
+                // Apply vertical density gradient in Y
+                float normalizedY = static_cast<float>(y + halfHeight) / height; // 0.0 at bottom, 1.0 at top
+                float verticalFalloff = 1.0f - normalizedY; // Higher density at bottom
+                
+                // Combine noise with falloffs
+                float finalDensity = noiseValue * radialFalloff * verticalFalloff;
+                
+                // Check if this voxel should be solid
+                if (finalDensity > terrainDensityThreshold) {
+                    solidVoxelsProcessed++;
+                    
+                    // Calculate chunk coordinates (relative to island center)
+                    Vec3 worldPos(x, y, z);
+                    Vec3 chunkCoord = island->islandPosToChunkCoord(worldPos);
+                    Vec3 localPos = island->islandPosToLocalPos(worldPos);
+                    
+                    // Assign block type based on height/depth
+                    uint8_t blockType = BlockID::DIRT; // Default to dirt
+                    if (normalizedY < 0.3f) {
+                        blockType = BlockID::STONE; // Stone at bottom
+                    } else if (normalizedY > 0.8f && radialFalloff > 0.7f) {
+                        blockType = BlockID::GRASS; // Grass on top surfaces
+                    }
+                    
+                    // Add to chunk data
+                    chunkVoxelData[chunkCoord].emplace_back(localPos, blockType);
+                }
+            }
+        }
+    }
+    
+    std::cout << "Processed " << totalVoxelsProcessed << " voxels, found " << solidVoxelsProcessed 
+              << " solid voxels in " << chunkVoxelData.size() << " chunks" << std::endl;
+    
+    // **STEP 3: Create and populate chunks using SINGLE-THREADED processing**
+    int chunksToCreate = 0;
+    int emptyCullsSkipped = 0;
+    
+    // First pass: count non-empty chunks and cull empty ones
+    for (const auto& [chunkCoord, voxelList] : chunkVoxelData) {
+        if (voxelList.empty()) {
+            emptyCullsSkipped++;
+        } else {
+            chunksToCreate++;
+        }
+    }
+    
+    std::cout << "Processing " << chunksToCreate << " chunks with SINGLE-THREADED meshing..." << std::endl;
+    std::cout << "Culled " << emptyCullsSkipped << " empty chunks for performance" << std::endl;
+    
+    // **GPU OPTIMIZATION: Batch chunk creation and mesh uploads**
+    std::cout << "🎯 GPU OPTIMIZATION: Batching mesh generation and uploads for better GPU utilization" << std::endl;
+    std::vector<VoxelChunk*> chunksToMesh;
+    chunksToMesh.reserve(chunksToCreate);
+    
+    // Single-threaded chunk creation and meshing
+    int completedChunks = 0;
+    int failedChunks = 0;
+    auto startTime = std::chrono::high_resolution_clock::now();
+    
+    for (const auto& [chunkCoord, voxelList] : chunkVoxelData) {
+        // **EMPTY CHUNK CULLING** - Skip chunks with no voxels
+        if (voxelList.empty()) {
+            continue;
+        }
+        
+        // Create the chunk on main thread
+        addChunkToIsland(islandID, chunkCoord);
+        VoxelChunk* chunk = getChunkFromIsland(islandID, chunkCoord);
+        
+        if (chunk) {
+            try {
+                // Populate the chunk with voxel data
+                for (const auto& [localPos, blockType] : voxelList) {
+                    chunk->setVoxel(static_cast<int>(localPos.x), static_cast<int>(localPos.y), 
+                                   static_cast<int>(localPos.z), blockType);
+                }
+                
+                // **OPTIMIZATION: Separate CPU mesh generation from GPU upload**
+                // Generate mesh on CPU first (unavoidable CPU work)
+                chunk->generateMesh();
+                chunk->buildCollisionMesh();
+                
+                // Add to batch for GPU upload (we'll batch upload later)
+                chunksToMesh.push_back(chunk);
+                completedChunks++;
+                
+                // Progress reporting every 100 chunks
+                if (completedChunks % 100 == 0) {
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::high_resolution_clock::now() - startTime).count();
+                    std::cout << "[PROGRESS] " << completedChunks << "/" << chunksToCreate 
+                              << " chunks completed (" << elapsed << "ms elapsed)" << std::endl;
+                }
+            } catch (...) {
+                failedChunks++;
+            }
+        } else {
+            failedChunks++;
+        }
+    }
+    
+    auto cpuTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - startTime).count();
+    
+    std::cout << "CPU mesh generation complete!" << std::endl;
+    std::cout << "✓ Successfully generated " << completedChunks << " chunk meshes on CPU" << std::endl;
+    std::cout << "⏱ CPU mesh generation time: " << cpuTime << "ms" << std::endl;
+    
+    // **GPU BATCH UPLOAD PHASE** - Upload all meshes to GPU efficiently
+    std::cout << "🚀 Starting GPU batch upload of " << chunksToMesh.size() << " meshes..." << std::endl;
+    auto gpuStartTime = std::chrono::high_resolution_clock::now();
+    
+    if (g_vboRenderer) {
+        g_vboRenderer->beginBatch();
+        for (size_t i = 0; i < chunksToMesh.size(); ++i) {
+            VoxelChunk* chunk = chunksToMesh[i];
+            g_vboRenderer->uploadChunkMesh(chunk);
+            
+            // Progress for GPU uploads every 200 chunks (GPU uploads are faster)
+            if ((i + 1) % 200 == 0) {
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::high_resolution_clock::now() - gpuStartTime).count();
+                std::cout << "[GPU UPLOAD] " << (i + 1) << "/" << chunksToMesh.size() 
+                          << " meshes uploaded (" << elapsed << "ms elapsed)" << std::endl;
+            }
+        }
+        g_vboRenderer->endBatch();
+    }
+    
+    auto gpuTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::high_resolution_clock::now() - gpuStartTime).count();
+    
+    auto totalTime = cpuTime + gpuTime;
+    
+    std::cout << "GPU batch upload complete!" << std::endl;
+    std::cout << "🖥 CPU mesh generation: " << cpuTime << "ms" << std::endl;
+    std::cout << "🎮 GPU mesh upload: " << gpuTime << "ms" << std::endl;
+    
+    std::cout << "Single-threaded chunk generation complete!" << std::endl;
+    std::cout << "✓ Successfully meshed " << completedChunks << " chunks" << std::endl;
+    if (failedChunks > 0) {
+        std::cout << "✗ Failed to mesh " << failedChunks << " chunks" << std::endl;
+    }
+    std::cout << "⏱ Total SINGLE-THREADED processing time: " << totalTime << "ms" << std::endl;
+    std::cout << "📊 GPU utilization ratio: " << ((float)gpuTime / totalTime * 100.0f) << "% GPU vs " << ((float)cpuTime / totalTime * 100.0f) << "% CPU" << std::endl;
+    
+    auto totalEndTime = std::chrono::high_resolution_clock::now();
+    auto totalGenerationTime = std::chrono::duration_cast<std::chrono::milliseconds>(totalEndTime - totalStartTime).count();
+    
+    std::cout << "=== MEGA ISLAND GENERATION COMPLETE ===" << std::endl;
+    std::cout << "🏝 Total island generation time: " << totalGenerationTime << "ms (" << (totalGenerationTime/1000.0) << "s)" << std::endl;
+    std::cout << "📊 Performance: " << (static_cast<long long>(width) * height * depth / 1000) << "K voxels in " << totalGenerationTime << "ms" << std::endl;
+    std::cout << "⚡ Rate: " << (static_cast<long long>(width) * height * depth / std::max(1LL, (long long)totalGenerationTime)) << "K voxels/second" << std::endl;
+    
+    std::cout << "FastNoise2 island generation complete!" << std::endl;
 }
 
 uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& islandRelativePosition) const

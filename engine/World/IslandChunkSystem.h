@@ -12,6 +12,9 @@
 #include "VoxelChunk.h"
 #include "BlockType.h"
 
+// Forward declarations
+class GPUMeshGenerator;
+
 // An Island is a collection of chunks that move together as one physics body
 struct FloatingIsland
 {
@@ -73,6 +76,10 @@ class IslandChunkSystem
     IslandChunkSystem();
     ~IslandChunkSystem();
 
+    // System initialization
+    bool initializeGPUMeshGeneration();
+    void cleanupGPUMeshGeneration();
+
     // Island management
     uint32_t createIsland(const Vec3& physicsCenter);
     void destroyIsland(uint32_t islandID);
@@ -121,6 +128,9 @@ class IslandChunkSystem
     // This is now the primary and only island generation method
     void generateFloatingIslandOrganic(uint32_t islandID, uint32_t seed, float radius = 48.0f);
 
+    // **FASTNOISE2 ISLAND GENERATION** (Full island noise generation with job system)
+    void generateFloatingIslandFastNoise(uint32_t islandID, uint32_t seed, int width = 1000, int height = 100, int depth = 1000);
+
     // Island queries
     Vec3 getIslandCenter(uint32_t islandID) const;    // Get current physics center of island
     Vec3 getIslandVelocity(uint32_t islandID) const;  // Get current velocity of island
@@ -131,6 +141,9 @@ class IslandChunkSystem
     uint32_t m_nextIslandID = 1;
     int m_renderDistance = 8;
     mutable std::mutex m_islandsMutex;
+    
+    // GPU mesh generation
+    std::unique_ptr<GPUMeshGenerator> m_gpuMeshGenerator;
 
     // Generate chunks around a center point (for infinite worlds)
     void generateChunksAroundPoint(const Vec3& center);

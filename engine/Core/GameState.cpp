@@ -50,6 +50,14 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
     
     std::cout << "💡 Configured lighting: Simple face-orientation lighting at 10 FPS for performance" << std::endl;
 
+    // Initialize GPU mesh generation
+    /* TEMPORARILY DISABLED FOR DEBUGGING
+    if (!m_islandSystem.initializeGPUMeshGeneration()) {
+        std::cout << "⚠️ GPU mesh generation initialization failed, falling back to CPU" << std::endl;
+    }
+    */
+    std::cout << "⚠️ GPU mesh generation temporarily disabled for debugging" << std::endl;
+
     // Create default world if requested
     if (shouldCreateDefaultWorld)
     {
@@ -159,10 +167,10 @@ void GameState::createDefaultWorld()
     m_islandIDs.push_back(island1ID);
 
     // **SINGLE ISLAND GENERATION** - Focus on getting lighting working first
-    std::cout << "[WORLD] Generating single test island with lighting optimization..." << std::endl;
-    std::cout << "[ISLAND] Main island radius: " << mainRadius << " units" << std::endl;
+    std::cout << "[WORLD] Generating single test island with FastNoise2..." << std::endl;
+    std::cout << "[ISLAND] Testing with 500x100x500 dimensions (25 million voxels)..." << std::endl;
     
-    m_islandSystem.generateFloatingIslandOrganic(island1ID, 12345, mainRadius);      // Single test island
+    m_islandSystem.generateFloatingIslandFastNoise(island1ID, 12345, 500, 100, 500);  // MEDIUM ISLAND: 500x100x500 for testing
 
     // Log collision mesh generation for each island
     for (uint32_t islandID : m_islandIDs)

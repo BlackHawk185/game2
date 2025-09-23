@@ -29,6 +29,9 @@
 // ENet networking
 #include <enet/enet.h>
 
+// FastNoise2 for terrain generation
+#include <FastNoise/FastNoise.h>
+
 // bgfx rendering
 // ...existing code...
 

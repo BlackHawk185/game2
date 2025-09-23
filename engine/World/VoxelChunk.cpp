@@ -296,6 +296,15 @@ void VoxelChunk::generateMesh()
     // Note: updateLightMapTextures() will be called during rendering when OpenGL context is available
 }
 
+bool VoxelChunk::generateMeshGPU()
+{
+    // TODO: Implement GPU mesh generation using GPUMeshGenerator
+    // For now, fall back to CPU generation
+    std::cout << "⚠️ GPU mesh generation not yet implemented, falling back to CPU..." << std::endl;
+    generateMesh();
+    return true;
+}
+
 void VoxelChunk::buildCollisionMeshFromVertices()
 {
     // Build collision faces from collisionMeshVertices (called during generateMesh)
