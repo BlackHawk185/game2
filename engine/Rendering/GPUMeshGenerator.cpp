@@ -106,7 +106,7 @@ bool GPUMeshGenerator::generateChunkMesh(VoxelChunk* chunk, GPUMeshData& outMesh
     // Set compute shader uniforms
     m_meshGenShader->use();
     m_meshGenShader->setVec3("chunkSize", VoxelChunk::SIZE, VoxelChunk::SIZE, VoxelChunk::SIZE);
-    m_meshGenShader->setVec3("chunkOffset", 0.0f, 0.0f, 0.0f); // TODO: Add chunk world offset
+    m_meshGenShader->setVec3("chunkOffset", 0.0f, 0.0f, 0.0f);
     m_meshGenShader->setFloat("voxelSize", m_voxelSize);
     
     // Bind GPU buffers
@@ -162,9 +162,7 @@ bool GPUMeshGenerator::generateChunkMesh(VoxelChunk* chunk, GPUMeshData& outMesh
 }
 
 bool GPUMeshGenerator::generateChunkMeshBatch(const std::vector<VoxelChunk*>& chunks, std::vector<GPUMeshData>& outMeshData) {
-    // TODO: Implement batched mesh generation for even better performance
-    // For now, generate meshes one by one
-    
+    // Generate meshes one by one
     outMeshData.resize(chunks.size());
     
     auto startTime = std::chrono::high_resolution_clock::now();
@@ -189,7 +187,6 @@ bool GPUMeshGenerator::uploadVoxelData(const VoxelChunk* chunk, ComputeBuffer& v
     if (!chunk) return false;
     
     // Get voxel data from chunk
-    // TODO: Add method to VoxelChunk to get raw voxel array
     std::vector<uint32_t> voxelData(VoxelChunk::SIZE * VoxelChunk::SIZE * VoxelChunk::SIZE);
     
     // Copy voxel data from chunk to upload buffer

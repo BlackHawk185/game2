@@ -42,13 +42,9 @@ vec3 worldPositionFromDepth(vec2 texCoord, float depth) {
 }
 
 float calculateLighting(vec3 worldPos, vec3 normal) {
-    // Simple directional lighting for now
+    // Simple directional lighting
     vec3 lightDir = normalize(-u_SunDirection);
     float NdotL = max(dot(normal, lightDir), 0.0);
-    
-    // TODO: Add shadow mapping
-    // TODO: Add ambient occlusion
-    // TODO: Add volumetric lighting
     
     return NdotL;
 }
@@ -62,10 +58,6 @@ vec3 calculatePBR(vec3 albedo, vec3 normal, float metallic, float roughness, vec
     
     // Diffuse contribution
     vec3 diffuse = u_SunColor * albedo * lighting * u_SunIntensity;
-    
-    // TODO: Add specular/reflection contribution
-    // TODO: Add IBL (Image Based Lighting)
-    // TODO: Add subsurface scattering for specific materials
     
     return ambient + diffuse;
 }

@@ -55,6 +55,12 @@ public:
     // Batch rendering for multiple chunks
     void beginBatch();
     void renderChunkBatch(const std::vector<VoxelChunk*>& chunks, const std::vector<Vec3>& offsets);
+    
+    // Optimized island rendering - sets shared uniforms once per island
+    void beginIslandBatch(const Vec3& islandWorldPosition);
+    void renderIslandChunk(VoxelChunk* chunk, const Vec3& chunkRelativeOffset);
+    void endIslandBatch();
+    
     void endBatch();
 
     // Fluid particle rendering
@@ -90,6 +96,13 @@ private:
     glm::mat4 m_lightVPs[4];
     float m_cascadeSplits[4] = { 333.0f, 666.0f, 1000.0f, 1000.0f };
 
+    // State caching for optimization
+    bool m_texturesBound = false;
+    bool m_sharedUniformsSet = false;
+    Vec3 m_currentIslandPosition{0.0f, 0.0f, 0.0f};
+    glm::mat4 m_islandBaseMatrix{1.0f}; // Pre-computed island transform
+    glm::mat4 m_lastModelMatrix{0.0f}; // Track last model matrix to avoid redundant updates
+
     // Texture IDs for different block types
     unsigned int m_dirtTextureID = 0;
     unsigned int m_stoneTextureID = 0;
@@ -105,6 +118,11 @@ private:
     void setupVertexAttributes();
     void setupVAO(VoxelChunk* chunk);
     bool initDepthShader();
+    
+    // Optimization helpers
+    void bindTexturesOnce();
+    void setSharedUniforms();
+    void resetRenderState();
 };
 
 // Global VBO renderer instance

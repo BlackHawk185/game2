@@ -46,12 +46,5 @@ void main() {
     // Gamma correction
     ldrColor = gammaCorrection(ldrColor, u_Gamma);
     
-    // TODO: Add additional post-processing effects:
-    // - Bloom
-    // - Chromatic aberration
-    // - Film grain
-    // - Color grading
-    // - FXAA/TAA
-    
     FragColor = vec4(ldrColor, 1.0);
 }

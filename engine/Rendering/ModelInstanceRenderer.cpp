@@ -432,7 +432,7 @@ void ModelInstanceRenderer::renderGrassChunk(VoxelChunk* chunk, const Vec3& worl
 }
 
 void ModelInstanceRenderer::beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP) {
-    // Depth pass disabled - was causing blue speckling artifacts
+    // Depth pass disabled
     (void)cascadeIndex;
     (void)lightVP;
 }

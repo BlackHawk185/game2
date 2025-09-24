@@ -75,15 +75,11 @@ private:
     void processChunkLightingOptimized(VoxelChunk* chunk, const Vec3& chunkWorldPos);
     bool performFastOcclusionCheck(const Vec3& worldPos, const Vec3& faceNormal) const;
     uint8_t sampleVoxelAtWorldPosOptimized(const Vec3& worldPos) const;
-    
-    // Cross-chunk raycast for unified lighting
-    bool performGlobalSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const;
-    bool performFastSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const;
     uint8_t sampleVoxelAtWorldPos(const Vec3& worldPos) const;
 
     // Configuration
     bool m_enabled = true;
-    float m_ambientIntensity = 0.0f;  // DISABLED for shadow testing - was 0.4f
+    float m_ambientIntensity = 0.0f;
     float m_sunIntensity = 1.0f;
     Vec3 m_sunDirection{0.3f, -0.8f, 0.5f};  // Angled sun for interesting shadows
     bool m_sunDirectionChanged = true;  // NEW: Track when sun direction changes

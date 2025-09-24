@@ -18,7 +18,6 @@ struct Vertex
     float nx, ny, nz;  // Normal
     float u, v;        // Texture coordinates
     float lu, lv;      // Light map coordinates
-    float ao;          // Ambient occlusion (0.0 = fully occluded, 1.0 = no occlusion)
     float faceIndex;   // Face index (0-5) for selecting correct light map texture
     float blockType;   // Block type ID for texture selection
 };
@@ -193,7 +192,6 @@ class VoxelChunk
                        int x, int y, int z, int width, int height, int direction, uint8_t blockType);
     
     // Light mapping utilities
-    float computeAmbientOcclusion(int x, int y, int z, int face) const;
     void generatePerFaceLightMaps();  // Generate separate light map per face direction
     bool performSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const;  // Raycast for occlusion
     bool performLocalSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const;  // Local chunk raycast for floating islands

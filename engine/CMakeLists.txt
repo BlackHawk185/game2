@@ -25,7 +25,6 @@ add_library(engine STATIC
     Rendering/SimpleShader.cpp  # Simple shader for basic rendering
     Rendering/ComputeShader.cpp  # NEW: GPU compute shader support
     Rendering/GPUMeshGenerator.cpp  # NEW: GPU-accelerated mesh generation
-    Rendering/GlobalLightingManager.cpp  # NEW: Global lighting system
     Rendering/ShadowMap.cpp
     Rendering/CascadedShadowMap.cpp
     Rendering/ModelInstanceRenderer.cpp

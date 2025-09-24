@@ -133,36 +133,77 @@ void Profiler::reportToConsole()
             return a.second->totalTime > b.second->totalTime;
         });
 
+    // Calculate total frame time for percentage calculations
+    double totalFrameTime = 0.0;
+    for (const auto& entry : sortedProfiles) {
+        if (entry.first.find("GameClient::update") != std::string::npos ||
+            entry.first.find("GameClient::render") != std::string::npos) {
+            totalFrameTime = std::max(totalFrameTime, entry.second->getAverageTime());
+        }
+    }
+    
+    // If no main frame function found, use the highest time consumer
+    if (totalFrameTime == 0.0 && !sortedProfiles.empty()) {
+        totalFrameTime = sortedProfiles[0].second->getAverageTime();
+    }
+
     // Report header
     double reportTime = getTimeSinceLastReport();
-    std::cout << "\n=== PROFILER REPORT (" << std::fixed << std::setprecision(1) 
+    std::cout << "\n=== PERFORMANCE ANALYSIS (" << std::fixed << std::setprecision(1) 
               << reportTime << "s) ===" << std::endl;
-    std::cout << std::left << std::setw(25) << "Function"
-              << std::right << std::setw(8) << "Samples"
+              
+    // Only show major performance consumers (>1ms average or >5% of frame time)
+    std::cout << std::left << std::setw(35) << "System"
+              << std::right << std::setw(8) << "Avg(ms)"
+              << std::setw(8) << "% Frame"
+              << std::setw(8) << "Calls"
               << std::setw(10) << "Total(ms)"
-              << std::setw(10) << "Avg(ms)"
-              << std::setw(10) << "Min(ms)"
-              << std::setw(10) << "Max(ms)"
-              << std::setw(8) << "FPS*" << std::endl;
-    std::cout << std::string(81, '-') << std::endl;
+              << std::setw(8) << "FPS" << std::endl;
+    std::cout << std::string(77, '-') << std::endl;
 
-    // Report each profile
+    // Report major systems only
     for (const auto& entry : sortedProfiles)
     {
         const ProfileData& data = *entry.second;
-        double fps = data.getAverageTime() > 0.0 ? 1000.0 / data.getAverageTime() : 0.0;
+        double avgTime = data.getAverageTime();
+        double framePercent = totalFrameTime > 0.0 ? (avgTime / totalFrameTime) * 100.0 : 0.0;
         
-        std::cout << std::left << std::setw(25) << data.name.substr(0, 24)
-                  << std::right << std::setw(8) << data.sampleCount
-                  << std::setw(10) << std::fixed << std::setprecision(2) << data.totalTime
-                  << std::setw(10) << std::fixed << std::setprecision(2) << data.getAverageTime()
-                  << std::setw(10) << std::fixed << std::setprecision(2) << data.minTime
-                  << std::setw(10) << std::fixed << std::setprecision(2) << data.maxTime
+        // Only show significant performance consumers
+        if (avgTime < 1.0 && framePercent < 5.0) continue;
+        
+        double fps = avgTime > 0.0 ? 1000.0 / avgTime : 0.0;
+        
+        // Simplify function names for clarity
+        std::string displayName = data.name;
+        
+        // Clean up common prefixes and focus on the main function
+        size_t lastScope = displayName.rfind("::");
+        if (lastScope != std::string::npos) {
+            displayName = displayName.substr(lastScope + 2);
+        }
+        
+        // Truncate if still too long
+        if (displayName.length() > 34) {
+            displayName = displayName.substr(0, 31) + "...";
+        }
+        
+        std::cout << std::left << std::setw(35) << displayName
+                  << std::right << std::setw(8) << std::fixed << std::setprecision(2) << avgTime
+                  << std::setw(7) << std::fixed << std::setprecision(1) << framePercent << "%"
+                  << std::setw(8) << data.sampleCount
+                  << std::setw(10) << std::fixed << std::setprecision(1) << data.totalTime
                   << std::setw(8) << std::fixed << std::setprecision(0) << fps
                   << std::endl;
     }
     
-    std::cout << "* FPS calculated from average frame time" << std::endl;
+    // Show frame time summary
+    if (totalFrameTime > 0.0) {
+        double actualFPS = 1000.0 / totalFrameTime;
+        std::cout << std::string(77, '-') << std::endl;
+        std::cout << "FRAME SUMMARY: " << std::fixed << std::setprecision(2) << totalFrameTime 
+                  << "ms (" << std::setprecision(1) << actualFPS << " FPS)" << std::endl;
+    }
+    
     std::cout << std::endl;
 }
 

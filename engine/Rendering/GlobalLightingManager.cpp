@@ -56,14 +56,6 @@ void GlobalLightingManager::updateGlobalLighting(const Camera& camera, IslandChu
     
     auto endTime = std::chrono::high_resolution_clock::now();
     m_stats.updateTimeMs = std::chrono::duration<float, std::milli>(endTime - startTime).count();
-    
-    // Debug output occasionally
-    static int debugCounter = 0;
-    if (++debugCounter % 120 == 0) { // Every ~60 seconds at 2 FPS (was every 5 seconds)
-        std::cout << "[GLOBAL_LIGHTING] Processed " << m_stats.chunksLit << "/" 
-                  << m_stats.chunksConsidered << " chunks in " 
-                  << m_stats.updateTimeMs << "ms (Event-driven mode)" << std::endl;
-    }
 }
 
 // Recalculate occlusion-only lightmaps for all chunks within a neighborhood radius around a center
@@ -217,7 +209,6 @@ void GlobalLightingManager::gatherVisibleChunks(const Camera& camera, IslandChun
     m_islandChunkMap.clear();
     
     if (!islandSystem) {
-        std::cout << "[GLOBAL_LIGHTING_DEBUG] No island system provided!" << std::endl;
         return;
     }
     
@@ -228,10 +219,7 @@ void GlobalLightingManager::gatherVisibleChunks(const Camera& camera, IslandChun
     // Get all islands from the provided island system
     const auto& islands = islandSystem->getIslands();
     
-    std::cout << "[GLOBAL_LIGHTING_DEBUG] Found " << islands.size() << " islands in system" << std::endl;
-    
     for (const auto& [islandID, island] : islands) {
-        std::cout << "[GLOBAL_LIGHTING_DEBUG] Island " << islandID << " has " << island.chunks.size() << " chunks" << std::endl;
         for (const auto& [chunkCoord, chunk] : island.chunks) {
             if (!chunk) continue;
             
@@ -241,19 +229,6 @@ void GlobalLightingManager::gatherVisibleChunks(const Camera& camera, IslandChun
             Vec3 chunkWorldPos = island.physicsCenter + 
                 FloatingIsland::chunkCoordToWorldPos(chunkCoord);
             
-            // Frustum culling check - TEMPORARILY DISABLED FOR DEBUG
-            Vec3 chunkCenter = chunkWorldPos + Vec3(16.0f, 16.0f, 16.0f); // 32x32x32 chunk center
-            // if (g_frustumCuller.shouldCullChunk(chunkCenter, 22.6f)) { // sqrt(16^2 * 3) = ~27.7, use 22.6 for tighter culling
-            //     m_stats.chunksCulled++;
-            //     continue;
-            // }
-            
-            // Distance culling check - TEMPORARILY DISABLED FOR DEBUG
-            // if (g_frustumCuller.shouldCullByDistance(chunkCenter, camera.position)) {
-            //     m_stats.chunksCulled++;
-            //     continue;
-            // }
-            
             // This chunk is visible - add to processing list
             VisibleChunk visibleChunk;
             visibleChunk.chunk = chunk.get();
@@ -261,61 +236,10 @@ void GlobalLightingManager::gatherVisibleChunks(const Camera& camera, IslandChun
             visibleChunk.islandID = islandID;
             m_visibleChunks.push_back(visibleChunk);
             
-            std::cout << "[GLOBAL_LIGHTING_DEBUG] Added chunk at " << chunkWorldPos.x << "," << chunkWorldPos.y << "," << chunkWorldPos.z << std::endl;
-            
             // Build chunk lookup map for fast cross-chunk queries
             m_islandChunkMap[islandID] = &island;
         }
     }
-}
-
-bool GlobalLightingManager::performGlobalSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const {
-    PROFILE_SCOPE("GlobalLightingManager::performGlobalSunRaycast");
-    
-    const float stepSize = 1.0f;
-    const int maxSteps = static_cast<int>(maxDistance / stepSize);
-    
-    Vec3 rayPos = rayStart;
-    Vec3 rayStep = sunDirection * stepSize;
-    
-    for (int step = 0; step < maxSteps; ++step) {
-        rayPos = rayPos + rayStep;
-        
-        // Sample voxel at current world position using global lookup
-        uint8_t voxel = sampleVoxelAtWorldPos(rayPos);
-        if (voxel != 0) {
-            // Hit a solid voxel - ray is occluded
-            return true;
-        }
-    }
-    
-    // Ray traveled maximum distance without hitting anything
-    return false;
-}
-
-bool GlobalLightingManager::performFastSunRaycast(const Vec3& rayStart, const Vec3& sunDirection, float maxDistance) const {
-    PROFILE_SCOPE("GlobalLightingManager::performFastSunRaycast");
-    
-    // Much faster raycast - larger steps, shorter distance
-    const float stepSize = 2.0f; // Double the step size for speed
-    const int maxSteps = static_cast<int>(maxDistance / stepSize); // Much fewer steps
-    
-    Vec3 rayPos = rayStart;
-    Vec3 rayStep = sunDirection * stepSize;
-    
-    for (int step = 0; step < maxSteps; ++step) {
-        rayPos = rayPos + rayStep;
-        
-        // Sample voxel at current world position using global lookup
-        uint8_t voxel = sampleVoxelAtWorldPos(rayPos);
-        if (voxel != 0) {
-            // Hit a solid voxel - ray is occluded
-            return true;
-        }
-    }
-    
-    // Ray traveled maximum distance without hitting anything
-    return false;
 }
 
 uint8_t GlobalLightingManager::sampleVoxelAtWorldPos(const Vec3& worldPos) const {

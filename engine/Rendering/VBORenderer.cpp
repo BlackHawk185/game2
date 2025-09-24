@@ -1,4 +1,4 @@
-// VBORenderer.cpp - Modern VBO implementation with GLAD (shader support disabled temporarily)
+// VBORenderer.cpp - Modern VBO implementation with GLAD
 #include "VBORenderer.h"
 #include "ShadowMap.h"
 #include "CascadedShadowMap.h"
@@ -206,17 +206,13 @@ void VBORenderer::setupVAO(VoxelChunk* chunk)
     glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(8 * sizeof(float)));
     glEnableVertexAttribArray(3);
     
-    // Ambient occlusion (location 4)
+    // Face index (location 4)
     glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(10 * sizeof(float)));
     glEnableVertexAttribArray(4);
     
-    // Face index (location 5)
+    // Block type (location 5)
     glVertexAttribPointer(5, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(11 * sizeof(float)));
     glEnableVertexAttribArray(5);
-    
-    // Block type (location 6)
-    glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(12 * sizeof(float)));
-    glEnableVertexAttribArray(6);
 
     // Important: unbind VAO so subsequent buffer unbinds don't alter VAO state
     glBindVertexArray(0);
@@ -355,85 +351,104 @@ void VBORenderer::beginBatch()
 {
     PROFILE_SCOPE("VBORenderer::beginBatch");
     m_stats.reset();
+    resetRenderState();
 }
 
 void VBORenderer::endBatch()
 {
+    resetRenderState();
 }
 
 void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
 {
     if (!chunk || !m_initialized || !m_shader.isValid()) return;
     PROFILE_SCOPE("VBORenderer::renderChunk");
-    std::lock_guard<std::mutex> lock(chunk->getMeshMutex());
-    const VoxelMesh& mesh = chunk->getMesh();
-    if (mesh.vertices.empty() || mesh.indices.empty() || mesh.VAO == 0) return;
+    
+    {
+        PROFILE_SCOPE("renderChunk::meshValidation");
+        std::lock_guard<std::mutex> lock(chunk->getMeshMutex());
+        const VoxelMesh& mesh = chunk->getMesh();
+        if (mesh.vertices.empty() || mesh.indices.empty() || mesh.VAO == 0) return;
+    }
 
     // Ensure sane fixed-function state for color rendering
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glDrawBuffer(GL_BACK);
-    glReadBuffer(GL_BACK);
-    glEnable(GL_DEPTH_TEST);
-    glDisable(GL_POLYGON_OFFSET_FILL);
-    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-
-    m_shader.use();
-    // Ensure vertex shader uses uModel path (not uninitialized UBO transforms)
-    m_shader.setChunkIndex(-1);
-
-    glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
-    m_shader.setMatrix4("uModel", modelMatrix);
-    m_shader.setMatrix4("uView", m_viewMatrix);
-    m_shader.setMatrix4("uProjection", m_projectionMatrix);
-    // Cascades
-    m_shader.setInt("uCascadeCount", m_cascadeCount);
-    for (int i = 0; i < m_cascadeCount; ++i) {
-        char name[32];
-        snprintf(name, sizeof(name), "uLightVP[%d]", i);
-        m_shader.setMatrix4(name, m_lightVPs[i]);
-        snprintf(name, sizeof(name), "uCascadeSplits[%d]", i);
-        m_shader.setFloat(name, m_cascadeSplits[i]);
-        snprintf(name, sizeof(name), "uShadowTexel[%d]", i);
-        float texel = 1.0f / float(g_csm.getSize(i) > 0 ? g_csm.getSize(i) : 2048);
-        m_shader.setFloat(name, texel);
-    }
-    // Set light direction for slope-bias + lambert
-    m_shader.setVector3("uLightDir", Vec3(m_lightDir.x, m_lightDir.y, m_lightDir.z));
-    // Set camera position for distance-based smoothing
-    m_shader.setVector3("uCameraPosition", m_cameraPosition);
-
-    // Bind cascaded shadow maps (2 cascades)
-    if (g_csm.getCascadeCount() >= 2) {
-        glActiveTexture(GL_TEXTURE7);
-        glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
-        m_shader.setInt("uShadowMaps[0]", 7);
-        glActiveTexture(GL_TEXTURE8);
-        glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(1));
-        m_shader.setInt("uShadowMaps[1]", 8);
+    {
+        PROFILE_SCOPE("renderChunk::stateSetup");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDrawBuffer(GL_BACK);
+        glReadBuffer(GL_BACK);
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     }
 
-    // Bind all block textures to different texture units
-    // Dirt texture (texture unit 0)
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, m_dirtTextureID);
-    m_shader.setInt("uTexture", 0);
-    
-    // Stone texture (texture unit 1)
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, m_stoneTextureID);
-    m_shader.setInt("uStoneTexture", 1);
-    
-    // Grass texture (texture unit 2)
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_2D, m_grassTextureID);
-    m_shader.setInt("uGrassTexture", 2);
+    {
+        PROFILE_SCOPE("renderChunk::shaderSetup");
+        m_shader.use();
+        // Ensure vertex shader uses uModel path (not uninitialized UBO transforms)
+        m_shader.setChunkIndex(-1);
 
-    glBindVertexArray(mesh.VAO);
-    glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, 0);
-    glBindVertexArray(0);
+        glm::mat4 modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
+        m_shader.setMatrix4("uModel", modelMatrix);
+        m_shader.setMatrix4("uView", m_viewMatrix);
+        m_shader.setMatrix4("uProjection", m_projectionMatrix);
+        // Cascades
+        m_shader.setInt("uCascadeCount", m_cascadeCount);
+        for (int i = 0; i < m_cascadeCount; ++i) {
+            char name[32];
+            snprintf(name, sizeof(name), "uLightVP[%d]", i);
+            m_shader.setMatrix4(name, m_lightVPs[i]);
+            snprintf(name, sizeof(name), "uCascadeSplits[%d]", i);
+            m_shader.setFloat(name, m_cascadeSplits[i]);
+            snprintf(name, sizeof(name), "uShadowTexel[%d]", i);
+            float texel = 1.0f / float(g_csm.getSize(i) > 0 ? g_csm.getSize(i) : 2048);
+            m_shader.setFloat(name, texel);
+        }
+        // Set light direction for slope-bias + lambert
+        m_shader.setVector3("uLightDir", Vec3(m_lightDir.x, m_lightDir.y, m_lightDir.z));
+        // Set camera position for distance-based smoothing
+        m_shader.setVector3("uCameraPosition", m_cameraPosition);
+    }
+
+    {
+        PROFILE_SCOPE("renderChunk::textureBinding");
+        // Bind cascaded shadow maps (2 cascades)
+        if (g_csm.getCascadeCount() >= 2) {
+            glActiveTexture(GL_TEXTURE7);
+            glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
+            m_shader.setInt("uShadowMaps[0]", 7);
+            glActiveTexture(GL_TEXTURE8);
+            glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(1));
+            m_shader.setInt("uShadowMaps[1]", 8);
+        }
+
+        // Bind all block textures to different texture units
+        // Dirt texture (texture unit 0)
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, m_dirtTextureID);
+        m_shader.setInt("uTexture", 0);
+        
+        // Stone texture (texture unit 1)
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, m_stoneTextureID);
+        m_shader.setInt("uStoneTexture", 1);
+        
+        // Grass texture (texture unit 2)
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, m_grassTextureID);
+        m_shader.setInt("uGrassTexture", 2);
+    }
+
+    {
+        PROFILE_SCOPE("renderChunk::drawCall");
+        const VoxelMesh& mesh = chunk->getMesh(); // Safe to access after validation
+        glBindVertexArray(mesh.VAO);
+        glDrawElements(GL_TRIANGLES, (GLsizei)mesh.indices.size(), GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
 
     m_stats.chunksRendered++;
-    m_stats.verticesRendered += (uint32_t)mesh.vertices.size();
+    m_stats.verticesRendered += (uint32_t)chunk->getMesh().vertices.size();
     m_stats.drawCalls++;
 }
 
@@ -505,8 +520,6 @@ void VBORenderer::renderFluidParticles(const std::vector<EntityID>& particles)
 void VBORenderer::renderSphere()
 {
     // Simple sphere approximation using a scaled cube
-    // TODO: Replace with proper icosphere geometry for better sphere appearance
-
     static const float vertices[] = {
         // Front face (scaled to create sphere-like appearance)
         -0.8f, -0.8f,  0.8f,    0.8f, -0.8f,  0.8f,    0.8f,  0.8f,  0.8f,   -0.8f,  0.8f,  0.8f,
@@ -566,5 +579,149 @@ void VBORenderer::renderSphere()
     glBindVertexArray(sphereVAO);
     glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
     glBindVertexArray(0);
+}
+
+// Optimized island-based rendering methods
+void VBORenderer::beginIslandBatch(const Vec3& islandWorldPosition)
+{
+    if (!m_initialized || !m_shader.isValid()) return;
+    
+    m_currentIslandPosition = islandWorldPosition;
+    
+    // Pre-compute the island base transformation matrix
+    m_islandBaseMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(islandWorldPosition.x, islandWorldPosition.y, islandWorldPosition.z));
+    
+    // Set up shared rendering state once per island
+    {
+        PROFILE_SCOPE("beginIsland::stateSetup");
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glDrawBuffer(GL_BACK);
+        glReadBuffer(GL_BACK);
+        glEnable(GL_DEPTH_TEST);
+        glDisable(GL_POLYGON_OFFSET_FILL);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    }
+    
+    {
+        PROFILE_SCOPE("beginIsland::shaderSetup");
+        m_shader.use();
+        setSharedUniforms();
+        m_sharedUniformsSet = true;
+    }
+    
+    {
+        PROFILE_SCOPE("beginIsland::textureSetup");
+        bindTexturesOnce();
+        m_texturesBound = true;
+    }
+}
+
+void VBORenderer::renderIslandChunk(VoxelChunk* chunk, const Vec3& chunkRelativeOffset)
+{
+    if (!chunk || !m_initialized || !m_shader.isValid()) return;
+    PROFILE_SCOPE("VBORenderer::renderIslandChunk");
+    
+    // Quick mesh validation - optimized to avoid repeated mutex locks
+    bool meshValid = false;
+    size_t indexCount = 0;
+    {
+        PROFILE_SCOPE("islandChunk::meshValidation");
+        std::lock_guard<std::mutex> lock(chunk->getMeshMutex());
+        const VoxelMesh& mesh = chunk->getMesh();
+        meshValid = !mesh.vertices.empty() && !mesh.indices.empty() && mesh.VAO != 0;
+        if (!meshValid) return;
+        indexCount = mesh.indices.size();
+    }
+    
+    // Only set the model matrix (much faster than setting all uniforms)
+    {
+        PROFILE_SCOPE("islandChunk::modelMatrix");
+        // Use pre-computed island matrix + chunk offset (faster than full translate)
+        glm::mat4 modelMatrix = glm::translate(m_islandBaseMatrix, glm::vec3(chunkRelativeOffset.x, chunkRelativeOffset.y, chunkRelativeOffset.z));
+        m_shader.setMatrix4("uModel", modelMatrix);
+    }
+    
+    // Draw the chunk - use cached values to avoid second mutex lock
+    {
+        PROFILE_SCOPE("islandChunk::drawCall");
+        const VoxelMesh& mesh = chunk->getMesh(); // This is safe after validation
+        glBindVertexArray(mesh.VAO);
+        glDrawElements(GL_TRIANGLES, (GLsizei)indexCount, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+    }
+    
+    m_stats.chunksRendered++;
+    m_stats.verticesRendered += (uint32_t)chunk->getMesh().vertices.size();
+    m_stats.drawCalls++;
+}
+
+void VBORenderer::endIslandBatch()
+{
+    m_texturesBound = false;
+    m_sharedUniformsSet = false;
+}
+
+// Helper methods for optimization
+void VBORenderer::bindTexturesOnce()
+{
+    if (m_texturesBound) return;
+    
+    // Bind cascaded shadow maps (2 cascades)
+    if (g_csm.getCascadeCount() >= 2) {
+        glActiveTexture(GL_TEXTURE7);
+        glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
+        m_shader.setInt("uShadowMaps[0]", 7);
+        glActiveTexture(GL_TEXTURE8);
+        glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(1));
+        m_shader.setInt("uShadowMaps[1]", 8);
+    }
+
+    // Bind all block textures to different texture units
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_dirtTextureID);
+    m_shader.setInt("uTexture", 0);
+    
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, m_stoneTextureID);
+    m_shader.setInt("uStoneTexture", 1);
+    
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, m_grassTextureID);
+    m_shader.setInt("uGrassTexture", 2);
+}
+
+void VBORenderer::setSharedUniforms()
+{
+    if (m_sharedUniformsSet) return;
+    
+    // Set uniforms that are the same for all chunks in this batch
+    m_shader.setChunkIndex(-1);
+    m_shader.setMatrix4("uView", m_viewMatrix);
+    m_shader.setMatrix4("uProjection", m_projectionMatrix);
+    
+    // Cascades (same for all chunks)
+    m_shader.setInt("uCascadeCount", m_cascadeCount);
+    for (int i = 0; i < m_cascadeCount; ++i) {
+        char name[32];
+        snprintf(name, sizeof(name), "uLightVP[%d]", i);
+        m_shader.setMatrix4(name, m_lightVPs[i]);
+        snprintf(name, sizeof(name), "uCascadeSplits[%d]", i);
+        m_shader.setFloat(name, m_cascadeSplits[i]);
+        snprintf(name, sizeof(name), "uShadowTexel[%d]", i);
+        float texel = 1.0f / float(g_csm.getSize(i) > 0 ? g_csm.getSize(i) : 2048);
+        m_shader.setFloat(name, texel);
+    }
+    
+    // Set lighting uniforms (same for all chunks)
+    m_shader.setVector3("uLightDir", Vec3(m_lightDir.x, m_lightDir.y, m_lightDir.z));
+    m_shader.setVector3("uCameraPosition", m_cameraPosition);
+}
+
+void VBORenderer::resetRenderState()
+{
+    m_texturesBound = false;
+    m_sharedUniformsSet = false;
+    m_currentIslandPosition = Vec3(0.0f, 0.0f, 0.0f);
+    m_lastModelMatrix = glm::mat4(0.0f); // Reset matrix cache
 }
 

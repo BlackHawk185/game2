@@ -121,8 +121,6 @@ GLuint TextureManager::createTexture(const unsigned char* data, int width, int h
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     
-    // Mipmaps disabled in this build profile to avoid missing GL loader symbols
-    
     glBindTexture(GL_TEXTURE_2D, 0);
     
     return textureID;

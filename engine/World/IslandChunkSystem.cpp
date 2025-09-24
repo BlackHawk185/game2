@@ -909,18 +909,47 @@ void IslandChunkSystem::renderAllIslands()
 {
     PROFILE_SCOPE("IslandChunkSystem::renderAllIslands");
     if (!g_vboRenderer) return;
-    std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
-    getAllChunksWithWorldPos(snapshot);
+    
     g_vboRenderer->beginBatch();
-    for (auto& p : snapshot)
+    
+    // Render each island as a batch (much more efficient)
     {
-        // Only upload when needed to avoid contention/cost
-        VoxelMesh& m = p.first->getMesh();
-        if (m.VAO == 0 || m.needsUpdate) {
-            g_vboRenderer->uploadChunkMesh(p.first);
+        PROFILE_SCOPE("renderAllIslands::islandIteration");
+        std::lock_guard<std::mutex> lock(m_islandsMutex);
+        
+        for (const auto& [islandId, island] : m_islands)
+        {
+            PROFILE_SCOPE("renderAllIslands::singleIsland");
+            
+            // Get island world position
+            Vec3 islandWorldPos = island.physicsCenter; // Island's world position
+            
+            // Begin optimized batch for this island
+            g_vboRenderer->beginIslandBatch(islandWorldPos);
+            
+            // Render all chunks for this island
+            for (const auto& [chunkCoord, chunk] : island.chunks)
+            {
+                if (!chunk) continue;
+                
+                // Upload mesh if needed
+                VoxelMesh& mesh = chunk->getMesh();
+                if (mesh.VAO == 0 || mesh.needsUpdate) {
+                    g_vboRenderer->uploadChunkMesh(chunk.get());
+                }
+                
+                // Calculate chunk's relative offset to island center
+                Vec3 chunkRelativeOffset = FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                
+                // Render chunk with optimized method (only sets model matrix)
+                g_vboRenderer->renderIslandChunk(chunk.get(), chunkRelativeOffset);
+            }
+            
+            // End batch for this island
+            g_vboRenderer->endIslandBatch();
         }
-        g_vboRenderer->renderChunk(p.first, p.second);
     }
+    
     g_vboRenderer->endBatch();
 }
 

@@ -20,7 +20,6 @@
 #include "../Rendering/VBORenderer.h"  // RE-ENABLED
 #include "../Rendering/ModelInstanceRenderer.h"
 #include "../Rendering/ShadowMap.h"
-#include "../Rendering/GlobalLightingManager.h"  // NEW: Global lighting system
 #include "../Physics/FluidSystem.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -205,17 +204,8 @@ bool GameClient::update(float deltaTime)
         float directionChange = (newSunDirection - m_lastSunDirection).length();
         
         if (directionChange > 0.01f) { // Sun moved enough to matter
-            // Update global lighting manager with new sun direction
-            extern GlobalLightingManager g_globalLighting;
-            g_globalLighting.setSunDirection(newSunDirection);
             m_lastSunDirection = newSunDirection;
         }
-    }
-
-    // Update model instancing time (wind animation)
-    if (g_modelRenderer)
-    {
-        g_modelRenderer->update(deltaTime);
     }
 
     // Process input
@@ -225,10 +215,7 @@ bool GameClient::update(float deltaTime)
     }
 
     // Render frame
-    {
-        PROFILE_SCOPE("render");
-        render();
-    }
+    render();
 
     // Swap buffers and poll events via wrapper
     {
@@ -262,14 +249,6 @@ void GameClient::shutdown()
         delete g_vboRenderer;
         g_vboRenderer = nullptr;
         std::cout << "VBO renderer shutdown" << std::endl;
-    }
-
-    // Cleanup model instance renderer
-    if (g_modelRenderer)
-    {
-        g_modelRenderer->shutdown();
-        delete g_modelRenderer;
-        g_modelRenderer = nullptr;
     }
 
     // Cleanup window
@@ -344,7 +323,6 @@ void GameClient::render()
     // Render world (only if we have local game state)
     if (m_gameState)
     {
-        PROFILE_SCOPE("renderWorld");
         renderWorld();
     }
     else if (m_isRemoteClient)
@@ -400,21 +378,6 @@ bool GameClient::initializeGraphics()
         return false;
     }
     std::cout << "VBO renderer initialized successfully" << std::endl;
-
-    // Initialize model instancing renderer (decorative GLB like grass)
-    g_modelRenderer = new ModelInstanceRenderer();
-    if (!g_modelRenderer->initialize())
-    {
-        std::cerr << "Failed to initialize ModelInstanceRenderer!" << std::endl;
-        delete g_modelRenderer;
-        g_modelRenderer = nullptr;
-        return false;
-    }
-    // Load grass model asset
-    if (!g_modelRenderer->loadGrassModel("assets/models/grass.glb"))
-    {
-        std::cerr << "Warning: could not load assets/models/grass.glb. Grass will not render." << std::endl;
-    }
 
     // Initialize ImGui
     IMGUI_CHECKVERSION();
@@ -639,32 +602,12 @@ void GameClient::renderWorld()
 
     // Render all islands
     {
-        PROFILE_SCOPE("renderAllIslands");
         // Before rendering, set cascade matrices and splits on the shader via renderer
         if (g_vboRenderer) {
             // Set matrices individually via names: uLightVP[0..2] and splits
             // This is done inside renderChunk to avoid extra API here.
         }
         m_gameState->getIslandSystem()->renderAllIslands();
-        // Render decorative grass instances per chunk
-        if (g_modelRenderer)
-        {
-            std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
-            m_gameState->getIslandSystem()->getAllChunksWithWorldPos(snapshot);
-            float aspect = (float) m_windowWidth / (float) m_windowHeight;
-            float fov = 45.0f;
-            glm::mat4 projectionMatrix = glm::perspective(fov * 3.14159265358979323846f / 180.0f, aspect, 0.1f, 1000.0f);
-            glm::mat4 viewMatrix = m_camera.getViewMatrix();
-            // Provide cascade data
-            if (g_vboRenderer)
-            {
-                // Pull light dir & splits from renderer state not exposed; set reasonable defaults here
-            }
-            for (auto& p : snapshot)
-            {
-                g_modelRenderer->renderGrassChunk(p.first, p.second, viewMatrix, projectionMatrix);
-            }
-        }
     }
 
     // Render fluid particles
@@ -707,59 +650,34 @@ void GameClient::renderShadowPass()
     glm::vec3 lightPos = camPos - lightDir * 100.0f;
     glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
     
-    // Frustum splits (lambda blend)
-    float nearPlane = 0.1f;
-    float farPlane = 1000.0f;
-    const int C = 1;  // DEBUGGING: Only 1 cascade for FPS testing (was 2)
-    float lambda = 0.7f;
-    float splits[C] = {0};
-    for (int i = 0; i < C; ++i) {
-        float si = (i+1) / float(C);
-        float logd = nearPlane * powf(farPlane/nearPlane, si);
-        float lind = nearPlane + (farPlane-nearPlane) * si;
-        splits[i] = lambda * (logd - nearPlane) + (1.0f - lambda) * (lind - nearPlane);
-    }
-
-    // For each cascade, compute ortho box around camera frustum slice and render depth
-    float orthoRanges[C] = {60.0f}; // DEBUGGING: Only 60-unit shadow range for single cascade testing
+    // Simple single shadow map - no cascade complexity
+    float shadowRange = 1000.0f;  // Single shadow map covers full viewing distance
+    
+    // Single orthographic shadow projection
+    glm::mat4 lightProj = glm::ortho(-shadowRange, shadowRange, -shadowRange, shadowRange, -shadowRange, shadowRange);
     if (g_vboRenderer) {
         g_vboRenderer->setLightDir(lightDir);
-    }
-    if (g_modelRenderer) {
-        g_modelRenderer->setLightDir(lightDir);
     }
     auto* islandSystem = m_gameState->getIslandSystem();
     std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
     if (islandSystem) islandSystem->getAllChunksWithWorldPos(snapshot);
-    // Provide splits to renderer (view-space distances)
+    
+    // Single shadow map rendering - no cascade complexity
+    glm::mat4 lightVP = lightProj * lightView;
+    
     if (g_vboRenderer) {
-        g_vboRenderer->setCascadeCount(C);
-        g_vboRenderer->setCascadeSplits(splits, C);
-    }
-    if (g_modelRenderer) {
-        g_modelRenderer->setCascadeCount(C);
-        g_modelRenderer->setCascadeSplits(splits, C);
-    }
-    for (int ci = 0; ci < C; ++ci) {
-        float ortho = orthoRanges[ci];
-        glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
-        // No texel snapping - smooth shadow movement
-        glm::mat4 lightVP = lightProj * lightView;
-
-        if (g_vboRenderer) {
-            g_vboRenderer->setCascadeMatrix(ci, lightVP);
-            g_vboRenderer->beginDepthPassCascade(ci, lightVP);
-            for (auto& p : snapshot) {
-                VoxelChunk* chunkPtr = p.first;
-                const Vec3& worldPos = p.second;
-                VoxelMesh& mesh = chunkPtr->getMesh();
-                if (mesh.VAO == 0 || mesh.needsUpdate)
-                    g_vboRenderer->uploadChunkMesh(chunkPtr);
-                g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
-            }
-            g_vboRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
+        g_vboRenderer->setCascadeCount(1);  // Always single shadow map
+        g_vboRenderer->setCascadeMatrix(0, lightVP);
+        g_vboRenderer->beginDepthPassCascade(0, lightVP);
+        for (auto& p : snapshot) {
+            VoxelChunk* chunkPtr = p.first;
+            const Vec3& worldPos = p.second;
+            VoxelMesh& mesh = chunkPtr->getMesh();
+            if (mesh.VAO == 0 || mesh.needsUpdate)
+                g_vboRenderer->uploadChunkMesh(chunkPtr);
+            g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
         }
-        // Grass shadow pass disabled - was causing blue speckling artifacts
+        g_vboRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
     }
     // Forward pass will read cascade data set on renderer
 }

@@ -227,8 +227,6 @@ void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& i
                 break;
         }
         
-        // Basic ambient occlusion: compute based on neighboring voxels
-        v.ao = computeAmbientOcclusion(static_cast<int>(pos.x), static_cast<int>(pos.y), static_cast<int>(pos.z), face);
         v.faceIndex = static_cast<float>(face);  // Store face index for shader
         
         vertices.push_back(v);
@@ -623,75 +621,6 @@ void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
 
     meshDirty = true;
     collisionMesh.needsUpdate = true;
-}
-
-// Light mapping utilities
-float VoxelChunk::computeAmbientOcclusion(int x, int y, int z, int face) const
-{
-    // Simple ambient occlusion calculation based on neighboring voxels
-    // Higher values = more occlusion (darker), range [0.0, 1.0]
-    
-    static const int faceOffsets[6][3] = {
-        {0, 0, 1},   // +Z (front)
-        {0, 0, -1},  // -Z (back)
-        {0, 1, 0},   // +Y (top)
-        {0, -1, 0},  // -Y (bottom)
-        {1, 0, 0},   // +X (right)
-        {-1, 0, 0}   // -X (left)
-    };
-    
-    // Get the face normal to determine which neighbors to check
-    int fx = faceOffsets[face][0];
-    int fy = faceOffsets[face][1];
-    int fz = faceOffsets[face][2];
-    
-    // Check 8 neighboring positions around this face
-    float occlusion = 0.0f;
-    int sampleCount = 0;
-    
-    // Create a 3x3 grid of offsets perpendicular to the face normal
-    for (int du = -1; du <= 1; du++)
-    {
-        for (int dv = -1; dv <= 1; dv++)
-        {
-            if (du == 0 && dv == 0) continue; // Skip center
-            
-            int checkX = x, checkY = y, checkZ = z;
-            
-            // Map du,dv to world space based on face orientation
-            if (face <= 1) // Z faces: map to X,Y
-            {
-                checkX += du;
-                checkY += dv;
-            }
-            else if (face <= 3) // Y faces: map to X,Z
-            {
-                checkX += du;
-                checkZ += dv;
-            }
-            else // X faces: map to Z,Y
-            {
-                checkZ += du;
-                checkY += dv;
-            }
-            
-            // Also offset by face direction to check the neighboring voxels
-            checkX += fx;
-            checkY += fy;
-            checkZ += fz;
-            
-            // Sample the voxel at this position
-            if (getVoxel(checkX, checkY, checkZ) != 0)
-            {
-                occlusion += 0.15f; // Each solid neighbor adds occlusion
-            }
-            sampleCount++;
-        }
-    }
-    
-    // Return ambient lighting factor (1.0 = bright, 0.0 = dark)
-    // Clamp to reasonable range for subtle effect
-    return std::max(0.3f, 1.0f - occlusion);
 }
 
 void VoxelChunk::generatePerFaceLightMaps()
@@ -1377,7 +1306,6 @@ void VoxelChunk::addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32
         vertex.v = texCoords[i][1];
         vertex.lu = lightMapCoords[i][0];
         vertex.lv = lightMapCoords[i][1];
-        vertex.ao = computeAmbientOcclusion(x, y, z, direction);
         vertex.faceIndex = static_cast<float>(direction);  // Store face index for shader
         vertex.blockType = static_cast<float>(blockType);  // Store block type for texture selection
         
