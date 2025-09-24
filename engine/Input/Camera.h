@@ -28,6 +28,19 @@ public:
     float pitch = -30.0f; // Look down slightly to see islands below
     float speed = 15.0f;  // Faster movement to explore the sphere
     float sensitivity = 0.1f; // Mouse sensitivity
+    float fov = 45.0f;    // Field of view
+    float nearPlane = 0.1f;
+    float farPlane = 1000.0f;
+    
+    // Getters for CSM system
+    glm::vec3 getPosition() const { return glm::vec3(position.x, position.y, position.z); }
+    glm::vec3 getFront() const { return glm::vec3(front.x, front.y, front.z); }
+    glm::vec3 getRight() const { return glm::vec3(right.x, right.y, right.z); }
+    glm::vec3 getUp() const { return glm::vec3(up.x, up.y, up.z); }
+    float getFOV() const { return glm::radians(fov); }
+    float getNearPlane() const { return nearPlane; }
+    float getFarPlane() const { return farPlane; }
+    float getAspectRatio() const { return 16.0f / 9.0f; } // TODO: Make this configurable
     
     // Public method to update camera vectors when yaw/pitch are modified externally
     void updateCameraVectors();

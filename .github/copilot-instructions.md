@@ -2,7 +2,6 @@
 
 This file is for the AI assistant (GitHub Copilot) to reference when generating code, explanations, or project structure for the user.
 
-
 ## Data Layout Directive: SoA (Structure of Arrays)
 
 - **Use SoA (Structure of Arrays) for all entity/component storage and performance-critical systems.**
@@ -35,16 +34,51 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Aggressive cleanup**: Remove deprecated code entirely rather than commenting it out. The project evolves rapidly and accumulating old code hurts maintainability.
 - **Event-driven architecture**: Prefer event-driven systems over continuous polling for better performance and cleaner code organization.
 
+## Development Workflow & Build System
+
+### Essential Commands
+```powershell
+# Quick build (AI-friendly with progress feedback)
+.\scripts\ai-friendly-build.ps1
+
+# Standard CMake workflow
+cmake --preset default                    # Configure
+cmake --build build --config Debug       # Build
+.\build\bin\MMORPGEngine.exe             # Run (integrated mode)
+
+# Run modes
+.\build\bin\MMORPGEngine.exe --server    # Dedicated server
+.\build\bin\MMORPGEngine.exe --client localhost  # Connect to server
+.\build\bin\MMORPGEngine.exe --help      # Show all options
+```
+
+### VS Code Integration
+- Use tasks: "Build", "Run", "Debug Run" (avoid terminal commands when tasks exist)
+- Three launch configurations: Default (integrated), Connect to Server, Dedicated Server
+- Recommended: Always use VS Code tasks rather than manual terminal commands
+
+### Debug Workflow
+- Use `.\scripts\ai-friendly-build.ps1` for immediate feedback during development
+- Check `build/bin/MMORPGEngine.exe` exists after successful build
+- Monitor console output for initialization sequence completion
+
 ## Current Engine Architecture Status
 
 ### Core Systems (Implemented)
 - **ECS Framework**: Entity-Component-System for game objects
-- **JobSystem**: Multi-threaded task processing with worker threads
+- **JobSystem**: Multi-threaded task processing with worker threads (`engine/Threading/JobSystem.h`)
 - **Custom Physics**: Voxel-face-based collision detection with dual-mesh generation
-- **Rendering**: bgfx-based renderer with Dear ImGui dev tools
+- **Rendering**: OpenGL/GLAD-based renderer with Dear ImGui dev tools (transitioning from bgfx)
 - **Input**: Camera controls (WASD+mouse, space for jump)
 - **Time Effects**: Time manipulation system (keys 1-5, 0, T for various effects)
 - **Networking**: ENet-based client-server architecture with unified networking paths
+
+### GPU Compute Infrastructure (In Development)
+- **GPUMeshGenerator**: OpenGL 4.6 compute shader system for voxel mesh generation (`engine/Rendering/GPUMeshGenerator.h/.cpp`)
+- **ComputeShader**: OpenGL compute shader wrapper with buffer management (`engine/Rendering/ComputeShader.h/.cpp`)
+- **Voxel Compute Shader**: `shaders/voxel_mesh_gen.comp` - parallel mesh generation from voxel data
+- **Current Status**: Infrastructure complete, debugging initialization crashes
+- **Performance Goal**: GPU acceleration to replace CPU-heavy mesh generation (0% GPU → 100% CPU utilization identified)
 
 ### Game-Specific Features (Implemented)
 - **Floating Islands**: Procedurally generated voxel islands with custom collision detection
@@ -54,22 +88,61 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Dual-Mesh Generation**: Single-pass generation of both render and collision meshes
 - **Event-Driven Lighting**: Dynamic lighting system integrated with mesh generation and day/night cycle
 - **Day/Night Cycle**: Real-time sun movement with dynamic lighting updates
+- **Light Mapping**: Per-face 32x32 light maps with ambient occlusion (`VoxelChunk::FaceLightMap`)
 
 ### Network Architecture (Implemented)
 - **Unified Networking**: All modes (integrated + remote) use identical network layer
 - **ENet Protocol**: Reliable UDP with automatic packet management
-- **Compression**: ~98% compression ratio for world data transmission
+- **Compression**: ~98% compression ratio for world data transmission (`engine/Network/VoxelCompression.h`)
 - **Client-Server Model**: Server-authoritative with client prediction ready
 - **Multiple Modes**: Integrated (local server + networked client), dedicated server, client-only
+- **Entity Synchronization**: Unified `EntityStateUpdate` for players, islands, future entities
 
-### Technical Details
-- **Build System**: CMake with Visual Studio support
-- **Launch Configurations**: VS Code integration with 3 run modes
-- **Cross-Platform**: Windows, Linux, macOS compatibility maintained
-- **Dependencies**: bgfx, ENet, GLFW, Dear ImGui
-- **Platform**: Currently Windows-focused but designed for cross-platform
-- **Performance**: Optimized for 60+ FPS with multiple islands and custom collision
-- **Physics Architecture**: Custom voxel-face collision system with dual-mesh generation
+### Custom Physics Architecture
+- **Voxel-Face Collision**: Custom collision system using voxel face culling data
+- **Dual-Mesh Generation**: Render + collision meshes from single voxel pass
+- **Sphere-Plane Intersection**: Player collision algorithm with friction response
+- **Memory Efficiency**: Shared data between render and collision systems
+- **Network Determinism**: Identical collision data on client and server
+
+## Project Structure & Key Files
+
+### Core Engine (`engine/`)
+```
+Core/          - GameClient, GameServer, GameState (main application logic)
+ECS/           - Entity-Component-System framework
+Physics/       - Custom voxel-based collision system
+Rendering/     - OpenGL renderer, VBORenderer, GPUMeshGenerator, ComputeShader
+Network/       - ENet networking, compression, NetworkManager
+World/         - IslandChunkSystem, VoxelChunk, raycasting
+Input/         - Camera controls and input handling  
+Threading/     - JobSystem for multi-threaded processing
+Time/          - TimeManager and TimeEffects system
+```
+
+### Critical Integration Points
+- **GPU Mesh Generation**: `engine/World/IslandChunkSystem.cpp` calls `GPUMeshGenerator` for chunk meshing
+- **Network Layer**: All game modes route through `NetworkManager` - no direct GameState access
+- **Voxel Data**: `VoxelChunk` (16x16x16) with `std::array<VoxelID, SIZE*SIZE*SIZE>` storage
+- **Job System**: `JobType::CHUNK_MESHING` for parallel mesh generation
+
+### Build & Dependencies (`libs/`)
+- All dependencies via git submodules (ENet, GLFW, Dear ImGui, LZ4, FastNoise2)
+- OpenGL/GLAD for graphics (transitioning from bgfx)
+- CMake with presets: `default` (Debug), `release` (Release)
+
+## Technical Debugging Context
+
+### Current Known Issues
+- **GPU Mesh Generator**: Initialization crash during OpenGL compute shader setup
+- **Performance**: CPU-bound mesh generation identified (100% CPU, 0% GPU utilization)
+- **OpenGL Context**: Verify GLAD initialization before GPU compute operations
+
+### Architecture Principles
+- **Server Authority**: GameServer owns authoritative world state, clients receive updates
+- **Unified Network Path**: Even integrated mode uses NetworkManager for consistent debugging
+- **Custom Physics**: No external physics engine - voxel-face collision integrated with mesh generation
+- **Performance-First**: SoA data layout, GPU compute acceleration, event-driven systems
 
 ---
 

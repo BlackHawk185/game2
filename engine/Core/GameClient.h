@@ -117,6 +117,10 @@ private:
     DayNightCycle m_dayNightCycle;
     Vec3 m_lastSunDirection{0.0f, 0.0f, 0.0f};  // Track sun direction changes
     
+    // Shadow rendering timing control
+    float m_lastShadowUpdateTime = 0.0f;
+    float m_shadowUpdateInterval = 16.67f;  // 60 FPS (1000ms / 60) - high performance shadow updates
+    
     // Input state
     struct InputState {
         bool leftMousePressed = false;

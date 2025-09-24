@@ -478,7 +478,7 @@ void IslandChunkSystem::generateFloatingIslandFastNoise(uint32_t islandID, uint3
     
     // Terrain parameters
     float terrainScale = 0.015f;               // Scale for terrain features
-    float terrainDensityThreshold = 0.03f;     // LOWERED FURTHER: Even more terrain generation (was 0.05f)
+    float terrainDensityThreshold = 0.001f;     // INCREASED: Less dense terrain generation (was 0.03f)
     
     // Falloff parameters for island shape
     float halfWidth = width * 0.5f;

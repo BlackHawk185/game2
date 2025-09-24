@@ -2,6 +2,7 @@
 #include "VBORenderer.h"
 #include "ShadowMap.h"
 #include "CascadedShadowMap.h"
+#include "../Input/Camera.h"  // Include Camera for getPosition() method
 #include <glad/gl.h>
 #include "TextureManager.h"
 #include "../Profiling/Profiler.h"
@@ -57,13 +58,11 @@ bool VBORenderer::initialize()
         return false;
     }
 
-    // Initialize cascaded shadow map (3 cascades)
-    if (!g_csm.initialize(3, 2048)) {
+    // Initialize cascaded shadow map (2 cascades: near high-res, far low-res)
+    if (!g_csm.initialize()) {
         std::cout << "Failed to initialize cascaded shadow map" << std::endl;
         return false;
     }
-    // Double resolution for near cascade
-    g_csm.resizeCascade(0, 8192);
 
     // Set basic OpenGL state
     glEnable(GL_DEPTH_TEST);
@@ -261,14 +260,34 @@ void VBORenderer::setCascadeMatrix(int index, const glm::mat4& lightVP)
     if (index >= 0 && index < 4) m_lightVPs[index] = lightVP;
 }
 
+void VBORenderer::updateShadowCascades(const Camera& camera, const Vec3& lightDirection, float maxShadowDistance)
+{
+    // Update the cascade matrices and splits automatically
+    g_csm.updateCascades(camera, lightDirection, maxShadowDistance);
+    
+    // Set cascade count to 2 (near and far)
+    m_cascadeCount = g_csm.getCascadeCount();
+    
+    // Store camera position for shader uniforms
+    glm::vec3 camPos = camera.getPosition();
+    m_cameraPosition = Vec3(camPos.x, camPos.y, camPos.z);
+    
+    // Update matrices and splits from CSM system
+    for (int i = 0; i < m_cascadeCount; ++i) {
+        const CascadeInfo& cascade = g_csm.getCascade(i);
+        m_lightVPs[i] = cascade.viewProjection;
+        m_cascadeSplits[i] = cascade.farPlane;
+    }
+}
+
 void VBORenderer::setCascadeCount(int count)
 {
-    m_cascadeCount = (count < 1) ? 1 : (count > 4 ? 4 : count);
+    m_cascadeCount = (count < 1) ? 1 : (count > 2 ? 2 : count);  // Limited to 2 cascades now
 }
 
 void VBORenderer::setCascadeSplits(const float* splits, int count)
 {
-    int n = (count < 1) ? 1 : (count > 4 ? 4 : count);
+    int n = (count < 1) ? 1 : (count > 2 ? 2 : count);  // Limited to 2 cascades now
     for (int i = 0; i < n; ++i) m_cascadeSplits[i] = splits[i];
 }
 
@@ -380,18 +399,17 @@ void VBORenderer::renderChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     }
     // Set light direction for slope-bias + lambert
     m_shader.setVector3("uLightDir", Vec3(m_lightDir.x, m_lightDir.y, m_lightDir.z));
+    // Set camera position for distance-based smoothing
+    m_shader.setVector3("uCameraPosition", m_cameraPosition);
 
-    // Bind cascaded shadow maps
-    if (g_csm.getCascadeCount() >= 3) {
+    // Bind cascaded shadow maps (2 cascades)
+    if (g_csm.getCascadeCount() >= 2) {
         glActiveTexture(GL_TEXTURE7);
         glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
         m_shader.setInt("uShadowMaps[0]", 7);
         glActiveTexture(GL_TEXTURE8);
         glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(1));
         m_shader.setInt("uShadowMaps[1]", 8);
-        glActiveTexture(GL_TEXTURE9);
-        glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(2));
-        m_shader.setInt("uShadowMaps[2]", 9);
     }
 
     // Bind all block textures to different texture units

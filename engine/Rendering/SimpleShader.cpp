@@ -30,14 +30,15 @@ uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
 uniform int uChunkIndex;  // Which chunk this vertex belongs to
-uniform mat4 uLightVP[4]; // Cascaded light view-projections
+uniform mat4 uLightVP[2]; // Cascaded light view-projections (near and far)
 uniform int uCascadeCount;
-uniform float uShadowTexel[4];
+uniform float uShadowTexel[2];
 
 out vec2 TexCoord;
 out vec3 Normal;
 out vec3 WorldPos;
-out vec4 LightSpacePos[4];
+out vec3 ViewPosition;  // Position in view space
+out vec4 LightSpacePos[2];
 out float ViewZ;
 out float BlockType;
 
@@ -47,16 +48,18 @@ void main()
                          uChunkTransforms[uChunkIndex] : uModel;
 
     vec4 world = finalTransform * vec4(aPosition, 1.0);
-    gl_Position = uProjection * uView * world;
+    vec4 viewPos = uView * world;
+    gl_Position = uProjection * viewPos;
     TexCoord = aTexCoord;
     Normal = aNormal;
     WorldPos = world.xyz;
+    ViewPosition = viewPos.xyz;  // Store view space position
     BlockType = aBlockType;
-    for (int i=0;i<uCascadeCount;i++) {
+    for (int i = 0; i < min(uCascadeCount, 2); i++) {
         LightSpacePos[i] = uLightVP[i] * world;
     }
     // View-space depth for cascade selection (positive distance)
-    ViewZ = -(uView * world).z;
+    ViewZ = -viewPos.z;
 }
 )";
 
@@ -67,18 +70,20 @@ static const char* FRAGMENT_SHADER_SOURCE = R"(
 in vec2 TexCoord;
 in vec3 Normal;
 in vec3 WorldPos;
-in vec4 LightSpacePos[4];
+in vec3 ViewPosition;  // Position in view space
+in vec4 LightSpacePos[2];
 in float ViewZ;
 in float BlockType;
 
 uniform sampler2D uTexture;      // Default/dirt texture
 uniform sampler2D uStoneTexture; // Stone texture
 uniform sampler2D uGrassTexture; // Grass texture
-uniform sampler2D uShadowMaps[4];
+uniform sampler2D uShadowMaps[2];
 uniform int uCascadeCount;
-uniform float uCascadeSplits[4];
-uniform float uShadowTexel[4];
+uniform float uCascadeSplits[2];
+uniform float uShadowTexel[2];
 uniform vec3 uLightDir;
+uniform vec3 uCameraPosition;    // Camera world position
 
 // Material uniforms for different object types
 uniform vec4 uMaterialColor;       // Diffuse color with alpha (for fluid particles, UI, etc.)
@@ -88,11 +93,12 @@ uniform vec3 uMaterialEmissive;    // Emissive color
 
 out vec4 FragColor;
 
-// Poisson disk
-const vec2 POISSON[12] = vec2[12](
-    vec2( -0.613,  0.354 ), vec2( 0.743,  0.106 ), vec2( 0.296, -0.682 ), vec2( -0.269, -0.402 ),
-    vec2( -0.154,  0.692 ), vec2( 0.389,  0.463 ), vec2( 0.682, -0.321 ), vec2( -0.682,  0.228 ),
-    vec2( -0.053, -0.934 ), vec2( 0.079,  0.934 ), vec2( -0.934, -0.079 ), vec2( 0.934,  0.053 )
+// Enhanced Poisson disk sampling for smoother shadows
+const vec2 POISSON[16] = vec2[16](
+    vec2(-0.737, -0.447), vec2(-0.737, 0.447), vec2(-0.447, -0.737), vec2(-0.447, 0.737),
+    vec2(0.0, -0.8), vec2(0.0, 0.8), vec2(0.447, -0.737), vec2(0.447, 0.737),
+    vec2(0.737, -0.447), vec2(0.737, 0.447), vec2(-0.525, 0.0), vec2(0.525, 0.0),
+    vec2(-0.314, -0.314), vec2(-0.314, 0.314), vec2(0.314, -0.314), vec2(0.314, 0.314)
 );
 
 float sampleCascadePCF(int idx, float bias)
@@ -101,16 +107,27 @@ float sampleCascadePCF(int idx, float bias)
     proj = proj * 0.5 + 0.5;
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
         return 1.0;
+    
     float current = proj.z - bias;
     float texel = uShadowTexel[idx];
-    float radius = 2.5 * texel;
-    float sum = 0.0;
-    for (int i = 0; i < 12; ++i) {
-        vec2 offset = POISSON[i] * radius;
-        float d = texture(uShadowMaps[idx], proj.xy + offset).r;
-        sum += current <= d ? 1.0 : 0.0;
+    
+    // Cascade-specific sampling: 9x9 for near, 1x1 for far
+    float shadow = 0.0;
+    if (idx == 0) {
+        // Near cascade: High-quality 9x9 sampling
+        for (int x = -4; x <= 4; x++) {
+            for (int y = -4; y <= 4; y++) {
+                vec2 samplePos = proj.xy + vec2(x, y) * texel * 2.0;
+                float depth = texture(uShadowMaps[idx], samplePos).r;
+                shadow += current <= depth ? 1.0 : 0.0;
+            }
+        }
+        return shadow / 81.0;  // Average of 81 samples
+    } else {
+        // Far cascade: Simple 1x1 sampling (no PCF)
+        float depth = texture(uShadowMaps[idx], proj.xy).r;
+        return current <= depth ? 1.0 : 0.0;
     }
-    return sum / 12.0;
 }
 
 void main()
@@ -148,37 +165,15 @@ void main()
         
         if (texColor.a < 0.1) { discard; }
 
-        // Transform to [0,1] shadow map coords
-        // Select cascade based on view-space depth
-        int ci = 0;
-        for (int i=0;i<uCascadeCount-1;i++) {
-            if (ViewZ > uCascadeSplits[i]) ci = i+1; else break;
-        }
-        // Compute blended factor across boundary (10% of cascade span)
-        int prev = max(ci-1, 0);
-        float start = (ci==0)? 0.0 : uCascadeSplits[ci-1];
-        float endV = uCascadeSplits[ci];
-        float span = max(endV - start, 1e-3);
-    float band = 0.2 * span; // Increased to 20% for wider overlap
-        float tBlend = 0.0;
-        if (ViewZ > endV - band && ci < uCascadeCount-1) {
-            tBlend = clamp((ViewZ - (endV - band)) / band, 0.0, 1.0);
-        }
-
+        // Improved cascade selection with overlap support
         float shadow = 1.0;
-        // Slope-scale bias based on N.L to mitigate acne
         vec3 N = normalize(Normal);
         vec3 L = normalize(-uLightDir);
         float ndotl = max(dot(N, L), 0.0);
-        float bias = max(0.0015, 0.0035 * (1.0 - ndotl));
+        float bias = 0.001;  // Fixed bias - no angle-dependent rounding
         
-        float s0 = sampleCascadePCF(ci, bias);
-        if (tBlend > 0.0 && ci < uCascadeCount-1) {
-            float s1 = sampleCascadePCF(ci+1, bias);
-            shadow = mix(s0, s1, tBlend);
-        } else {
-            shadow = s0;
-        }
+        // Single cascade mode: always use cascade 0
+        shadow = sampleCascadePCF(0, bias);
         // Simple lambert + small ambient floor for readability
         float lambert = ndotl;
         float ambient = 0.04;

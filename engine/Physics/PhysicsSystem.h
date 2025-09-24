@@ -34,6 +34,11 @@ class PhysicsSystem
     // Debug and testing methods
     void debugCollisionInfo(const Vec3& playerPos, float playerRadius = 0.5f);
     int getTotalCollisionFaces() const;
+    int getActiveCollisionFaces() const;  // NEW: Count only active collision faces
+    
+    // NEW: Collision mesh activation based on entity proximity
+    void updateCollisionMeshActivation(const Vec3& entityPos, float activationRadius = 32.0f);
+    void deactivateAllCollisionMeshes();
 
    private:
     IslandChunkSystem* m_islandSystem = nullptr;

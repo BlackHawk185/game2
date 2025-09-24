@@ -246,6 +246,10 @@ bool PhysicsSystem::checkChunkCollision(const VoxelChunk* chunk, const Vec3& pla
 {
     // Check if collision mesh needs updating
     const CollisionMesh& collisionMesh = chunk->getCollisionMesh();
+    
+    // OPTIMIZATION: Skip inactive collision meshes to improve performance
+    if (!collisionMesh.active)
+        return false;
 
     // Only rebuild if absolutely necessary (should rarely happen now)
     if (collisionMesh.needsUpdate)
@@ -307,6 +311,10 @@ bool PhysicsSystem::checkChunkCollisionWithPenetration(const VoxelChunk* chunk, 
 {
     // Check if collision mesh needs updating
     const CollisionMesh& collisionMesh = chunk->getCollisionMesh();
+    
+    // OPTIMIZATION: Skip inactive collision meshes to improve performance
+    if (!collisionMesh.active)
+        return false;
 
     // Only rebuild if absolutely necessary (should rarely happen now)
     if (collisionMesh.needsUpdate)
@@ -543,4 +551,99 @@ int PhysicsSystem::getTotalCollisionFaces() const
         }
     }
     return total;
+}
+
+int PhysicsSystem::getActiveCollisionFaces() const
+{
+    if (!m_islandSystem) return 0;
+
+    int total = 0;
+    const auto& islands = m_islandSystem->getIslands();
+    for (const auto& islandPair : islands)
+    {
+        const FloatingIsland* island = &islandPair.second;
+        if (!island) continue;
+
+        for (const auto& chunkPair : island->chunks)
+        {
+            const VoxelChunk* chunk = chunkPair.second.get();
+            if (chunk && chunk->getCollisionMesh().active)
+            {
+                total += chunk->getCollisionMesh().faces.size();
+            }
+        }
+    }
+    return total;
+}
+
+void PhysicsSystem::updateCollisionMeshActivation(const Vec3& entityPos, float activationRadius)
+{
+    if (!m_islandSystem) return;
+
+    // First deactivate all collision meshes
+    deactivateAllCollisionMeshes();
+
+    // Then activate collision meshes near the entity
+    const auto& islands = m_islandSystem->getIslands();
+    for (const auto& islandPair : islands)
+    {
+        const FloatingIsland* island = &islandPair.second;
+        if (!island) continue;
+
+        // Check if entity is anywhere near this island
+        float islandDistance = (entityPos - island->physicsCenter).length();
+        if (islandDistance > activationRadius + 100.0f) // Skip islands that are far away
+            continue;
+
+        // Calculate which chunks to activate based on entity position
+        Vec3 localEntityPos = entityPos - island->physicsCenter;
+        
+        int minChunkX = static_cast<int>(std::floor((localEntityPos.x - activationRadius) / VoxelChunk::SIZE));
+        int maxChunkX = static_cast<int>(std::ceil((localEntityPos.x + activationRadius) / VoxelChunk::SIZE));
+        int minChunkY = static_cast<int>(std::floor((localEntityPos.y - activationRadius) / VoxelChunk::SIZE));
+        int maxChunkY = static_cast<int>(std::ceil((localEntityPos.y + activationRadius) / VoxelChunk::SIZE));
+        int minChunkZ = static_cast<int>(std::floor((localEntityPos.z - activationRadius) / VoxelChunk::SIZE));
+        int maxChunkZ = static_cast<int>(std::ceil((localEntityPos.z + activationRadius) / VoxelChunk::SIZE));
+
+        // Activate chunks within range
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX)
+        {
+            for (int chunkY = minChunkY; chunkY <= maxChunkY; ++chunkY)
+            {
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; ++chunkZ)
+                {
+                    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+                    auto chunkIt = island->chunks.find(chunkCoord);
+                    if (chunkIt != island->chunks.end() && chunkIt->second)
+                    {
+                        // Activate collision mesh for this chunk
+                        CollisionMesh& collisionMesh = const_cast<CollisionMesh&>(chunkIt->second->getCollisionMesh());
+                        collisionMesh.active = true;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void PhysicsSystem::deactivateAllCollisionMeshes()
+{
+    if (!m_islandSystem) return;
+
+    const auto& islands = m_islandSystem->getIslands();
+    for (const auto& islandPair : islands)
+    {
+        const FloatingIsland* island = &islandPair.second;
+        if (!island) continue;
+
+        for (const auto& chunkPair : island->chunks)
+        {
+            VoxelChunk* chunk = chunkPair.second.get();
+            if (chunk)
+            {
+                CollisionMesh& collisionMesh = const_cast<CollisionMesh&>(chunk->getCollisionMesh());
+                collisionMesh.active = false;
+            }
+        }
+    }
 }

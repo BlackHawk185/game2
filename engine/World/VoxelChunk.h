@@ -77,6 +77,7 @@ struct CollisionMesh
 {
     std::vector<CollisionFace> faces;
     bool needsUpdate = true;
+    bool active = false;  // NEW: Only process collision when entities are nearby
 };
 
 class VoxelChunk

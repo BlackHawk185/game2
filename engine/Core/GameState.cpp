@@ -226,6 +226,12 @@ void GameState::createDefaultWorld()
 
 void GameState::updatePhysics(float deltaTime)
 {
+    // OPTIMIZATION: Update collision mesh activation based on player position
+    if (m_primaryPlayer) {
+        Vec3 playerPos = m_primaryPlayer->getPosition();
+        g_physics.updateCollisionMeshActivation(playerPos, 32.0f);  // 32-unit activation radius
+    }
+    
     // Update generic entity physics (including fluid particles)
     g_physics.update(deltaTime);
 }

@@ -34,7 +34,7 @@ void GlobalLightingManager::updateGlobalLighting(const Camera& camera, IslandChu
     bool forceUpdate = m_sunDirectionChanged;
     
     // Use different throttle intervals based on whether we have pending updates
-    const float UPDATE_INTERVAL = forceUpdate ? 16.7f : 500.0f; // 60 FPS when sun changes, 2 FPS for maintenance
+    const float UPDATE_INTERVAL = forceUpdate ? 16.7f : m_updateIntervalMs; // 60 FPS when sun changes, configurable rate for maintenance
     if (!forceUpdate && currentTimeMs - m_lastUpdateTime < UPDATE_INTERVAL) {
         return; // Skip this update - no urgent work to do
     }

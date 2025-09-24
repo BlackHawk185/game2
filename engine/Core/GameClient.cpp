@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <memory>
+#include <chrono>
 
 #include "GameState.h"
 #include "../Profiling/Profiler.h"
@@ -625,9 +626,15 @@ void GameClient::renderWorld()
         return;
     }
 
-    // Shadow depth pass (cascaded)
+    // Shadow depth pass (cascaded) - with 30 FPS throttling
     {
-        renderShadowPass();
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float currentTimeMs = std::chrono::duration<float, std::milli>(currentTime.time_since_epoch()).count();
+        
+        if (currentTimeMs - m_lastShadowUpdateTime >= m_shadowUpdateInterval) {
+            renderShadowPass();
+            m_lastShadowUpdateTime = currentTimeMs;
+        }
     }
 
     // Render all islands
@@ -703,7 +710,7 @@ void GameClient::renderShadowPass()
     // Frustum splits (lambda blend)
     float nearPlane = 0.1f;
     float farPlane = 1000.0f;
-    const int C = 3;
+    const int C = 1;  // DEBUGGING: Only 1 cascade for FPS testing (was 2)
     float lambda = 0.7f;
     float splits[C] = {0};
     for (int i = 0; i < C; ++i) {
@@ -714,7 +721,7 @@ void GameClient::renderShadowPass()
     }
 
     // For each cascade, compute ortho box around camera frustum slice and render depth
-    float orthoRanges[C] = {60.0f, 180.0f, 500.0f}; // conservative boxes per split
+    float orthoRanges[C] = {60.0f}; // DEBUGGING: Only 60-unit shadow range for single cascade testing
     if (g_vboRenderer) {
         g_vboRenderer->setLightDir(lightDir);
     }
@@ -736,14 +743,8 @@ void GameClient::renderShadowPass()
     for (int ci = 0; ci < C; ++ci) {
         float ortho = orthoRanges[ci];
         glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
-        // Stable snap per cascade using CSM texture size
-        glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
-        int smWidth = g_csm.getSize(ci);
-        float texelSize = (2.0f * ortho) / float(smWidth);
-        glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
-        glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
-        glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
-        glm::mat4 lightVP = lightProj * snapMat * lightView;
+        // No texel snapping - smooth shadow movement
+        glm::mat4 lightVP = lightProj * lightView;
 
         if (g_vboRenderer) {
             g_vboRenderer->setCascadeMatrix(ci, lightVP);

@@ -89,7 +89,7 @@ private:
     bool m_sunDirectionChanged = true;  // NEW: Track when sun direction changes
     
     // Performance controls
-    float m_updateIntervalMs = 100.0f;  // Update lighting every 100ms (10 FPS) instead of every frame
+    float m_updateIntervalMs = 33.33f;  // Update lighting every 33.33ms (30 FPS) instead of every frame
     float m_lastUpdateTime = 0.0f;
     bool m_occlusionEnabled = true;     // Enable proper occlusion checking
 

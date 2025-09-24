@@ -30,6 +30,11 @@ public:
     void setModelMatrix(const glm::mat4& model);
     void setLightVP(const glm::mat4& lightVP);
     void setLightDir(const glm::vec3& lightDir);
+    
+    // Cascade shadow mapping - new automatic system
+    void updateShadowCascades(const class Camera& camera, const Vec3& lightDirection, float maxShadowDistance = 600.0f);
+    
+    // Legacy manual cascade control (for compatibility)
     void setCascadeMatrix(int index, const glm::mat4& lightVP);
     void setCascadeCount(int count);
     void setCascadeSplits(const float* splits, int count);
@@ -80,6 +85,7 @@ private:
     glm::mat4 m_modelMatrix;
     glm::mat4 m_lightVP{1.0f};
     glm::vec3 m_lightDir{ -0.3f, -1.0f, -0.2f };
+    Vec3 m_cameraPosition{0.0f, 0.0f, 0.0f};  // Camera world position for shader
     int m_cascadeCount = 1;
     glm::mat4 m_lightVPs[4];
     float m_cascadeSplits[4] = { 333.0f, 666.0f, 1000.0f, 1000.0f };
