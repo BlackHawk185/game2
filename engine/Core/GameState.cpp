@@ -163,9 +163,9 @@ void GameState::createDefaultWorld()
 
     // **SINGLE ISLAND GENERATION** - Focus on getting lighting working first
     std::cout << "[WORLD] Generating single test island with FastNoise2..." << std::endl;
-    std::cout << "[ISLAND] Testing with 500x100x500 dimensions (25 million voxels)..." << std::endl;
+    std::cout << "[ISLAND] Testing with 1000x100x1000 dimensions (100 million voxels)..." << std::endl;
     
-    m_islandSystem.generateFloatingIslandFastNoise(island1ID, 12345, 500, 100, 500);  // MEDIUM ISLAND: 500x100x500 for testing
+    m_islandSystem.generateFloatingIslandFastNoise(island1ID, 12345, 1000, 100, 1000);  // MEGA ISLAND: 1000x100x1000 for stress testing
 
     // Log collision mesh generation for each island
     for (uint32_t islandID : m_islandIDs)

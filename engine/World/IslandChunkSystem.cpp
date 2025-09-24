@@ -922,7 +922,7 @@ void IslandChunkSystem::renderAllIslands()
             PROFILE_SCOPE("renderAllIslands::singleIsland");
             
             // Get island world position
-            Vec3 islandWorldPos = island.physicsCenter; // Island's world position
+            Vec3 islandWorldPos = island.physicsCenter;
             
             // Begin optimized batch for this island
             g_vboRenderer->beginIslandBatch(islandWorldPos);

@@ -102,6 +102,7 @@ private:
     Vec3 m_currentIslandPosition{0.0f, 0.0f, 0.0f};
     glm::mat4 m_islandBaseMatrix{1.0f}; // Pre-computed island transform
     glm::mat4 m_lastModelMatrix{0.0f}; // Track last model matrix to avoid redundant updates
+    unsigned int m_currentVAO = 0; // Cache currently bound VAO to avoid redundant state changes
 
     // Texture IDs for different block types
     unsigned int m_dirtTextureID = 0;

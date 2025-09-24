@@ -587,33 +587,25 @@ void VBORenderer::beginIslandBatch(const Vec3& islandWorldPosition)
     if (!m_initialized || !m_shader.isValid()) return;
     
     m_currentIslandPosition = islandWorldPosition;
+    m_currentVAO = 0; // Reset VAO cache for new island batch
     
     // Pre-compute the island base transformation matrix
     m_islandBaseMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(islandWorldPosition.x, islandWorldPosition.y, islandWorldPosition.z));
     
     // Set up shared rendering state once per island
-    {
-        PROFILE_SCOPE("beginIsland::stateSetup");
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glDrawBuffer(GL_BACK);
-        glReadBuffer(GL_BACK);
-        glEnable(GL_DEPTH_TEST);
-        glDisable(GL_POLYGON_OFFSET_FILL);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDrawBuffer(GL_BACK);
+    glReadBuffer(GL_BACK);
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_POLYGON_OFFSET_FILL);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
     
-    {
-        PROFILE_SCOPE("beginIsland::shaderSetup");
-        m_shader.use();
-        setSharedUniforms();
-        m_sharedUniformsSet = true;
-    }
+    m_shader.use();
+    setSharedUniforms();
+    m_sharedUniformsSet = true;
     
-    {
-        PROFILE_SCOPE("beginIsland::textureSetup");
-        bindTexturesOnce();
-        m_texturesBound = true;
-    }
+    bindTexturesOnce();
+    m_texturesBound = true;
 }
 
 void VBORenderer::renderIslandChunk(VoxelChunk* chunk, const Vec3& chunkRelativeOffset)
@@ -621,34 +613,27 @@ void VBORenderer::renderIslandChunk(VoxelChunk* chunk, const Vec3& chunkRelative
     if (!chunk || !m_initialized || !m_shader.isValid()) return;
     PROFILE_SCOPE("VBORenderer::renderIslandChunk");
     
-    // Quick mesh validation - optimized to avoid repeated mutex locks
-    bool meshValid = false;
+    // Quick mesh validation
+    unsigned int chunkVAO = 0;
     size_t indexCount = 0;
     {
-        PROFILE_SCOPE("islandChunk::meshValidation");
         std::lock_guard<std::mutex> lock(chunk->getMeshMutex());
         const VoxelMesh& mesh = chunk->getMesh();
-        meshValid = !mesh.vertices.empty() && !mesh.indices.empty() && mesh.VAO != 0;
-        if (!meshValid) return;
+        if (mesh.vertices.empty() || mesh.indices.empty() || mesh.VAO == 0) return;
+        chunkVAO = mesh.VAO;
         indexCount = mesh.indices.size();
     }
     
-    // Only set the model matrix (much faster than setting all uniforms)
-    {
-        PROFILE_SCOPE("islandChunk::modelMatrix");
-        // Use pre-computed island matrix + chunk offset (faster than full translate)
-        glm::mat4 modelMatrix = glm::translate(m_islandBaseMatrix, glm::vec3(chunkRelativeOffset.x, chunkRelativeOffset.y, chunkRelativeOffset.z));
-        m_shader.setMatrix4("uModel", modelMatrix);
-    }
+    // Set model matrix
+    glm::mat4 modelMatrix = glm::translate(m_islandBaseMatrix, glm::vec3(chunkRelativeOffset.x, chunkRelativeOffset.y, chunkRelativeOffset.z));
+    m_shader.setMatrix4("uModel", modelMatrix);
     
-    // Draw the chunk - use cached values to avoid second mutex lock
-    {
-        PROFILE_SCOPE("islandChunk::drawCall");
-        const VoxelMesh& mesh = chunk->getMesh(); // This is safe after validation
-        glBindVertexArray(mesh.VAO);
-        glDrawElements(GL_TRIANGLES, (GLsizei)indexCount, GL_UNSIGNED_INT, 0);
-        glBindVertexArray(0);
+    // Optimized VAO binding and draw
+    if (m_currentVAO != chunkVAO) {
+        glBindVertexArray(chunkVAO);
+        m_currentVAO = chunkVAO;
     }
+    glDrawElements(GL_TRIANGLES, (GLsizei)indexCount, GL_UNSIGNED_INT, 0);
     
     m_stats.chunksRendered++;
     m_stats.verticesRendered += (uint32_t)chunk->getMesh().vertices.size();
@@ -657,6 +642,12 @@ void VBORenderer::renderIslandChunk(VoxelChunk* chunk, const Vec3& chunkRelative
 
 void VBORenderer::endIslandBatch()
 {
+    // Clean up VAO binding and reset cache
+    if (m_currentVAO != 0) {
+        glBindVertexArray(0);
+        m_currentVAO = 0;
+    }
+    
     m_texturesBound = false;
     m_sharedUniformsSet = false;
 }
@@ -723,5 +714,6 @@ void VBORenderer::resetRenderState()
     m_sharedUniformsSet = false;
     m_currentIslandPosition = Vec3(0.0f, 0.0f, 0.0f);
     m_lastModelMatrix = glm::mat4(0.0f); // Reset matrix cache
+    m_currentVAO = 0; // Reset VAO cache
 }
 
