@@ -707,7 +707,7 @@ void GameClient::renderShadowPass()
 {
     PROFILE_SCOPE("GameClient::renderShadowPass");
     
-    // Shadow depth pass (cascaded)
+    // Single high-resolution shadow pass
     Vec3 sunDir = Vec3(-0.3f, -1.0f, -0.2f).normalized();
     glm::vec3 camPos(m_camera.position.x, m_camera.position.y, m_camera.position.z);
     glm::vec3 lightDir(sunDir.x, sunDir.y, sunDir.z);
@@ -715,65 +715,38 @@ void GameClient::renderShadowPass()
     glm::vec3 lightPos = camPos - lightDir * 100.0f;
     glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
     
-    // Frustum splits (lambda blend)
-    float nearPlane = 0.1f;
-    float farPlane = 1000.0f;
-    const int C = 3;
-    float lambda = 0.7f;
-    float splits[C] = {0};
-    for (int i = 0; i < C; ++i) {
-        float si = (i+1) / float(C);
-        float logd = nearPlane * powf(farPlane/nearPlane, si);
-        float lind = nearPlane + (farPlane-nearPlane) * si;
-        splits[i] = lambda * (logd - nearPlane) + (1.0f - lambda) * (lind - nearPlane);
-    }
-
-    // For each cascade, compute ortho box around camera frustum slice and render depth
-    float orthoRanges[C] = {60.0f, 180.0f, 500.0f}; // conservative boxes per split
-    if (g_modelRenderer) {
-        g_modelRenderer->setLightDir(lightDir);
-    }
-    auto* islandSystem = m_gameState->getIslandSystem();
-    std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
-    if (islandSystem) islandSystem->getAllChunksWithWorldPos(snapshot);
-    // Provide splits to renderer (view-space distances)
-    if (g_modelRenderer) {
-        g_modelRenderer->setCascadeCount(C);
-        g_modelRenderer->setCascadeSplits(splits, C);
+    // Shadow map coverage (1024×1024 units with 8192×8192 texture = 8 pixels per block)
+    const float orthoSize = 512.0f;
+    
+    // Build light view-projection with texel snapping for stability
+    glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 300.0f);
+    
+    // Snap to texel grid to prevent shadow shimmering
+    glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
+    int smWidth = g_csm.getSize(0);
+    float texelSize = (2.0f * orthoSize) / float(smWidth);
+    glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
+    glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
+    glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
+    glm::mat4 lightVP = lightProj * snapMat * lightView;
+    
+    // Render shadow depth pass
+    if (g_mdiRenderer && m_windowWidth > 0 && m_windowHeight > 0)
+    {
+        g_mdiRenderer->beginDepthPassCascade(0, lightVP);
+        g_mdiRenderer->renderDepthCascade(0);
+        g_mdiRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
     }
     
-    // Store lightVPs for MDI renderer
-    glm::mat4 lightVPs[C];
-    
-    for (int ci = 0; ci < C; ++ci) {
-        float ortho = orthoRanges[ci];
-        glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
-        // Stable snap per cascade using CSM texture size
-        glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
-        int smWidth = g_csm.getSize(ci);
-        float texelSize = (2.0f * ortho) / float(smWidth);
-        glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
-        glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
-        glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
-        glm::mat4 lightVP = lightProj * snapMat * lightView;
-        
-        lightVPs[ci] = lightVP;  // Store for MDI
-        
-        // Render shadow depth pass for this cascade using MDI
-        if (g_mdiRenderer && m_windowWidth > 0 && m_windowHeight > 0)
-        {
-            g_mdiRenderer->beginDepthPassCascade(ci, lightVP);
-            g_mdiRenderer->renderDepthCascade(ci);
-            g_mdiRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
-        }
-    }
-    
-    // Set lighting data for MDI renderer
+    // Set lighting data for forward pass
     if (g_mdiRenderer)
     {
-        g_mdiRenderer->setLightingData(C, lightVPs, splits, glm::vec3(lightDir.x, lightDir.y, lightDir.z));
+        // Currently using single cascade, but API supports multiple
+        int cascadeCount = 1;
+        glm::mat4 lightVPs[4] = { lightVP, glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) };
+        float cascadeSplits[4] = { 300.0f, 0.0f, 0.0f, 0.0f };  // Far plane for cascade 0
+        g_mdiRenderer->setLightingData(cascadeCount, lightVPs, cascadeSplits, glm::vec3(lightDir.x, lightDir.y, lightDir.z));
     }
-    // Forward pass will read cascade data set on renderer
 }
 
 void GameClient::handleCameraMovement(float deltaTime)

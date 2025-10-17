@@ -23,16 +23,6 @@ add_executable(MMORPGEngine
 )
 target_link_libraries(MMORPGEngine PRIVATE engine)
 
-# Test executable for LZ4 compression
-add_executable(test_lz4 
-    test_lz4.cpp
-)
-target_link_libraries(test_lz4 PRIVATE engine lz4)
-target_include_directories(test_lz4 PRIVATE 
-    libs/lz4
-    engine
-)
-
 # Third-party libraries
 add_subdirectory(libs)
 # Some libraries like imgui are not standard CMake projects, so link manually in engine/CMakeLists.txt.

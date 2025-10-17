@@ -104,9 +104,9 @@ out vec4 FragColor;
 
 // Poisson disk
 const vec2 POISSON[12] = vec2[12](
-    vec2( -0.613,  0.354 ), vec2( 0.743,  0.106 ), vec2( 0.296, -0.682 ), vec2( -0.269, -0.402 ),
-    vec2( -0.154,  0.692 ), vec2( 0.389,  0.463 ), vec2( 0.682, -0.321 ), vec2( -0.682,  0.228 ),
-    vec2( -0.053, -0.934 ), vec2( 0.079,  0.934 ), vec2( -0.934, -0.079 ), vec2( 0.934,  0.053 )
+    vec2(-0.35, -0.35), vec2(-0.35, 0.35), vec2(0.35, -0.35), vec2(0.35, 0.35),
+    vec2(-0.25, 0.0), vec2(0.25, 0.0), vec2(0.0, -0.25), vec2(0.0, 0.25),
+    vec2(-0.15, -0.15), vec2(-0.15, 0.15), vec2(0.15, -0.15), vec2(0.15, 0.15)
 );
 
 float sampleCascadePCF(int idx, float bias)
@@ -116,15 +116,31 @@ float sampleCascadePCF(int idx, float bias)
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
         return 1.0;
     float current = proj.z - bias;
-    float texel = uShadowTexel[idx];
-    float radius = 2.5 * texel;
-    float sum = 0.0;
-    for (int i = 0; i < 12; ++i) {
-        vec2 offset = POISSON[i] * radius;
-        float d = texture(uShadowMaps[idx], proj.xy + offset).r;
-        sum += current <= d ? 1.0 : 0.0;
+    float radius = 0.2;  // 5x5 grid covers a wide area
+    
+    // Sample center first
+    float center = texture(uShadowMaps[idx], proj.xy).r;
+    float baseShadow = current <= center ? 1.0 : 0.0;
+    
+    // Early exit if fully lit - prevents shadow bleeding
+    if (baseShadow >= 1.0) {
+        return 1.0;
     }
-    return sum / 12.0;
+    
+    // Sample neighbors in 5x5 grid
+    int grid = 5;
+    float step = radius / float(grid - 1);
+    float sum = 0.0;
+    int count = 0;
+    for (int x = 0; x < grid; ++x) {
+        for (int y = 0; y < grid; ++y) {
+            vec2 offset = vec2(float(x) - 2.0, float(y) - 2.0) * step;
+            float d = texture(uShadowMaps[idx], proj.xy + offset).r;
+            sum += current <= d ? 1.0 : 0.0;
+            count++;
+        }
+    }
+    return max(baseShadow, sum / float(count));  // Lighten-only: prevents shadow bleeding
 }
 
 void main()

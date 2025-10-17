@@ -76,9 +76,9 @@ out vec4 FragColor;
 
 // Poisson disk (match voxel shader)
 const vec2 POISSON[12] = vec2[12](
-    vec2( -0.613,  0.354 ), vec2( 0.743,  0.106 ), vec2( 0.296, -0.682 ), vec2( -0.269, -0.402 ),
-    vec2( -0.154,  0.692 ), vec2( 0.389,  0.463 ), vec2( 0.682, -0.321 ), vec2( -0.682,  0.228 ),
-    vec2( -0.053, -0.934 ), vec2( 0.079,  0.934 ), vec2( -0.934, -0.079 ), vec2( 0.934,  0.053 )
+    vec2(-0.35, -0.35), vec2(-0.35, 0.35), vec2(0.35, -0.35), vec2(0.35, 0.35),
+    vec2(-0.25, 0.0), vec2(0.25, 0.0), vec2(0.0, -0.25), vec2(0.0, 0.25),
+    vec2(-0.15, -0.15), vec2(-0.15, 0.15), vec2(0.15, -0.15), vec2(0.15, 0.15)
 );
 
 float sampleCascadePCF(int idx, float bias)
@@ -88,15 +88,31 @@ float sampleCascadePCF(int idx, float bias)
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
         return 1.0;
     float current = proj.z - bias;
-    float texel = uShadowTexel[idx];
-    float radius = 2.5 * texel;
-    float sum = 0.0;
-    for (int i = 0; i < 12; ++i) {
-        vec2 offset = POISSON[i] * radius;
-        float d = texture(uShadowMaps[idx], proj.xy + offset).r;
-        sum += current <= d ? 1.0 : 0.0;
+    float radius = 0.2;  // 5x5 grid covers a wide area
+    
+    // Sample center first
+    float center = texture(uShadowMaps[idx], proj.xy).r;
+    float baseShadow = current <= center ? 1.0 : 0.0;
+    
+    // Early exit if fully lit - prevents shadow bleeding
+    if (baseShadow >= 1.0) {
+        return 1.0;
     }
-    return sum / 12.0;
+    
+    // Sample neighbors in 5x5 grid
+    int grid = 5;
+    float step = radius / float(grid - 1);
+    float sum = 0.0;
+    int count = 0;
+    for (int x = 0; x < grid; ++x) {
+        for (int y = 0; y < grid; ++y) {
+            vec2 offset = vec2(float(x) - 2.0, float(y) - 2.0) * step;
+            float d = texture(uShadowMaps[idx], proj.xy + offset).r;
+            sum += current <= d ? 1.0 : 0.0;
+            count++;
+        }
+    }
+    return max(baseShadow, sum / float(count));  // Lighten-only: prevents shadow bleeding
 }
 
 void main(){
@@ -384,31 +400,23 @@ void ModelInstanceRenderer::renderGrassChunk(VoxelChunk* chunk, const Vec3& worl
     glUniformMatrix4fv(uModel, 1, GL_FALSE, &model[0][0]);
     glUniform1f(uTime, m_time);
 
-    // Cascades
-    glUniform1i(uCascadeCount, m_cascadeCount);
-    // Upload as array of 4 mat4 starting at base location (std140 is not used; direct uniforms ok)
-    for (int i=0;i<m_cascadeCount;i++) {
-        char name[32]; snprintf(name, sizeof(name), "uLightVP[%d]", i);
-        GLint loc = glGetUniformLocation(m_program, name);
-        glUniformMatrix4fv(loc, 1, GL_FALSE, &m_lightVPs[i][0][0]);
-    }
+    // Single cascade shadow
+    glUniform1i(uCascadeCount, 1);
+    GLint loc = glGetUniformLocation(m_program, "uLightVP[0]");
+    glUniformMatrix4fv(loc, 1, GL_FALSE, &m_lightVPs[0][0][0]);
     glUniform3f(uLightDir, m_lightDir.x, m_lightDir.y, m_lightDir.z);
-    // Splits & texel sizes
-    GLint locSplits = uCascadeSplits;
-    if (locSplits>=0) glUniform1fv(locSplits, m_cascadeCount, m_cascadeSplits);
-    float texels[4] = {0};
-    for (int i=0;i<m_cascadeCount;i++) {
-        int sz = g_csm.getSize(i); texels[i] = sz>0? (1.0f/float(sz)) : (1.0f/2048.0f);
-    }
-    if (uShadowTexel>=0) glUniform1fv(uShadowTexel, m_cascadeCount, texels);
-    // Bind depth textures at 7/8/9 like voxel shader
-    if (m_cascadeCount>=1) { glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0)); }
-    if (m_cascadeCount>=2) { glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(1)); }
-    if (m_cascadeCount>=3) { glActiveTexture(GL_TEXTURE9); glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(2)); }
-    // Set uniform sampler indices using cached locations
+    
+    // Split distance & texel size
+    if (uCascadeSplits>=0) glUniform1fv(uCascadeSplits, 1, m_cascadeSplits);
+    int sz = g_csm.getSize(0);
+    float texel = sz > 0 ? (1.0f / float(sz)) : (1.0f / 8192.0f);
+    if (uShadowTexel>=0) glUniform1fv(uShadowTexel, 1, &texel);
+    
+    // Bind shadow map texture
+    glActiveTexture(GL_TEXTURE7);
+    glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
     if (uShadowMaps0>=0) glUniform1i(uShadowMaps0, 7);
-    if (uShadowMaps1>=0) glUniform1i(uShadowMaps1, 8);
-    if (uShadowMaps2>=0) glUniform1i(uShadowMaps2, 9);
+    
     // Bind grass texture (engine grass preferred; fallback to GLB albedo)
     if (uGrassTexture>=0) {
         glActiveTexture(GL_TEXTURE5);

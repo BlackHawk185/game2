@@ -5,7 +5,7 @@ using GLuint = unsigned int;
 
 class CascadedShadowMap {
 public:
-    bool initialize(int cascades = 3, int size = 2048);
+    bool initialize(int cascades = 1, int size = 16384);
     void shutdown();
 
     int getCascadeCount() const { return m_cascadeCount; }
