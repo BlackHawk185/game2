@@ -447,31 +447,46 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
     // Acquire chunk pointer under lock, then perform heavy work without holding the map mutex
     VoxelChunk* chunk = nullptr;
     Vec3 localPos;
+    Vec3 chunkCoord;
+    Vec3 islandCenter;
+    int mdiIndex = -1;
     {
         std::lock_guard<std::mutex> lock(m_islandsMutex);
         auto itIsl = m_islands.find(islandID);
         if (itIsl == m_islands.end())
             return;
         FloatingIsland& island = itIsl->second;
-        Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(islandRelativePosition);
+        chunkCoord = FloatingIsland::islandPosToChunkCoord(islandRelativePosition);
         localPos = FloatingIsland::islandPosToLocalPos(islandRelativePosition);
+        islandCenter = island.physicsCenter;
         std::unique_ptr<VoxelChunk>& chunkPtr = island.chunks[chunkCoord];
         if (!chunkPtr)
             chunkPtr = std::make_unique<VoxelChunk>();
         chunk = chunkPtr.get();
+        mdiIndex = chunk->getMDIIndex();
     }
 
-    // Set voxel and rebuild mesh outside of islands mutex to avoid deadlocks
+    // Set voxel and rebuild meshes outside of islands mutex to avoid deadlocks
     int x = static_cast<int>(localPos.x);
     int y = static_cast<int>(localPos.y);
     int z = static_cast<int>(localPos.z);
     if (x < 0 || x >= VoxelChunk::SIZE || y < 0 || y >= VoxelChunk::SIZE || z < 0 || z >= VoxelChunk::SIZE)
         return;
+    
     chunk->setVoxel(x, y, z, voxelType);
     chunk->generateMesh();
+    chunk->buildCollisionMesh();  // Rebuild collision mesh for accurate physics
     
     // Update MDI renderer for real-time voxel changes
-    // TODO: Track MDI indices in chunks and call updateChunkMesh() instead of re-registering
+    if (g_mdiRenderer && mdiIndex >= 0)
+    {
+        Vec3 worldOffset = islandCenter + Vec3(
+            chunkCoord.x * VoxelChunk::SIZE,
+            chunkCoord.y * VoxelChunk::SIZE,
+            chunkCoord.z * VoxelChunk::SIZE
+        );
+        g_mdiRenderer->updateChunkMesh(mdiIndex, chunk);
+    }
 }
 
 void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType)
