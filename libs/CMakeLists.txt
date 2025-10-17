@@ -56,3 +56,6 @@ FetchContent_Declare(
     GIT_TAG 1.0.1
 )
 FetchContent_MakeAvailable(glm)
+
+# FastNoise2 for procedural terrain generation
+add_subdirectory(FastNoise2)

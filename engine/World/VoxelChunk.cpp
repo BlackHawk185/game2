@@ -242,14 +242,20 @@ void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& i
     indices.push_back(startIndex + 3);
 }
 
-void VoxelChunk::generateMesh()
+void VoxelChunk::generateMesh(bool generateLighting)
 {
+    PROFILE_SCOPE("VoxelChunk::generateMesh");
+    
+    auto startTime = std::chrono::high_resolution_clock::now();
+    
     std::lock_guard<std::mutex> lock(meshMutex);
     mesh.vertices.clear();
     mesh.indices.clear();
     collisionMeshVertices.clear();
     grassInstancePositions.clear();
 
+    auto grassScanStart = std::chrono::high_resolution_clock::now();
+    
     // Pre-scan for decorative grass blocks to create instance anchors (and ensure they are not meshed)
     for (int z = 0; z < SIZE; ++z) {
         for (int y = 0; y < SIZE; ++y) {
@@ -262,12 +268,18 @@ void VoxelChunk::generateMesh()
             }
         }
     }
+    
+    auto greedyMeshStart = std::chrono::high_resolution_clock::now();
 
     // Use greedy meshing for optimal performance
     generateGreedyMesh();
     
+    auto collisionStart = std::chrono::high_resolution_clock::now();
+    
     // Build collision mesh immediately after generating vertices
     buildCollisionMeshFromVertices();
+    
+    auto lightingStart = std::chrono::high_resolution_clock::now();
     
     mesh.needsUpdate = true;
     collisionMesh.needsUpdate = false; // Collision mesh is now up-to-date
@@ -276,21 +288,41 @@ void VoxelChunk::generateMesh()
     // NEW: Mark lighting as needing recalculation since geometry changed
     lightingDirty = true;
     
-    // IMMEDIATE LIGHTING GENERATION: Generate lighting when mesh updates
-    // This ensures lighting is always in sync with geometry changes
-    generatePerFaceLightMaps();
-    
-    // Only initialize light maps if they're empty (preserve generated lighting data)
-    for (int face = 0; face < 6; ++face) {
-        FaceLightMap& faceMap = lightMaps.getFaceMap(face);
-        if (faceMap.data.empty()) {
-            faceMap.data.resize(32 * 32 * 3);
-            std::fill(faceMap.data.begin(), faceMap.data.end(), 255); // Full white default for unlit chunks
+    // CONDITIONAL LIGHTING GENERATION: Only generate if requested (skip during world gen)
+    if (generateLighting) {
+        generatePerFaceLightMaps();
+        
+        // Only initialize light maps if they're empty (preserve generated lighting data)
+        for (int face = 0; face < 6; ++face) {
+            FaceLightMap& faceMap = lightMaps.getFaceMap(face);
+            if (faceMap.data.empty()) {
+                faceMap.data.resize(32 * 32 * 3);
+                std::fill(faceMap.data.begin(), faceMap.data.end(), 255); // Full white default for unlit chunks
+            }
         }
+        
+        // Mark lighting as clean since we just generated it
+        lightingDirty = false;
     }
     
-    // Mark lighting as clean since we just generated it
-    lightingDirty = false;
+    auto endTime = std::chrono::high_resolution_clock::now();
+    
+    // Calculate individual timings
+    auto grassScanDuration = std::chrono::duration_cast<std::chrono::microseconds>(greedyMeshStart - grassScanStart).count();
+    auto greedyMeshDuration = std::chrono::duration_cast<std::chrono::microseconds>(collisionStart - greedyMeshStart).count();
+    auto collisionDuration = std::chrono::duration_cast<std::chrono::microseconds>(lightingStart - collisionStart).count();
+    auto lightingDuration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - lightingStart).count();
+    auto totalDuration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
+    
+    // Only log if mesh generation takes more than 1ms (performance concern)
+    if (totalDuration > 1000) {
+        std::cout << "  ⚙️ Chunk mesh: " << (totalDuration / 1000.0f) << "ms "
+                  << "(scan=" << (grassScanDuration / 1000.0f) << "ms, "
+                  << "greedy=" << (greedyMeshDuration / 1000.0f) << "ms, "
+                  << "collision=" << (collisionDuration / 1000.0f) << "ms, "
+                  << "lighting=" << (lightingDuration / 1000.0f) << "ms) "
+                  << "[" << mesh.vertices.size() << " verts]" << std::endl;
+    }
     
     // Note: updateLightMapTextures() will be called during rendering when OpenGL context is available
 }
@@ -479,166 +511,6 @@ static inline float vc_smoothNoise(float x, float z, uint32_t seed)
     float result = nx0 * (1.0f - iz) + nx1 * iz;
     
     return result; // returns [-1,1]
-}
-
-void VoxelChunk::generateFloatingIsland(int seed, bool useNoise)
-{
-    // Generate a floating island using simple noise (optional)
-
-    // Simple spherical island parameters
-    float centerX = SIZE * 0.5f;
-    float centerY = SIZE * 0.3f;
-    float centerZ = SIZE * 0.5f;
-    // Base radius: allow runtime tuning when noise is enabled
-    float baseScale = 0.15f;
-    if (useNoise)
-    {
-        if (const char* env = std::getenv("ISLAND_BASE"))
-        {
-            try
-            {
-                baseScale = std::max(0.10f, std::min(0.24f, static_cast<float>(std::atof(env))));
-            }
-            catch (...)
-            {
-                baseScale = 0.15f;
-            }
-        }
-    }
-    float radius = SIZE * baseScale;
-
-    // Optional vertical flatten (noise only)
-    float flatten = 1.0f;
-    if (useNoise)
-    {
-        flatten = 0.90f;
-        if (const char* env = std::getenv("ISLAND_FLATTEN"))
-        {
-            try
-            {
-                float f = static_cast<float>(std::atof(env));
-                // Clamp for safety
-                flatten = std::max(0.70f, std::min(1.0f, f));
-            }
-            catch (...) {}
-        }
-    }
-
-    // If job system is available, use multithreading
-    if (g_jobSystem.isInitialized())
-    {
-        const int numSlices = 8;  // Split Y-axis into 8 slices for threading
-        const int sliceHeight = SIZE / numSlices;
-        std::vector<uint32_t> jobIDs;
-
-        // Submit jobs for each Y-slice
-        for (int slice = 0; slice < numSlices; slice++)
-        {
-            int startY = slice * sliceHeight;
-            int endY = (slice == numSlices - 1) ? SIZE : (slice + 1) * sliceHeight;
-
-            JobPayload payload;
-            // Cast chunk pointer as ID
-            payload.chunkID = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(this));
-
-            auto work = [this, startY, endY, centerX, centerY, centerZ, radius,
-                         payload, seed, useNoise, flatten]() -> JobResult
-            {
-                // Generate voxels for this Y-slice
-                for (int x = 0; x < SIZE; x++)
-                {
-                    for (int y = startY; y < endY; y++)
-                    {
-                        for (int z = 0; z < SIZE; z++)
-                        {
-                            float dx = x - centerX;
-                            float dy = y - centerY;
-                            float dz = z - centerZ;
-                            float dyUse = useNoise ? (dy * flatten) : dy;
-                            float distance = static_cast<float>(std::sqrt(dx * dx + dyUse * dyUse + dz * dz));
-
-                            float rLocal = radius;
-                            if (useNoise)
-                            {
-                                // Use smooth noise instead of grid-based hash
-                                float n = vc_smoothNoise(static_cast<float>(x), static_cast<float>(z), static_cast<uint32_t>(seed));
-                                float noiseAmp = radius * 0.30f;
-                                rLocal = std::max(2.0f, std::min(radius + n * noiseAmp, radius * 1.6f));
-                            }
-
-                            if (distance < rLocal)
-                                {
-                                    setVoxel(x, y, z, BlockID::STONE);  // Stone block for legacy island generation
-                                }
-                        }
-                    }
-                }
-
-                JobResult result;
-                result.type = JobType::WORLD_GENERATION;
-                result.jobID = payload.chunkID;
-                result.success = true;
-                return result;
-            };
-
-            uint32_t jobID = g_jobSystem.submitJob(JobType::WORLD_GENERATION, payload, work);
-            jobIDs.push_back(jobID);
-        }
-
-        // Wait for all jobs to complete
-        std::vector<JobResult> results;
-        size_t completedJobs = 0;
-        while (completedJobs < jobIDs.size())
-        {
-            g_jobSystem.drainCompletedJobs(results, 10);
-            for (const auto& result : results)
-            {
-                if (result.type == JobType::WORLD_GENERATION)
-                {
-                    completedJobs++;
-                }
-            }
-            results.clear();
-
-            // Small sleep to avoid busy waiting
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-    }
-    else
-    {
-        // Fallback to single-threaded generation
-        for (int x = 0; x < SIZE; x++)
-        {
-            for (int y = 0; y < SIZE; y++)
-            {
-                for (int z = 0; z < SIZE; z++)
-                {
-                    float dx = x - centerX;
-                    float dy = y - centerY;
-                    float dz = z - centerZ;
-                    float dyUse = useNoise ? (dy * flatten) : dy;
-                    float distance = static_cast<float>(std::sqrt(dx * dx + dyUse * dyUse + dz * dz));
-
-                    float rLocal = radius;
-                    if (useNoise)
-                    {
-                        // Use smooth noise instead of grid-based hash
-                        float n = vc_smoothNoise(static_cast<float>(x), static_cast<float>(z), static_cast<uint32_t>(seed));
-                        float noiseAmp = radius * 0.30f;
-                        rLocal = std::max(2.0f, std::min(radius + n * noiseAmp, radius * 1.6f));
-                    }
-
-                    if (distance < rLocal)
-                        {
-                            setVoxel(x, y, z, BlockID::STONE);  // Stone block for legacy island generation
-                        }
-                }
-            }
-        }
-    }
-
-    meshDirty = true;
-    collisionMesh.needsUpdate = true;
 }
 
 // Light mapping utilities

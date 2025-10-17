@@ -147,9 +147,8 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (3 floating islands)..." << std::endl;
 
     // **OPTIMIZED ISLAND SPACING** - Calculate safe distances to prevent overlap
-    // Main island: Full size for enhanced gameplay - 512-unit radius = 1024 units diameter
-    // Testing FPS improvements with larger island size
-    float mainRadius = 512.0f;     // Increased from 320.0f to test performance optimizations
+    // Main island: Smaller size for profiling world generation performance
+    float mainRadius = 200.0f;     // Reduced from 512.0f for faster testing
     float spacing = 200.0f;        // Not needed for single island but kept for consistency
     
     // Create 1 island for testing and optimization
@@ -191,8 +190,9 @@ void GameState::createDefaultWorld()
                         }
                     }
                     
-                    // Generate mesh and build collision mesh for each chunk
-                    const_cast<VoxelChunk*>(chunk.get())->generateMesh();
+                    // Generate mesh WITHOUT LIGHTING during world generation (huge performance boost)
+                    // Lighting will be generated later when needed by the client
+                    const_cast<VoxelChunk*>(chunk.get())->generateMesh(false);
                     const_cast<VoxelChunk*>(chunk.get())->buildCollisionMesh();
                 }
             }

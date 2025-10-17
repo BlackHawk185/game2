@@ -108,7 +108,7 @@ class VoxelChunk
     uint32_t getVoxelDataSize() const { return VOLUME; }
 
     // Mesh generation and management
-    void generateMesh();
+    void generateMesh(bool generateLighting = true);
 
     // Rendering
     void render();                                        // Render at origin (0,0,0)
@@ -162,9 +162,6 @@ class VoxelChunk
     void buildCollisionMeshFromVertices();  // Internal method called during generateMesh()
     bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
                            Vec3& hitPoint, Vec3& hitNormal) const;
-
-    // Island generation (for floating terrain) - noise-based islands by default
-    void generateFloatingIsland(int seed, bool useNoise = false);
 
    private:
     std::array<uint8_t, VOLUME> voxels;
