@@ -16,10 +16,12 @@
 #include "../Network/NetworkMessages.h"
 #include "../Rendering/Renderer.h"
 #include "../Core/Window.h"
-#include "../Rendering/VBORenderer.h"  // RE-ENABLED
+#include "../Rendering/MDIRenderer.h"
 #include "../Rendering/ModelInstanceRenderer.h"
+#include "../Rendering/TextureManager.h"
 #include "../Rendering/ShadowMap.h"
-#include "../Rendering/GlobalLightingManager.h"  // NEW: Global lighting system
+#include "../Rendering/CascadedShadowMap.h"
+#include "../Rendering/GlobalLightingManager.h"
 #include "../Physics/FluidSystem.h"
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -253,22 +255,18 @@ void GameClient::shutdown()
     // Disconnect from game state
     m_gameState = nullptr;
 
-    // Cleanup VBO renderer
-    // RE-ENABLED FOR TESTING
-    if (g_vboRenderer)
+    // Cleanup renderers (unique_ptr handles deletion automatically)
+    if (g_mdiRenderer)
     {
-        g_vboRenderer->shutdown();
-        delete g_vboRenderer;
-        g_vboRenderer = nullptr;
-        std::cout << "VBO renderer shutdown" << std::endl;
+        g_mdiRenderer->shutdown();
+        g_mdiRenderer.reset();
+        std::cout << "MDI renderer shutdown" << std::endl;
     }
 
-    // Cleanup model instance renderer
     if (g_modelRenderer)
     {
         g_modelRenderer->shutdown();
-        delete g_modelRenderer;
-        g_modelRenderer = nullptr;
+        g_modelRenderer.reset();
     }
 
     // Cleanup window
@@ -323,21 +321,9 @@ void GameClient::render()
         
         float aspect = (float) m_windowWidth / (float) m_windowHeight;
         float fov = 45.0f;
-        float nearPlane = 0.1f;
-        float farPlane = 1000.0f;
-
-        // Create modern projection matrix (glm expects radians)
-        glm::mat4 projectionMatrix = glm::perspective(fov * 3.14159265358979323846f / 180.0f, aspect, nearPlane, farPlane);
-        glm::mat4 viewMatrix = m_camera.getViewMatrix();
-        
-        // Set matrices for VBO renderer (modern OpenGL)
-        if (g_vboRenderer) {
-            g_vboRenderer->setProjectionMatrix(projectionMatrix);
-            g_vboRenderer->setViewMatrix(viewMatrix);
-        }
         
         // Update frustum culling
-        m_frustumCuller.updateFromCamera(m_camera, aspect, 45.0f);
+        m_frustumCuller.updateFromCamera(m_camera, aspect, fov);
     }
 
     // Render world (only if we have local game state)
@@ -387,26 +373,32 @@ bool GameClient::initializeGraphics()
         std::cerr << "Failed to initialize renderer!" << std::endl;
         return false;
     }
-
-    // Initialize VBO renderer for modern OpenGL rendering
-    // RE-ENABLED FOR TESTING
-    g_vboRenderer = new VBORenderer();
-    if (!g_vboRenderer->initialize())
+    
+    // Initialize texture manager (needed by all renderers)
+    extern TextureManager* g_textureManager;
+    if (!g_textureManager)
     {
-        std::cerr << "Failed to initialize VBO renderer!" << std::endl;
-        delete g_vboRenderer;
-        g_vboRenderer = nullptr;
-        return false;
+        g_textureManager = new TextureManager();
     }
-    std::cout << "VBO renderer initialized successfully" << std::endl;
+    
+    // Initialize MDI renderer for massive chunk batching (16k+ chunks → 1 draw call)
+    g_mdiRenderer = std::make_unique<MDIRenderer>();
+    if (!g_mdiRenderer->initialize(32768, 50000000, 75000000))
+    {
+        std::cerr << "⚠️  Failed to initialize MDI renderer - falling back to per-chunk rendering" << std::endl;
+        g_mdiRenderer.reset();
+    }
+    else
+    {
+        std::cout << "✅ MDI Renderer initialized - ready for massive batching!" << std::endl;
+    }
 
     // Initialize model instancing renderer (decorative GLB like grass)
-    g_modelRenderer = new ModelInstanceRenderer();
+    g_modelRenderer = std::make_unique<ModelInstanceRenderer>();
     if (!g_modelRenderer->initialize())
     {
         std::cerr << "Failed to initialize ModelInstanceRenderer!" << std::endl;
-        delete g_modelRenderer;
-        g_modelRenderer = nullptr;
+        g_modelRenderer.reset();
         return false;
     }
     // Load grass model asset
@@ -624,21 +616,48 @@ void GameClient::renderWorld()
     {
         return;
     }
+    
+    // Sync island physics to chunk transforms (client-side only)
+    {
+        PROFILE_SCOPE("Island physics update");
+        m_gameState->getIslandSystem()->syncPhysicsToChunks();
+    }
 
     // Shadow depth pass (cascaded)
     {
         renderShadowPass();
     }
 
-    // Render all islands
+    // Render all islands with MDI (single draw call for all chunks)
     {
-        PROFILE_SCOPE("renderAllIslands");
-        // Before rendering, set cascade matrices and splits on the shader via renderer
-        if (g_vboRenderer) {
-            // Set matrices individually via names: uLightVP[0..2] and splits
-            // This is done inside renderChunk to avoid extra API here.
+        PROFILE_SCOPE("MDI_renderAll");
+        
+        if (!g_mdiRenderer)
+        {
+            std::cerr << "❌ MDI renderer not initialized! Cannot render world." << std::endl;
+            return;
         }
-        m_gameState->getIslandSystem()->renderAllIslands();
+        
+        // Get camera matrices
+        float aspect = (float)m_windowWidth / (float)m_windowHeight;
+        glm::mat4 projectionMatrix = m_camera.getProjectionMatrix(aspect);
+        glm::mat4 viewMatrix = m_camera.getViewMatrix();
+        
+        // Render everything with single draw call!
+        g_mdiRenderer->renderAll(viewMatrix, projectionMatrix);
+        
+        // Print stats periodically
+        static auto lastPrint = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - lastPrint).count() >= 5)
+        {
+            auto stats = g_mdiRenderer->getStatistics();
+            std::cout << "📊 MDI: " << stats.activeChunks << " chunks, " 
+                      << (stats.totalVertices / 1000) << "k verts, " 
+                      << stats.drawCalls << " draw call(s), "
+                      << stats.lastFrameTimeMs << "ms" << std::endl;
+            lastPrint = now;
+        }
         // Render decorative grass instances per chunk
         if (g_modelRenderer)
         {
@@ -648,11 +667,7 @@ void GameClient::renderWorld()
             float fov = 45.0f;
             glm::mat4 projectionMatrix = glm::perspective(fov * 3.14159265358979323846f / 180.0f, aspect, 0.1f, 1000.0f);
             glm::mat4 viewMatrix = m_camera.getViewMatrix();
-            // Provide cascade data
-            if (g_vboRenderer)
-            {
-                // Pull light dir & splits from renderer state not exposed; set reasonable defaults here
-            }
+            
             for (auto& p : snapshot)
             {
                 g_modelRenderer->renderGrassChunk(p.first, p.second, viewMatrix, projectionMatrix);
@@ -676,11 +691,11 @@ void GameClient::renderWorld()
                 fluidParticles.push_back(entity);
             }
             
-            // Render fluid particles
-            if (g_vboRenderer && !fluidParticles.empty())
-            {
-                g_vboRenderer->renderFluidParticles(fluidParticles);
-            }
+            // TODO: Render fluid particles with MDI renderer
+            // if (!fluidParticles.empty())
+            // {
+            //     // Need to implement fluid particle rendering in MDI
+            // }
         }
     }
 
@@ -715,9 +730,6 @@ void GameClient::renderShadowPass()
 
     // For each cascade, compute ortho box around camera frustum slice and render depth
     float orthoRanges[C] = {60.0f, 180.0f, 500.0f}; // conservative boxes per split
-    if (g_vboRenderer) {
-        g_vboRenderer->setLightDir(lightDir);
-    }
     if (g_modelRenderer) {
         g_modelRenderer->setLightDir(lightDir);
     }
@@ -725,14 +737,14 @@ void GameClient::renderShadowPass()
     std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
     if (islandSystem) islandSystem->getAllChunksWithWorldPos(snapshot);
     // Provide splits to renderer (view-space distances)
-    if (g_vboRenderer) {
-        g_vboRenderer->setCascadeCount(C);
-        g_vboRenderer->setCascadeSplits(splits, C);
-    }
     if (g_modelRenderer) {
         g_modelRenderer->setCascadeCount(C);
         g_modelRenderer->setCascadeSplits(splits, C);
     }
+    
+    // Store lightVPs for MDI renderer
+    glm::mat4 lightVPs[C];
+    
     for (int ci = 0; ci < C; ++ci) {
         float ortho = orthoRanges[ci];
         glm::mat4 lightProj = glm::ortho(-ortho, ortho, -ortho, ortho, 1.0f, 300.0f);
@@ -744,21 +756,22 @@ void GameClient::renderShadowPass()
         glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
         glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
         glm::mat4 lightVP = lightProj * snapMat * lightView;
-
-        if (g_vboRenderer) {
-            g_vboRenderer->setCascadeMatrix(ci, lightVP);
-            g_vboRenderer->beginDepthPassCascade(ci, lightVP);
-            for (auto& p : snapshot) {
-                VoxelChunk* chunkPtr = p.first;
-                const Vec3& worldPos = p.second;
-                VoxelMesh& mesh = chunkPtr->getMesh();
-                if (mesh.VAO == 0 || mesh.needsUpdate)
-                    g_vboRenderer->uploadChunkMesh(chunkPtr);
-                g_vboRenderer->renderDepthChunk(chunkPtr, worldPos);
-            }
-            g_vboRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
+        
+        lightVPs[ci] = lightVP;  // Store for MDI
+        
+        // Render shadow depth pass for this cascade using MDI
+        if (g_mdiRenderer && m_windowWidth > 0 && m_windowHeight > 0)
+        {
+            g_mdiRenderer->beginDepthPassCascade(ci, lightVP);
+            g_mdiRenderer->renderDepthCascade(ci);
+            g_mdiRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
         }
-        // Grass shadow pass disabled - was causing blue speckling artifacts
+    }
+    
+    // Set lighting data for MDI renderer
+    if (g_mdiRenderer)
+    {
+        g_mdiRenderer->setLightingData(C, lightVPs, splits, glm::vec3(lightDir.x, lightDir.y, lightDir.z));
     }
     // Forward pass will read cascade data set on renderer
 }
@@ -961,6 +974,18 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
         chunk->setRawVoxelData(voxelData, dataSize);
         chunk->generateMesh();        // Regenerate the mesh with the new data
         chunk->buildCollisionMesh();  // Build collision faces from vertices
+        
+        // Register with MDI renderer for batched rendering
+        if (g_mdiRenderer && island)
+        {
+            Vec3 worldOffset = island->physicsCenter + Vec3(
+                chunkCoord.x * VoxelChunk::SIZE,
+                chunkCoord.y * VoxelChunk::SIZE,
+                chunkCoord.z * VoxelChunk::SIZE
+            );
+            int mdiIndex = g_mdiRenderer->registerChunk(chunk, worldOffset);
+            chunk->setMDIIndex(mdiIndex);  // Store for future transform updates
+        }
     }
     else
     {

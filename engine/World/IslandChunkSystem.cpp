@@ -9,9 +9,9 @@
 #include <string>
 
 #include "VoxelChunk.h"
-#include "BlockType.h"  // Add this include for BlockID constants
+#include "BlockType.h"
 #include "../Profiling/Profiler.h"
-#include "../Rendering/VBORenderer.h"  // RE-ENABLED - VBO only, no immediate mode
+#include "../Rendering/MDIRenderer.h"
 
 IslandChunkSystem g_islandSystem;
 
@@ -46,6 +46,7 @@ uint32_t IslandChunkSystem::createIsland(const Vec3& physicsCenter)
     FloatingIsland& island = m_islands[islandID];
     island.islandID = islandID;
     island.physicsCenter = physicsCenter;
+    island.needsPhysicsUpdate = true;  // Ensure initial MDI transform sync
     std::srand(static_cast<unsigned int>(std::time(nullptr)) + islandID * 137);
     float randomX = (std::rand() % 201 - 100) / 100.0f;
     float randomY = (std::rand() % 201 - 100) / 100.0f;
@@ -390,6 +391,18 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
         {
             chunk->generateMesh();
             chunk->buildCollisionMesh();
+            
+            // Register with MDI renderer for batched rendering (1 draw call for all chunks!)
+            if (g_mdiRenderer)
+            {
+                Vec3 worldOffset = island->physicsCenter + Vec3(
+                    chunkCoord.x * VoxelChunk::SIZE,
+                    chunkCoord.y * VoxelChunk::SIZE,
+                    chunkCoord.z * VoxelChunk::SIZE
+                );
+                int mdiIndex = g_mdiRenderer->registerChunk(chunk.get(), worldOffset);
+                chunk->setMDIIndex(mdiIndex);  // Store for future transform updates
+            }
         }
     }
 }
@@ -456,6 +469,9 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
         return;
     chunk->setVoxel(x, y, z, voxelType);
     chunk->generateMesh();
+    
+    // Update MDI renderer for real-time voxel changes
+    // TODO: Track MDI indices in chunks and call updateChunkMesh() instead of re-registering
 }
 
 void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType)
@@ -547,21 +563,10 @@ void IslandChunkSystem::getVisibleChunks(const Vec3& viewPosition,
 
 void IslandChunkSystem::renderAllIslands()
 {
-    PROFILE_SCOPE("IslandChunkSystem::renderAllIslands");
-    if (!g_vboRenderer) return;
-    std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
-    getAllChunksWithWorldPos(snapshot);
-    g_vboRenderer->beginBatch();
-    for (auto& p : snapshot)
-    {
-        // Only upload when needed to avoid contention/cost
-        VoxelMesh& m = p.first->getMesh();
-        if (m.VAO == 0 || m.needsUpdate) {
-            g_vboRenderer->uploadChunkMesh(p.first);
-        }
-        g_vboRenderer->renderChunk(p.first, p.second);
-    }
-    g_vboRenderer->endBatch();
+    // DEPRECATED: This function is no longer used.
+    // All rendering is now handled by MDIRenderer via GameClient::renderWorld()
+    // Kept for backwards compatibility only.
+    std::cerr << "⚠️  IslandChunkSystem::renderAllIslands() called but deprecated. Use MDIRenderer instead." << std::endl;
 }
 
 void IslandChunkSystem::updateIslandPhysics(float deltaTime)
@@ -581,15 +586,47 @@ void IslandChunkSystem::syncPhysicsToChunks()
 {
     // Sync physics positions to chunk rendering positions
     std::lock_guard<std::mutex> lock(m_islandsMutex);
+    
+    if (!g_mdiRenderer)
+    {
+        std::cerr << "⚠️  syncPhysicsToChunks: MDI renderer not available!" << std::endl;
+        return;  // No renderer to update
+    }
+    
+    static int updateCount = 0;
+    int chunksUpdated = 0;
+    
     for (auto& [id, island] : m_islands)
     {
         if (island.needsPhysicsUpdate)
         {
-            // All chunks in the island move together with the physics center
-            // Individual chunk positions are calculated during rendering
+            // Update MDI transforms for all chunks in this island
+            for (auto& [chunkCoord, chunk] : island.chunks)
+            {
+                if (chunk && chunk->getMDIIndex() >= 0)
+                {
+                    // Calculate new world position for this chunk
+                    Vec3 worldOffset = island.physicsCenter + Vec3(
+                        chunkCoord.x * VoxelChunk::SIZE,
+                        chunkCoord.y * VoxelChunk::SIZE,
+                        chunkCoord.z * VoxelChunk::SIZE
+                    );
+                    
+                    // Update the transform in the MDI renderer
+                    g_mdiRenderer->updateChunkTransform(chunk->getMDIIndex(), worldOffset);
+                    chunksUpdated++;
+                }
+            }
+            
             island.needsPhysicsUpdate = false;
         }
     }
+    
+    if (updateCount % 300 == 0 && chunksUpdated > 0)
+    {
+        std::cout << "Synced " << chunksUpdated << " chunks to physics (update #" << updateCount << ")" << std::endl;
+    }
+    updateCount++;
 }
 
 void IslandChunkSystem::updatePlayerChunks(const Vec3& playerPosition)

@@ -15,7 +15,7 @@
 #endif
 
 // Global instances
-VBORenderer* g_vboRenderer = nullptr;
+std::unique_ptr<VBORenderer> g_vboRenderer = nullptr;
 
 VBORenderer::VBORenderer()
     : m_initialized(false)

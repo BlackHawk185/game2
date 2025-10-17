@@ -4,6 +4,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <memory>
 
 #include "../World/VoxelChunk.h"
 #include "../Math/Vec3.h"
@@ -66,6 +67,9 @@ public:
     
     const RenderStats& getStats() const { return m_stats; }
     void resetStats() { m_stats.reset(); }
+    
+    // Public access to shader for MDI renderer
+    SimpleShader* getShader() { return &m_shader; }
 
 private:
     bool m_initialized;
@@ -101,5 +105,5 @@ private:
     bool initDepthShader();
 };
 
-// Global VBO renderer instance
-extern VBORenderer* g_vboRenderer;
+// Global VBO renderer instance (owned pointer)
+extern std::unique_ptr<VBORenderer> g_vboRenderer;

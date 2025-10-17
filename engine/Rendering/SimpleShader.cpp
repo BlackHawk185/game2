@@ -26,10 +26,15 @@ layout (std140, binding = 0) uniform ChunkLightingData {
     int uNumChunks;
 };
 
+// SSBO for MDI rendering (thousands of transforms)
+layout (std430, binding = 1) readonly buffer MDITransforms {
+    mat4 uMDITransforms[];
+};
+
 uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
-uniform int uChunkIndex;  // Which chunk this vertex belongs to
+uniform int uChunkIndex;  // Which chunk this vertex belongs to (-1=use uModel, -2=use MDI/gl_BaseInstance)
 uniform mat4 uLightVP[4]; // Cascaded light view-projections
 uniform int uCascadeCount;
 uniform float uShadowTexel[4];
@@ -43,8 +48,17 @@ out float BlockType;
 
 void main()
 {
-    mat4 finalTransform = (uChunkIndex >= 0 && uChunkIndex < uNumChunks) ?
-                         uChunkTransforms[uChunkIndex] : uModel;
+    mat4 finalTransform;
+    if (uChunkIndex == -2) {  // ShaderMode::USE_MDI_SSBO
+        // MDI mode: fetch from SSBO using gl_BaseInstance
+        finalTransform = uMDITransforms[gl_BaseInstance];
+    } else if (uChunkIndex >= 0 && uChunkIndex < uNumChunks) {
+        // UBO batch mode: fetch from chunk transforms array
+        finalTransform = uChunkTransforms[uChunkIndex];
+    } else {  // ShaderMode::USE_UNIFORM_TRANSFORM (-1 or other)
+        // Single chunk mode: use uModel uniform
+        finalTransform = uModel;
+    }
 
     vec4 world = finalTransform * vec4(aPosition, 1.0);
     gl_Position = uProjection * uView * world;

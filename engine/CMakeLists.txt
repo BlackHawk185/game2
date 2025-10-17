@@ -19,11 +19,11 @@ add_library(engine STATIC
     
     # Rendering systems
     Rendering/Renderer.cpp
-    Rendering/VBORenderer.cpp  # RE-ENABLED
+    Rendering/MDIRenderer.cpp  # Multi-Draw Indirect renderer for massive batching
     Rendering/TextureManager.cpp
     Rendering/ShaderManager.cpp
-    Rendering/SimpleShader.cpp  # Simple shader for basic rendering
-    Rendering/GlobalLightingManager.cpp  # NEW: Global lighting system
+    Rendering/SimpleShader.cpp
+    Rendering/GlobalLightingManager.cpp
     Rendering/ShadowMap.cpp
     Rendering/CascadedShadowMap.cpp
     Rendering/ModelInstanceRenderer.cpp

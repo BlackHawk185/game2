@@ -10,7 +10,8 @@
 #include <cstdio>
 #include <tiny_gltf.h>
 
-ModelInstanceRenderer* g_modelRenderer = nullptr;
+// Global instance
+std::unique_ptr<ModelInstanceRenderer> g_modelRenderer = nullptr;
 
 namespace {
     static const char* kVS = R"GLSL(

@@ -2,7 +2,6 @@
 #include "VoxelChunk.h"
 #include "BlockType.h"
 
-#include "../Rendering/VBORenderer.h"
 #include "../Time/DayNightCycle.h"  // For dynamic sun direction
 
 #include <algorithm>
@@ -402,15 +401,9 @@ void VoxelChunk::render(const Vec3& worldOffset)
     if (mesh.vertices.empty())
         return;
 
-    // Modern VBO path: upload mesh if needed and render via global VBORenderer
-    if (g_vboRenderer)
-    {
-        if (mesh.needsUpdate)
-        {
-            g_vboRenderer->uploadChunkMesh(this);
-        }
-        g_vboRenderer->renderChunk(this, worldOffset);
-    }
+    // DEPRECATED: This function is no longer used - MDI renderer handles all chunk rendering
+    // through registerChunk() and updateChunkTransform() instead
+    (void)worldOffset;
 }
 
 void VoxelChunk::renderLOD(int lodLevel, const Vec3& cameraPos)

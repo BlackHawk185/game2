@@ -9,6 +9,13 @@
 // Use a lightweight alias for GLuint and include the actual GL headers in the .cpp.
 using GLuint = unsigned int;
 
+// Shader rendering modes
+namespace ShaderMode {
+    constexpr int USE_UNIFORM_TRANSFORM = -1;  // Use uModel uniform (single chunk)
+    constexpr int USE_MDI_SSBO = -2;           // Use SSBO with gl_BaseInstance (MDI)
+    // 0+ = Use UBO chunk transforms array
+}
+
 // Structure for chunk lighting data in UBO
 struct ChunkLightingData {
     glm::mat4 transforms[64];        // Transform matrices for up to 64 chunks

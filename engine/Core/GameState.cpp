@@ -100,9 +100,9 @@ void GameState::updateSimulation(float deltaTime)
 
     // Update island physics
     m_islandSystem.updateIslandPhysics(deltaTime);
-
-    // Sync physics to visual representation
-    m_islandSystem.syncPhysicsToChunks();
+    
+    // NOTE: syncPhysicsToChunks() is called by GameClient, not here
+    // Server doesn't have a renderer, so it shouldn't sync physics to rendering
 }
 
 void GameState::setPrimaryPlayerPosition(const Vec3& position)

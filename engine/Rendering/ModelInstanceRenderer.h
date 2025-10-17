@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <memory>
 #include <string>
 #include <glm/glm.hpp>
 
@@ -91,5 +92,5 @@ private:
     std::unordered_map<VoxelChunk*, ChunkInstanceBuffer> m_chunkInstances;
 };
 
-// Global instance
-extern ModelInstanceRenderer* g_modelRenderer;
+// Global instance (owned pointer)
+extern std::unique_ptr<ModelInstanceRenderer> g_modelRenderer;

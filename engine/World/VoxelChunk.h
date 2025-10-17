@@ -151,6 +151,10 @@ class VoxelChunk
     void markLightingDirty() { lightingDirty = true; }
     void markLightingClean() { lightingDirty = false; }
     
+    // MDI renderer integration
+    int getMDIIndex() const { return mdiIndex; }
+    void setMDIIndex(int index) { mdiIndex = index; }
+    
     // Light mapping utilities - public for GlobalLightingManager
     Vec3 calculateWorldPositionFromLightMapUV(int faceIndex, float u, float v) const;  // Convert UV to world pos
     
@@ -170,6 +174,7 @@ class VoxelChunk
     ChunkLightMaps lightMaps;  // NEW: Per-face light mapping data
     bool meshDirty = true;
     bool lightingDirty = true;  // NEW: Lighting needs recalculation
+    int mdiIndex = -1;  // Index in MDI renderer for transform updates (-1 = not registered)
 
     // Cached instance anchors for DECOR_GRASS blocks within this chunk
     std::vector<Vec3> grassInstancePositions;

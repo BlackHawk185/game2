@@ -8,7 +8,7 @@
 #include <mutex>
 #include <string>
 
-#include "Math/Vec3.h"
+#include "../Math/Vec3.h"
 #include "VoxelChunk.h"
 #include "BlockType.h"
 
