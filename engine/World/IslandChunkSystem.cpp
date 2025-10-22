@@ -630,10 +630,7 @@ void IslandChunkSystem::syncPhysicsToChunks()
         }
     }
     
-    if (updateCount % 300 == 0 && chunksUpdated > 0)
-    {
-        std::cout << "Synced " << chunksUpdated << " chunks to physics (update #" << updateCount << ")" << std::endl;
-    }
+    // Physics sync happens silently every frame
     updateCount++;
 }
 

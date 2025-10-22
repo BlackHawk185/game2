@@ -290,10 +290,7 @@ void NetworkClient::processServerMessage(ENetPacket* packet)
             if (packet->dataLength >= sizeof(VoxelChangeUpdate))
             {
                 VoxelChangeUpdate update = *(VoxelChangeUpdate*) packet->data;
-                std::cout << "Received voxel change: Island " << update.islandID << " at ("
-                          << update.localPos.x << "," << update.localPos.y << ","
-                          << update.localPos.z << ") = " << (int) update.voxelType << std::endl;
-
+                
                 if (onVoxelChangeReceived)
                 {
                     onVoxelChangeReceived(update);

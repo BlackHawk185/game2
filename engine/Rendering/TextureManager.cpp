@@ -28,7 +28,6 @@ GLuint TextureManager::loadTexture(const std::string& filepath, bool generateMip
     std::string filename = getFileName(filepath);
     auto it = m_textures.find(filename);
     if (it != m_textures.end()) {
-        std::cout << "Texture already loaded: " << filename << std::endl;
         return it->second;
     }
     
@@ -38,8 +37,7 @@ GLuint TextureManager::loadTexture(const std::string& filepath, bool generateMip
     unsigned char* data = stbi_load(filepath.c_str(), &width, &height, &channels, 0);
     
     if (!data) {
-        std::cerr << "Failed to load texture: " << filepath << std::endl;
-        std::cerr << "STB Error: " << stbi_failure_reason() << std::endl;
+        // Silent fail - caller will try alternative paths
         return 0;
     }
     
@@ -51,7 +49,6 @@ GLuint TextureManager::loadTexture(const std::string& filepath, bool generateMip
     
     if (textureID != 0) {
         m_textures[filename] = textureID;
-        std::cout << "Loaded texture: " << filename << " (" << width << "x" << height << ", " << channels << " channels)" << std::endl;
     }
     
     return textureID;

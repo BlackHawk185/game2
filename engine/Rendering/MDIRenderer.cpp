@@ -339,7 +339,6 @@ void MDIRenderer::processPendingUpdates()
         int mdiIndex = registerChunk(pending.chunk, pending.worldOffset);
         if (mdiIndex >= 0 && pending.chunk)
         {
-            std::cout << "✅ Chunk " << pending.chunk << " registered at MDI index " << mdiIndex << std::endl;
             pending.chunk->setMDIIndex(mdiIndex);
         }
     }
