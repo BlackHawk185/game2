@@ -5,6 +5,7 @@
 #include "BlockType.h"
 #include <array>
 #include <vector>
+#include <unordered_map>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -134,9 +135,14 @@ class VoxelChunk
     const VoxelMesh& getMesh() const { return mesh; }
     std::mutex& getMeshMutex() const { return meshMutex; }
 
-    // Decorative/model instance positions (e.g., instanced grass)
-    const std::vector<Vec3>& getGrassInstancePositions() const { return grassInstancePositions; }
-    void clearGrassInstances() { grassInstancePositions.clear(); }
+    // Decorative/model instance positions (generic per block type)
+    const std::vector<Vec3>& getModelInstances(uint8_t blockID) const;
+    void addModelInstance(uint8_t blockID, const Vec3& position);
+    void clearModelInstances(uint8_t blockID);
+    void clearAllModelInstances();
+    
+    // Legacy grass-specific accessor (for backwards compatibility during refactor)
+    const std::vector<Vec3>& getGrassInstancePositions() const { return getModelInstances(BlockID::DECOR_GRASS); }
     
     // Light mapping access
     ChunkLightMaps& getLightMaps() { return lightMaps; }
@@ -173,8 +179,9 @@ class VoxelChunk
     bool lightingDirty = true;  // NEW: Lighting needs recalculation
     int mdiIndex = -1;  // Index in MDI renderer for transform updates (-1 = not registered)
 
-    // Cached instance anchors for DECOR_GRASS blocks within this chunk
-    std::vector<Vec3> grassInstancePositions;
+    // NEW: Per-block-type model instance positions (for BlockRenderType::OBJ blocks)
+    // Key: BlockID, Value: list of instance positions within this chunk
+    std::unordered_map<uint8_t, std::vector<Vec3>> m_modelInstances;
 
     // Mesh generation helpers
     void addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, float x, float y,

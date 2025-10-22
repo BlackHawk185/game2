@@ -124,10 +124,16 @@ void VoxelChunk::addCollisionQuad(float x, float y, float z, int face)
 
 bool VoxelChunk::isVoxelSolid(int x, int y, int z) const
 {
-    uint8_t v = getVoxel(x, y, z);
-    if (v == 0) return false;
-    // Treat decorative instanced grass as non-solid for meshing/collision
-    if (v == BlockID::DECOR_GRASS) return false;
+    uint8_t blockID = getVoxel(x, y, z);
+    if (blockID == BlockID::AIR) return false;
+    
+    // Check if this is an OBJ-type block (instanced models, not meshed voxels)
+    auto& registry = BlockTypeRegistry::getInstance();
+    const BlockTypeInfo* blockInfo = registry.getBlockType(blockID);
+    if (blockInfo && blockInfo->renderType == BlockRenderType::OBJ) {
+        return false;  // OBJ blocks are not solid for meshing/collision purposes
+    }
+    
     return true;
 }
 
@@ -245,18 +251,24 @@ void VoxelChunk::generateMesh(bool generateLighting)
     mesh.vertices.clear();
     mesh.indices.clear();
     collisionMeshVertices.clear();
-    grassInstancePositions.clear();
+    clearAllModelInstances();  // Clear all model instances before scanning
 
     auto grassScanStart = std::chrono::high_resolution_clock::now();
     
-    // Pre-scan for decorative grass blocks to create instance anchors (and ensure they are not meshed)
+    // Pre-scan for all OBJ-type blocks to create instance anchors (and ensure they are not meshed)
+    auto& registry = BlockTypeRegistry::getInstance();
     for (int z = 0; z < SIZE; ++z) {
         for (int y = 0; y < SIZE; ++y) {
             for (int x = 0; x < SIZE; ++x) {
-                uint8_t v = getVoxel(x, y, z);
-                if (v == BlockID::DECOR_GRASS) {
-                    // Anchor at voxel center
-                    grassInstancePositions.emplace_back((float)x + 0.5f, (float)y, (float)z + 0.5f);
+                uint8_t blockID = getVoxel(x, y, z);
+                if (blockID == BlockID::AIR) continue;
+                
+                // Check if this is an OBJ-type block
+                const BlockTypeInfo* blockInfo = registry.getBlockType(blockID);
+                if (blockInfo && blockInfo->renderType == BlockRenderType::OBJ) {
+                    // Anchor at voxel center (Y=0 for ground-based models)
+                    Vec3 instancePos((float)x + 0.5f, (float)y, (float)z + 0.5f);
+                    addModelInstance(blockID, instancePos);
                 }
             }
         }
@@ -1261,3 +1273,29 @@ void VoxelChunk::addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32
     indices.push_back(baseIndex + 3);
 }
 
+// Model instance management (for BlockRenderType::OBJ blocks)
+const std::vector<Vec3>& VoxelChunk::getModelInstances(uint8_t blockID) const
+{
+    static const std::vector<Vec3> empty;
+    auto it = m_modelInstances.find(blockID);
+    if (it != m_modelInstances.end())
+        return it->second;
+    return empty;
+}
+
+void VoxelChunk::addModelInstance(uint8_t blockID, const Vec3& position)
+{
+    m_modelInstances[blockID].push_back(position);
+}
+
+void VoxelChunk::clearModelInstances(uint8_t blockID)
+{
+    auto it = m_modelInstances.find(blockID);
+    if (it != m_modelInstances.end())
+        it->second.clear();
+}
+
+void VoxelChunk::clearAllModelInstances()
+{
+    m_modelInstances.clear();
+}

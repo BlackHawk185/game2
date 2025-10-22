@@ -143,7 +143,7 @@ void Camera::getProjectionMatrix(float* matrix, float aspect)
 // New clean Vec3-based projection matrix
 glm::mat4 Camera::getProjectionMatrix(float aspect)
 {
-    float fov = 60.0f * PI_F / 180.0f;  // radians (increased for better peripheral vision with taller player)
+    float fov = 70.0f * PI_F / 180.0f;  // radians (tighter FOV - makes spaces feel more accurate)
     return glm::perspective(fov, aspect, 0.1f, 1000.0f);
 }
 
