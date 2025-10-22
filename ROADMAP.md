@@ -1,8 +1,12 @@
 # MMORPG Engine Development Roadmap
 
 **Last Updated:** 2025-10-22  
-**Current Phase:** Phase 1 - COMPLETE ✅ | Phase 2 - Ready to Start  
-**Current Status:** Phase 1 testing, then Phase 2.3 (Add QFG Block Type)
+**Current Phase:** Phase 1.5 - Testing Phase 1 Implementation  
+**Current Status:** Awaiting user testing, then proceed to Phase 2.1 (Block Properties System)
+
+**Immediate Action Required:**
+- User needs to test grass rendering (verify backwards compatibility)
+- Once testing passes, begin Phase 2.1 implementation
 
 ---
 
