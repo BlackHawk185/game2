@@ -117,6 +117,9 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    // Disable profiler for cleaner console output
+    g_profiler.setEnabled(false);
+
     g_timeManager = new TimeManager();
     g_timeEffects = new TimeEffects();
 

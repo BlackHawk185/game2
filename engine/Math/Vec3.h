@@ -119,3 +119,17 @@ struct Vec3
         return {std::max(a.x, b.x), std::max(a.y, b.y), std::max(a.z, b.z)};
     }
 };
+
+// Hash function for Vec3 to enable use in std::unordered_set and std::unordered_map
+namespace std {
+    template <>
+    struct hash<Vec3> {
+        size_t operator()(const Vec3& v) const {
+            // Combine hashes using bit shifts and XOR
+            size_t h1 = std::hash<float>()(v.x);
+            size_t h2 = std::hash<float>()(v.y);
+            size_t h3 = std::hash<float>()(v.z);
+            return h1 ^ (h2 << 1) ^ (h3 << 2);
+        }
+    };
+}

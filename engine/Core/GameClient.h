@@ -117,6 +117,26 @@ private:
     DayNightCycle m_dayNightCycle;
     Vec3 m_lastSunDirection{0.0f, 0.0f, 0.0f};  // Track sun direction changes
     
+    // Player physics state
+    Vec3 m_playerVelocity{0.0f, 0.0f, 0.0f};        // Player's own velocity (input, gravity, jumps)
+    Vec3 m_physicsPosition{0.0f, 0.0f, 0.0f};       // Actual hitbox position (can jitter)
+    bool m_isGrounded = false;
+    bool m_jumpPressed = false;
+    bool m_noclipMode = false;          // Debug: disable physics
+    bool m_disableCameraSmoothing = false;  // Debug: disable camera LERP to see raw physics
+    float m_moveSpeed = 24.0f;          // Walk speed (adjusted 1.5x for larger world scale)
+    float m_jumpStrength = 8.0f;       // Jump velocity (adjusted 1.5x for larger world scale)
+    float m_gravity = 20.0f;            // Gravity acceleration
+    float m_airControl = 0.2f;          // How much control in air (reduced from 0.4)
+    float m_groundFriction = 0.85f;     // Ground friction multiplier
+    float m_airFriction = 0.94f;        // Air resistance (reduced from 0.98 for more drag)
+    float m_cameraSmoothing = 0.15f;    // Camera interpolation speed (lower = smoother)
+    
+    // Capsule collision dimensions (player is 3 blocks tall, ~0.9 blocks wide)
+    float m_capsuleRadius = 0.45f;      // Horizontal radius (fits through 2-block gap)
+    float m_capsuleHeight = 3.0f;       // Total height including caps
+    float m_capsuleCylinderHeight = 2.1f; // Height of cylindrical portion (3.0 - 2*0.45)
+    
     // Input state
     struct InputState {
         bool leftMousePressed = false;
@@ -189,6 +209,12 @@ private:
      * Handle received entity state updates from server
      */
     void handleEntityStateUpdate(const EntityStateUpdate& update);
+    
+    /**
+     * CRITICAL: Centralized spawn function - ONLY place where player position should be set
+     * This ensures m_camera.position and m_physicsPosition stay in sync
+     */
+    void spawnPlayerAt(const Vec3& worldPosition);
     
     /**
      * Render waiting screen for remote clients

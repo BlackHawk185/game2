@@ -17,8 +17,8 @@ public:
     void getProjectionMatrix(float* matrix, float aspect);
     glm::mat4 getProjectionMatrix(float aspect);
     
-    // Position and orientation - now using Vec3!
-    Vec3 position{0.0f, 50.0f, 50.0f}; // Start high up and back to see islands
+    // Position and orientation - Set by GameState on initialization
+    Vec3 position;
     Vec3 front{0.0f, 0.0f, -1.0f};
     Vec3 up{0.0f, 1.0f, 0.0f};
     Vec3 right{1.0f, 0.0f, 0.0f};

@@ -2,6 +2,8 @@
 #include "GameState.h"
 
 #include <iostream>
+#include <cstdlib>
+#include <ctime>
 
 #include "../Threading/JobSystem.h"
 #include "../World/VoxelChunk.h"
@@ -144,24 +146,46 @@ Vec3 GameState::getIslandCenter(uint32_t islandID) const
 
 void GameState::createDefaultWorld()
 {
-    std::cout << "🏝️ Creating default world (3 floating islands)..." << std::endl;
+    std::cout << "🏝️ Creating default world (multiple floating islands)..." << std::endl;
 
-    // **OPTIMIZED ISLAND SPACING** - Calculate safe distances to prevent overlap
-    // Main island: Smaller size for profiling world generation performance
-    float mainRadius = 200.0f;     // Reduced from 512.0f for faster testing
-    float spacing = 200.0f;        // Not needed for single island but kept for consistency
+    // **ISLAND CONFIGURATION** - Reduced for physics debugging
+    float mainRadius = 120.0f;     // Main island size (reduced from 500.0f for faster iteration)
+    float smallRadius = 50.0f;     // Smaller island size (reduced from 120.0f)
+    float spacing = 150.0f;        // Distance between island centers (reduced from 300.0f)
     
-    // Create 1 island for testing and optimization
-    uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));  // Center island
+    // Create multiple islands with varied positions
+    uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));        // Center
+    uint32_t island2ID = m_islandSystem.createIsland(Vec3(spacing, 50.0f, 0.0f));   // East
+    uint32_t island3ID = m_islandSystem.createIsland(Vec3(-spacing, -30.0f, 0.0f)); // West
+    uint32_t island4ID = m_islandSystem.createIsland(Vec3(0.0f, 40.0f, spacing));   // North
+    uint32_t island5ID = m_islandSystem.createIsland(Vec3(0.0f, -50.0f, -spacing)); // South
 
-    // Track the island
+    // Track all islands
     m_islandIDs.push_back(island1ID);
+    m_islandIDs.push_back(island2ID);
+    m_islandIDs.push_back(island3ID);
+    m_islandIDs.push_back(island4ID);
+    m_islandIDs.push_back(island5ID);
 
-    // **SINGLE ISLAND GENERATION** - Focus on getting lighting working first
-    std::cout << "[WORLD] Generating single test island with lighting optimization..." << std::endl;
-    std::cout << "[ISLAND] Main island radius: " << mainRadius << " units" << std::endl;
+    // **MULTIPLE ISLAND GENERATION** - Create a small archipelago with random seeds
+    std::cout << "[WORLD] Generating " << m_islandIDs.size() << " islands..." << std::endl;
     
-    m_islandSystem.generateFloatingIslandOrganic(island1ID, 12345, mainRadius);      // Single test island
+    // Generate random seeds for each island (unique world every time)
+    std::srand(static_cast<unsigned int>(std::time(nullptr)));
+    uint32_t seed1 = std::rand();
+    uint32_t seed2 = std::rand();
+    uint32_t seed3 = std::rand();
+    uint32_t seed4 = std::rand();
+    uint32_t seed5 = std::rand();
+    
+    std::cout << "[WORLD] Using random seeds: " << seed1 << ", " << seed2 << ", " << seed3 << ", " << seed4 << ", " << seed5 << std::endl;
+    
+    // Generate each island with random seeds for variety
+    m_islandSystem.generateFloatingIslandOrganic(island1ID, seed1, mainRadius);      // Main island (large)
+    m_islandSystem.generateFloatingIslandOrganic(island2ID, seed2, smallRadius);     // East island (smaller)
+    m_islandSystem.generateFloatingIslandOrganic(island3ID, seed3, smallRadius);     // West island (smaller)
+    m_islandSystem.generateFloatingIslandOrganic(island4ID, seed4, smallRadius);     // North island (smaller)
+    m_islandSystem.generateFloatingIslandOrganic(island5ID, seed5, smallRadius);     // South island (smaller)
 
     // Log collision mesh generation for each island
     for (uint32_t islandID : m_islandIDs)
@@ -209,11 +233,15 @@ void GameState::createDefaultWorld()
             }
         }
     }
+    
+    // Set player spawn position (will be read by GameClient when it connects)
     Vec3 islandCenter = m_islandSystem.getIslandCenter(island1ID);
-    Vec3 playerSpawnPos = Vec3(16.0f, 16.0f, 16.0f);  // Relative to island center
+    // Spawn high above island center to ensure dramatic falling entry and avoid spawning inside geometry
+    Vec3 playerSpawnPos = Vec3(0.0f, 64.0f, 0.0f);  // 500 units straight up from origin
     m_primaryPlayer->setPosition(playerSpawnPos);
 
-    // Removed verbose debug output
+    std::cout << "🎯 Player spawn position: (" << playerSpawnPos.x << ", " << playerSpawnPos.y << ", " << playerSpawnPos.z << ")" << std::endl;
+    std::cout << "🏝️  Main island center: (" << islandCenter.x << ", " << islandCenter.y << ", " << islandCenter.z << ")" << std::endl;
 }
 
 void GameState::updatePhysics(float deltaTime)

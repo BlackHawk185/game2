@@ -13,6 +13,8 @@ add_library(engine STATIC
     World/IslandChunkSystem.cpp
     World/VoxelRaycaster.cpp
     World/BlockType.cpp
+    World/ConnectivityAnalyzer.cpp
+    World/ConnectivityTest.cpp
     
     # Game objects
     Player.cpp

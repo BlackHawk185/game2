@@ -60,7 +60,7 @@ struct IslandChunk
     float* meshVertices = nullptr;
 
     // Get world position by combining island physics position + local offset
-    Vec3 getWorldPosition(const FloatingIsland& island, const Vec3& islandPhysicsPos) const
+    Vec3 getWorldPosition(const FloatingIsland& /*island*/, const Vec3& islandPhysicsPos) const
     {
         return islandPhysicsPos + localPosition;
     }

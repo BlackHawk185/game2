@@ -121,7 +121,7 @@ class VoxelChunk
 
     // **LOD AND CULLING SUPPORT**
     int calculateLOD(const Vec3& cameraPos) const;
-    bool shouldRender(const Vec3& cameraPos, float maxDistance = 256.0f) const;
+    bool shouldRender(const Vec3& cameraPos, float maxDistance = 1024.0f) const;
 
     // Collision detection methods
     const CollisionMesh& getCollisionMesh() const
@@ -176,14 +176,12 @@ class VoxelChunk
     // Cached instance anchors for DECOR_GRASS blocks within this chunk
     std::vector<Vec3> grassInstancePositions;
 
-    // **FACE CULLING OPTIMIZATION HELPER**
-    bool shouldRenderFace(int x, int y, int z, int faceDir) const;
-
     // Mesh generation helpers
     void addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, float x, float y,
                  float z, int face, uint8_t blockType);
     void addCollisionQuad(float x, float y, float z, int face);
     bool isVoxelSolid(int x, int y, int z) const;
+    uint8_t getNeighborVoxel(int x, int y, int z, int direction) const;  // Intra-chunk neighbor lookup only
     
     // Greedy meshing implementation
     void generateGreedyMesh();

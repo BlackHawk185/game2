@@ -110,6 +110,14 @@ bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t maxVertices, uint32_t 
         return false;
     }
     
+    // Enable OpenGL state for 3D rendering
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    glFrontFace(GL_CCW);  // Counter-clockwise winding is front-facing
+    std::cout << "✅ Enabled depth testing and back-face culling" << std::endl;
+    
     // Load MDI shader (uses SSBO for transforms instead of uniform)
     m_shader = new SimpleShader();
     if (!m_shader->initialize())
@@ -247,6 +255,13 @@ int MDIRenderer::registerChunk(VoxelChunk* chunk, const Vec3& worldOffset)
         }
     }
     
+    // Safety check: ensure chunkIndex is within vector bounds
+    if (chunkIndex < 0 || chunkIndex >= static_cast<int>(m_chunkData.size()))
+    {
+        std::cerr << "❌ Invalid chunk index " << chunkIndex << " (size: " << m_chunkData.size() << ")" << std::endl;
+        return -1;
+    }
+    
     // Upload vertex data
     uploadVertices(m_currentVertexOffset, mesh.vertices.data(), 
                    static_cast<uint32_t>(mesh.vertices.size() * sizeof(Vertex)));
@@ -304,13 +319,94 @@ void MDIRenderer::updateChunkMesh(int chunkIndex, VoxelChunk* chunk)
     if (chunkIndex < 0 || chunkIndex >= static_cast<int>(m_chunkData.size()) || !chunk)
         return;
     
-    // For now, just unregister and re-register
-    // TODO: Implement in-place update if sizes match
-    unregisterChunk(chunkIndex);
+    PROFILE_SCOPE("MDIRenderer::updateChunkMesh");
+    
+    std::lock_guard<std::mutex> lock(chunk->getMeshMutex());
+    const VoxelMesh& mesh = chunk->getMesh();
+    
+    if (mesh.vertices.empty() || mesh.indices.empty())
+    {
+        // Empty mesh - just mark as inactive
+        m_drawCommands[chunkIndex].count = 0;
+        return;
+    }
     
     ChunkDrawData& data = m_chunkData[chunkIndex];
-    Vec3 worldOffset(data.modelMatrix[3][0], data.modelMatrix[3][1], data.modelMatrix[3][2]);
-    registerChunk(chunk, worldOffset);
+    
+    // Check if mesh fits in existing allocation
+    if (mesh.vertices.size() == data.vertexCount && mesh.indices.size() == data.indexCount)
+    {
+        // Perfect match - update in place (no reallocation needed!)
+        uploadVertices(data.vertexOffset, mesh.vertices.data(), 
+                      static_cast<uint32_t>(mesh.vertices.size() * sizeof(Vertex)));
+        
+        uploadIndices(data.indexOffset, mesh.indices.data(),
+                     static_cast<uint32_t>(mesh.indices.size() * sizeof(uint32_t)));
+        
+        // Update draw command (counts should be same but refresh anyway)
+        m_drawCommands[chunkIndex].count = data.indexCount;
+    }
+    else if (mesh.vertices.size() <= data.vertexCount && mesh.indices.size() <= data.indexCount)
+    {
+        // New mesh is smaller or equal - can reuse existing allocation
+        uploadVertices(data.vertexOffset, mesh.vertices.data(), 
+                      static_cast<uint32_t>(mesh.vertices.size() * sizeof(Vertex)));
+        
+        uploadIndices(data.indexOffset, mesh.indices.data(),
+                     static_cast<uint32_t>(mesh.indices.size() * sizeof(uint32_t)));
+        
+        // Update stats BEFORE changing counts (need old values)
+        m_stats.totalVertices = m_stats.totalVertices - data.vertexCount + mesh.vertices.size();
+        m_stats.totalIndices = m_stats.totalIndices - data.indexCount + mesh.indices.size();
+        
+        // Update counts to reflect new (smaller) mesh
+        data.vertexCount = static_cast<uint32_t>(mesh.vertices.size());
+        data.indexCount = static_cast<uint32_t>(mesh.indices.size());
+        
+        // Update draw command with new index count
+        DrawElementsCommand& cmd = m_drawCommands[chunkIndex];
+        cmd.count = data.indexCount;
+    }
+    else
+    {
+        // New mesh is larger - need to allocate new space
+        // Check if we have room for the larger mesh
+        if (m_currentVertexOffset + mesh.vertices.size() > m_maxVertices ||
+            m_currentIndexOffset + mesh.indices.size() > m_maxIndices)
+        {
+            // Buffer full - mark as inactive
+            m_drawCommands[chunkIndex].count = 0;
+            std::cerr << "⚠️  MDI buffers full! Cannot update chunk with larger mesh." << std::endl;
+            return;
+        }
+        
+        // Allocate new space at the end of the buffer (old space is orphaned)
+        uploadVertices(m_currentVertexOffset, mesh.vertices.data(), 
+                      static_cast<uint32_t>(mesh.vertices.size() * sizeof(Vertex)));
+        
+        uploadIndices(m_currentIndexOffset, mesh.indices.data(),
+                     static_cast<uint32_t>(mesh.indices.size() * sizeof(uint32_t)));
+        
+        // Update chunk data with new allocation
+        data.vertexOffset = m_currentVertexOffset;
+        data.indexOffset = m_currentIndexOffset;
+        data.vertexCount = static_cast<uint32_t>(mesh.vertices.size());
+        data.indexCount = static_cast<uint32_t>(mesh.indices.size());
+        
+        // Update draw command
+        DrawElementsCommand& cmd = m_drawCommands[chunkIndex];
+        cmd.count = data.indexCount;
+        cmd.firstIndex = data.indexOffset;
+        cmd.baseVertex = data.vertexOffset;
+        
+        // Advance offsets
+        m_currentVertexOffset += data.vertexCount;
+        m_currentIndexOffset += data.indexCount;
+        
+        // Update stats
+        m_stats.totalVertices += data.vertexCount;
+        m_stats.totalIndices += data.indexCount;
+    }
 }
 
 void MDIRenderer::unregisterChunk(int chunkIndex)
@@ -401,9 +497,10 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_transformBuffer);
     
     // Single MDI draw call for ALL chunks!
+    // Use maxChunks as the draw count - chunks with count=0 will be skipped by GPU
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
     glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 
-                                static_cast<GLsizei>(m_stats.registeredChunks), 0);
+                                static_cast<GLsizei>(m_maxChunks), 0);
     
     glBindVertexArray(0);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
@@ -431,9 +528,10 @@ void MDIRenderer::renderAllDepth(SimpleShader* depthShader, const glm::mat4& lig
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_transformBuffer);
     
     // Single MDI draw call for shadow pass
+    // Use maxChunks as the draw count - chunks with count=0 will be skipped by GPU
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
     glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr,
-                                static_cast<GLsizei>(m_stats.registeredChunks), 0);
+                                static_cast<GLsizei>(m_maxChunks), 0);
     
     glBindVertexArray(0);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);

@@ -241,7 +241,7 @@ bool PhysicsSystem::checkEntityCollisionWithPenetration(const Vec3& entityPos, V
 }
 
 bool PhysicsSystem::checkChunkCollision(const VoxelChunk* chunk, const Vec3& playerPos,
-                                        const Vec3& chunkWorldPos, Vec3& outNormal,
+                                        const Vec3& /*chunkWorldPos*/, Vec3& outNormal,
                                         float playerRadius)
 {
     // Check if collision mesh needs updating
@@ -272,22 +272,24 @@ bool PhysicsSystem::checkChunkCollision(const VoxelChunk* chunk, const Vec3& pla
             Vec3 faceCenter = face.position;
             Vec3 localPoint = projectedPoint - faceCenter;
 
-            // **BOX OVERLAP CHECK**: Check if box (with radius playerRadius) overlaps face
+            // **BOX OVERLAP CHECK**: Check if box (with radius playerRadius) overlaps 1x1 face
+            // Face extends ±0.5 from its center. Player extends ±playerRadius from projectedPoint.
+            // They overlap if the distance between centers is less than sum of half-extents.
             bool withinBounds = true;
             if (abs(face.normal.x) > 0.5f)
             {  // X-facing face - check Y,Z box overlap
                 withinBounds = (abs(localPoint.y) <= (0.5f + playerRadius)) && 
                               (abs(localPoint.z) <= (0.5f + playerRadius));
             }
-            else if (abs(face.normal.y) > 0.5f)
-            {  // Y-facing face - check X,Z box overlap  
-                withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
-                              (abs(localPoint.z) <= (0.5f + playerRadius));
-            }
-            else
+            else if (abs(face.normal.z) > 0.5f)
             {  // Z-facing face - check X,Y box overlap
                 withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
                               (abs(localPoint.y) <= (0.5f + playerRadius));
+            }
+            else
+            {  // Y-facing face - check X,Z box overlap  
+                withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
+                              (abs(localPoint.z) <= (0.5f + playerRadius));
             }
 
             if (withinBounds)
@@ -302,7 +304,7 @@ bool PhysicsSystem::checkChunkCollision(const VoxelChunk* chunk, const Vec3& pla
 }
 
 bool PhysicsSystem::checkChunkCollisionWithPenetration(const VoxelChunk* chunk, const Vec3& playerPos,
-                                               const Vec3& chunkWorldPos, Vec3& outNormal,
+                                               const Vec3& /*chunkWorldPos*/, Vec3& outNormal,
                                                float playerRadius, float* outPenetrationDepth)
 {
     // Check if collision mesh needs updating
@@ -333,22 +335,24 @@ bool PhysicsSystem::checkChunkCollisionWithPenetration(const VoxelChunk* chunk, 
             Vec3 faceCenter = face.position;
             Vec3 localPoint = projectedPoint - faceCenter;
 
-            // **BOX OVERLAP CHECK**: Check if box (with radius playerRadius) overlaps face
+            // **BOX OVERLAP CHECK**: Check if box (with radius playerRadius) overlaps 1x1 face
+            // Face extends ±0.5 from its center. Player extends ±playerRadius from projectedPoint.
+            // They overlap if the distance between centers is less than sum of half-extents.
             bool withinBounds = true;
             if (abs(face.normal.x) > 0.5f)
             {  // X-facing face - check Y,Z box overlap
                 withinBounds = (abs(localPoint.y) <= (0.5f + playerRadius)) && 
                               (abs(localPoint.z) <= (0.5f + playerRadius));
             }
-            else if (abs(face.normal.y) > 0.5f)
-            {  // Y-facing face - check X,Z box overlap  
-                withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
-                              (abs(localPoint.z) <= (0.5f + playerRadius));
-            }
-            else
+            else if (abs(face.normal.z) > 0.5f)
             {  // Z-facing face - check X,Y box overlap
                 withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
                               (abs(localPoint.y) <= (0.5f + playerRadius));
+            }
+            else
+            {  // Y-facing face - check X,Z box overlap  
+                withinBounds = (abs(localPoint.x) <= (0.5f + playerRadius)) && 
+                              (abs(localPoint.z) <= (0.5f + playerRadius));
             }
 
             if (withinBounds)
@@ -482,6 +486,164 @@ bool PhysicsSystem::checkPlayerCollision(const Vec3& playerPos, Vec3& outNormal,
     return checkEntityCollision(playerPos, outNormal, playerRadius);
 }
 
+// **NEW: Ground Detection for Moving Platform Physics**
+GroundInfo PhysicsSystem::detectGround(const Vec3& playerPos, float playerRadius, float rayLength)
+{
+    GroundInfo info;
+    info.isGrounded = false;
+    info.distanceToGround = 999.0f;
+    
+    if (!m_islandSystem)
+        return info;
+    
+    // Raycast downward from player position
+    Vec3 rayOrigin = playerPos;
+    Vec3 rayDirection = Vec3(0, -1, 0); // Straight down
+    Vec3 hitPoint, hitNormal;
+    
+    // Check all islands for ground collision
+    const auto& islands = m_islandSystem->getIslands();
+    
+    float closestDistance = 999.0f;
+    const FloatingIsland* closestIsland = nullptr;
+    Vec3 closestHitPoint, closestHitNormal;
+    
+    for (const auto& islandPair : islands)
+    {
+        const FloatingIsland* island = &islandPair.second;
+        if (!island)
+            continue;
+        
+        // Convert ray to island-local coordinates
+        Vec3 localRayOrigin = rayOrigin - island->physicsCenter;
+        
+        // Calculate which chunks the ray could intersect
+        float checkRadius = playerRadius + rayLength + 1.0f; // Add buffer
+        int minChunkX = static_cast<int>(std::floor((localRayOrigin.x - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkX = static_cast<int>(std::ceil((localRayOrigin.x + checkRadius) / VoxelChunk::SIZE));
+        int minChunkY = static_cast<int>(std::floor((localRayOrigin.y - rayLength - 1.0f) / VoxelChunk::SIZE));
+        int maxChunkY = static_cast<int>(std::ceil(localRayOrigin.y / VoxelChunk::SIZE));
+        int minChunkZ = static_cast<int>(std::floor((localRayOrigin.z - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkZ = static_cast<int>(std::ceil((localRayOrigin.z + checkRadius) / VoxelChunk::SIZE));
+        
+        // Check chunks that could contain ground
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX)
+        {
+            for (int chunkY = minChunkY; chunkY <= maxChunkY; ++chunkY)
+            {
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; ++chunkZ)
+                {
+                    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+                    
+                    auto chunkIt = island->chunks.find(chunkCoord);
+                    if (chunkIt == island->chunks.end() || !chunkIt->second)
+                        continue;
+                    
+                    Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                    Vec3 chunkLocalRayOrigin = rayOrigin - chunkWorldPos;
+                    
+                    Vec3 localHitPoint, localHitNormal;
+                    if (chunkIt->second->checkRayCollision(chunkLocalRayOrigin, rayDirection, rayLength,
+                                                          localHitPoint, localHitNormal))
+                    {
+                        Vec3 worldHitPoint = localHitPoint + chunkWorldPos;
+                        float distance = (worldHitPoint - rayOrigin).length();
+                        
+                        // Only consider upward-facing surfaces (normal.y > 0.5)
+                        if (localHitNormal.y > 0.5f && distance < closestDistance)
+                        {
+                            closestDistance = distance;
+                            closestIsland = island;
+                            closestHitPoint = worldHitPoint;
+                            closestHitNormal = localHitNormal;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // If we found ground within range
+    if (closestIsland && closestDistance < rayLength)
+    {
+        info.isGrounded = true;
+        info.standingOnIslandID = closestIsland->islandID;
+        info.groundNormal = closestHitNormal;
+        info.groundVelocity = closestIsland->velocity; // Transfer island velocity
+        info.groundContactPoint = closestHitPoint;
+        info.distanceToGround = closestDistance;
+    }
+    
+    return info;
+}
+
+// Find contact point along movement vector using binary search
+// Returns the fraction of movement possible (0.0 to 1.0)
+float PhysicsSystem::findContactPoint(const Vec3& fromPos, const Vec3& toPos, float entityRadius, Vec3* outContactNormal)
+{
+    // First check if destination is clear
+    Vec3 testNormal;
+    if (!checkEntityCollision(toPos, testNormal, entityRadius, nullptr))
+    {
+        // Full movement is safe
+        return 1.0f;
+    }
+    
+    // Check if we're already colliding at start
+    Vec3 startNormal;
+    if (checkEntityCollision(fromPos, startNormal, entityRadius, nullptr))
+    {
+        // Already in collision - check if we're moving away from the surface
+        Vec3 movement = toPos - fromPos;
+        float movementAlongNormal = movement.dot(startNormal);
+        
+        if (movementAlongNormal >= 0.0f)
+        {
+            // Moving away from surface - allow full movement and let destination check handle it
+            return 1.0f;
+        }
+        
+        // Moving INTO surface while already overlapping
+        // This shouldn't happen in a well-behaved system, but if it does, block movement
+        if (outContactNormal)
+            *outContactNormal = startNormal;
+        return 0.0f;
+    }
+    
+    // Binary search for contact point between fromPos (safe) and toPos (collision)
+    float minT = 0.0f;  // Safe position
+    float maxT = 1.0f;  // Collision position
+    float bestT = 0.0f;
+    Vec3 bestNormal;
+    
+    // 16 iterations gives us precision of 1/65536 of movement distance
+    for (int i = 0; i < 16; ++i)
+    {
+        float midT = (minT + maxT) * 0.5f;
+        Vec3 testPos = fromPos + (toPos - fromPos) * midT;
+        
+        if (checkEntityCollision(testPos, testNormal, entityRadius, nullptr))
+        {
+            // This position collides - search earlier
+            maxT = midT;
+            bestNormal = testNormal;
+        }
+        else
+        {
+            // This position is safe - can go further
+            minT = midT;
+            bestT = midT;
+        }
+    }
+    
+    if (outContactNormal && bestT < 1.0f)
+    {
+        *outContactNormal = bestNormal;
+    }
+    
+    return bestT;
+}
+
 // Debug and testing methods
 void PhysicsSystem::debugCollisionInfo(const Vec3& playerPos, float playerRadius)
 {
@@ -543,4 +705,335 @@ int PhysicsSystem::getTotalCollisionFaces() const
         }
     }
     return total;
+}
+
+// ============================================================================
+// CAPSULE COLLISION SYSTEM
+// ============================================================================
+// Capsule is a cylinder with hemispherical caps on top and bottom
+// Perfect for humanoid character collision (narrow width, proper height)
+
+bool PhysicsSystem::checkChunkCapsuleCollision(const VoxelChunk* chunk, const Vec3& capsuleCenter,
+                                               const Vec3& /*chunkWorldPos*/, Vec3& outNormal,
+                                               float radius, float height)
+{
+    const CollisionMesh& collisionMesh = chunk->getCollisionMesh();
+    
+    if (collisionMesh.needsUpdate)
+    {
+        const_cast<VoxelChunk*>(chunk)->buildCollisionMesh();
+    }
+    
+    // Capsule breakdown:
+    // - Total height: height
+    // - Cylinder height: height - 2*radius (middle section)
+    // - Top sphere center: capsuleCenter + (0, cylinderHeight/2, 0)
+    // - Bottom sphere center: capsuleCenter - (0, cylinderHeight/2, 0)
+    
+    float cylinderHalfHeight = (height - 2.0f * radius) * 0.5f;
+    Vec3 topSphereCenter = capsuleCenter + Vec3(0, cylinderHalfHeight, 0);
+    Vec3 bottomSphereCenter = capsuleCenter - Vec3(0, cylinderHalfHeight, 0);
+    
+    for (const auto& face : collisionMesh.faces)
+    {
+        Vec3 faceToCenter = capsuleCenter - face.position;
+        float distanceToPlane = faceToCenter.dot(face.normal);
+        
+        // Check if capsule intersects this face's plane
+        // For a capsule, we need to check:
+        // 1. The cylindrical middle section (XZ circle at multiple Y heights)
+        // 2. The top hemisphere
+        // 3. The bottom hemisphere
+        
+        // Quick reject: if center is too far from plane
+        if (abs(distanceToPlane) > (height * 0.5f + 0.1f))
+            continue;
+        
+        // Determine which part of the capsule to test based on face position
+        Vec3 closestPointOnAxis;
+        
+        // Project face position onto capsule's vertical axis
+        float yOffset = (face.position.y - capsuleCenter.y);
+        
+        if (yOffset > cylinderHalfHeight)
+        {
+            // Check top hemisphere
+            closestPointOnAxis = topSphereCenter;
+        }
+        else if (yOffset < -cylinderHalfHeight)
+        {
+            // Check bottom hemisphere
+            closestPointOnAxis = bottomSphereCenter;
+        }
+        else
+        {
+            // Check cylinder - clamp to cylinder height
+            closestPointOnAxis = capsuleCenter + Vec3(0, yOffset, 0);
+        }
+        
+        // Now do sphere-to-face test from closestPointOnAxis
+        Vec3 faceToPoint = closestPointOnAxis - face.position;
+        float distToPlane = faceToPoint.dot(face.normal);
+        
+        if (abs(distToPlane) <= radius)
+        {
+            // Project point onto face plane
+            Vec3 projectedPoint = closestPointOnAxis - face.normal * distToPlane;
+            Vec3 localPoint = projectedPoint - face.position;
+            
+            // Check if projected point overlaps with 1x1 face bounds
+            bool withinBounds = true;
+            if (abs(face.normal.x) > 0.5f)
+            {
+                // X-facing face - check YZ circle overlap
+                withinBounds = (abs(localPoint.y) <= (0.5f + radius)) && 
+                              (abs(localPoint.z) <= (0.5f + radius));
+            }
+            else if (abs(face.normal.z) > 0.5f)
+            {
+                // Z-facing face - check XY circle overlap
+                withinBounds = (abs(localPoint.x) <= (0.5f + radius)) && 
+                              (abs(localPoint.y) <= (0.5f + radius));
+            }
+            else
+            {
+                // Y-facing face - check XZ circle overlap
+                withinBounds = (abs(localPoint.x) <= (0.5f + radius)) && 
+                              (abs(localPoint.z) <= (0.5f + radius));
+            }
+            
+            if (withinBounds)
+            {
+                outNormal = face.normal;
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+bool PhysicsSystem::checkCapsuleCollision(const Vec3& capsuleCenter, float radius, float height,
+                                         Vec3& outNormal, const FloatingIsland** outIsland)
+{
+    if (!m_islandSystem)
+        return false;
+    
+    const auto& islands = m_islandSystem->getIslands();
+    for (const auto& islandPair : islands)
+    {
+        const FloatingIsland* island = &islandPair.second;
+        if (!island)
+            continue;
+        
+        Vec3 localPos = capsuleCenter - island->physicsCenter;
+        
+        // Calculate chunk bounds - capsule can span multiple chunks vertically
+        float checkRadius = radius + VoxelChunk::SIZE;
+        float checkHeight = height * 0.5f + VoxelChunk::SIZE;
+        
+        int minChunkX = static_cast<int>(std::floor((localPos.x - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkX = static_cast<int>(std::ceil((localPos.x + checkRadius) / VoxelChunk::SIZE));
+        int minChunkY = static_cast<int>(std::floor((localPos.y - checkHeight) / VoxelChunk::SIZE));
+        int maxChunkY = static_cast<int>(std::ceil((localPos.y + checkHeight) / VoxelChunk::SIZE));
+        int minChunkZ = static_cast<int>(std::floor((localPos.z - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkZ = static_cast<int>(std::ceil((localPos.z + checkRadius) / VoxelChunk::SIZE));
+        
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX)
+        {
+            for (int chunkY = minChunkY; chunkY <= maxChunkY; ++chunkY)
+            {
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; ++chunkZ)
+                {
+                    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+                    auto chunkIt = island->chunks.find(chunkCoord);
+                    if (chunkIt == island->chunks.end() || !chunkIt->second)
+                        continue;
+                    
+                    Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                    Vec3 chunkLocalPos = capsuleCenter - chunkWorldPos;
+                    
+                    Vec3 collisionNormal;
+                    if (checkChunkCapsuleCollision(chunkIt->second.get(), chunkLocalPos, chunkWorldPos,
+                                                   collisionNormal, radius, height))
+                    {
+                        outNormal = collisionNormal;
+                        if (outIsland)
+                            *outIsland = island;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    
+    return false;
+}
+
+float PhysicsSystem::findCapsuleContactPoint(const Vec3& fromPos, const Vec3& toPos,
+                                             float radius, float height, Vec3* outContactNormal)
+{
+    // Check destination first
+    Vec3 testNormal;
+    if (!checkCapsuleCollision(toPos, radius, height, testNormal, nullptr))
+        return 1.0f;  // No collision at destination
+    
+    // Check if already colliding at start
+    Vec3 startNormal;
+    if (checkCapsuleCollision(fromPos, radius, height, startNormal, nullptr))
+    {
+        // Already colliding - check if moving away from surface
+        Vec3 movement = toPos - fromPos;
+        float movementAlongNormal = movement.dot(startNormal);
+        if (movementAlongNormal >= 0.0f)
+        {
+            // Moving away from surface - allow movement
+            if (outContactNormal)
+                *outContactNormal = startNormal;
+            return 1.0f;
+        }
+        // Moving into surface - block immediately
+        if (outContactNormal)
+            *outContactNormal = startNormal;
+        return 0.0f;
+    }
+    
+    // Binary search for contact point
+    Vec3 searchStart = fromPos;
+    Vec3 searchEnd = toPos;
+    
+    for (int i = 0; i < 16; ++i)  // 16 iterations = 1/65536 precision
+    {
+        Vec3 midPoint = (searchStart + searchEnd) * 0.5f;
+        
+        if (checkCapsuleCollision(midPoint, radius, height, testNormal, nullptr))
+        {
+            // Collision at midpoint - search earlier half
+            searchEnd = midPoint;
+        }
+        else
+        {
+            // No collision - search later half
+            searchStart = midPoint;
+        }
+    }
+    
+    // Calculate final contact fraction
+    Vec3 totalMovement = toPos - fromPos;
+    Vec3 safeMovement = searchStart - fromPos;
+    
+    float totalDistance = totalMovement.length();
+    if (totalDistance < 0.0001f)
+        return 1.0f;
+    
+    float safeDistance = safeMovement.length();
+    float contactT = safeDistance / totalDistance;
+    
+    // Get the normal at the contact point
+    if (outContactNormal)
+    {
+        checkCapsuleCollision(searchEnd, radius, height, *outContactNormal, nullptr);
+    }
+    
+    return contactT;
+}
+
+GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float radius, float height, float rayMargin)
+{
+    GroundInfo info;
+    info.isGrounded = false;
+    
+    if (!m_islandSystem)
+        return info;
+    
+    // Raycast from bottom of capsule downward
+    // Bottom of capsule is at: capsuleCenter.y - (height/2 - radius)
+    float cylinderHalfHeight = (height - 2.0f * radius) * 0.5f;
+    float bottomY = capsuleCenter.y - cylinderHalfHeight - radius;
+    
+    Vec3 rayOrigin = Vec3(capsuleCenter.x, bottomY, capsuleCenter.z);
+    Vec3 rayDirection = Vec3(0, -1, 0);
+    float rayLength = rayMargin;
+    
+    // Check all islands
+    const auto& islands = m_islandSystem->getIslands();
+    for (const auto& islandPair : islands)
+    {
+        const FloatingIsland* island = &islandPair.second;
+        if (!island)
+            continue;
+        
+        Vec3 localRayOrigin = rayOrigin - island->physicsCenter;
+        
+        // Calculate which chunks to check
+        float checkRadius = radius + VoxelChunk::SIZE;
+        int minChunkX = static_cast<int>(std::floor((localRayOrigin.x - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkX = static_cast<int>(std::ceil((localRayOrigin.x + checkRadius) / VoxelChunk::SIZE));
+        int minChunkY = static_cast<int>(std::floor((localRayOrigin.y - rayLength) / VoxelChunk::SIZE));
+        int maxChunkY = static_cast<int>(std::ceil(localRayOrigin.y / VoxelChunk::SIZE));
+        int minChunkZ = static_cast<int>(std::floor((localRayOrigin.z - checkRadius) / VoxelChunk::SIZE));
+        int maxChunkZ = static_cast<int>(std::ceil((localRayOrigin.z + checkRadius) / VoxelChunk::SIZE));
+        
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX)
+        {
+            for (int chunkY = minChunkY; chunkY <= maxChunkY; ++chunkY)
+            {
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; ++chunkZ)
+                {
+                    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+                    auto chunkIt = island->chunks.find(chunkCoord);
+                    if (chunkIt == island->chunks.end() || !chunkIt->second)
+                        continue;
+                    
+                    Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                    Vec3 chunkLocalRayOrigin = rayOrigin - chunkWorldPos;
+                    
+                    // Check collision faces in this chunk
+                    const CollisionMesh& collisionMesh = chunkIt->second->getCollisionMesh();
+                    
+                    if (collisionMesh.needsUpdate)
+                    {
+                        const_cast<VoxelChunk*>(chunkIt->second.get())->buildCollisionMesh();
+                    }
+                    
+                    // Check each face for ground intersection
+                    for (const auto& face : collisionMesh.faces)
+                    {
+                        // Only check upward-facing surfaces (ground)
+                        if (face.normal.y < 0.7f)
+                            continue;
+                        
+                        // Ray-plane intersection
+                        float denom = rayDirection.dot(face.normal);
+                        if (abs(denom) < 0.0001f)
+                            continue;
+                        
+                        Vec3 planeToRay = face.position - chunkLocalRayOrigin;
+                        float t = planeToRay.dot(face.normal) / denom;
+                        
+                        if (t < 0 || t > rayLength)
+                            continue;
+                        
+                        Vec3 hitPoint = chunkLocalRayOrigin + rayDirection * t;
+                        Vec3 localPoint = hitPoint - face.position;
+                        
+                        // Check if hit point is within face bounds (1x1 square)
+                        if (abs(localPoint.x) <= (0.5f + radius) && 
+                            abs(localPoint.z) <= (0.5f + radius))
+                        {
+                            info.isGrounded = true;
+                            info.standingOnIslandID = island->islandID;
+                            info.groundNormal = face.normal;
+                            info.groundVelocity = island->velocity;
+                            info.groundContactPoint = hitPoint + chunkWorldPos;
+                            info.distanceToGround = t;
+                            return info;  // Return first hit
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return info;
 }

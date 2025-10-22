@@ -122,36 +122,6 @@ void VoxelChunk::addCollisionQuad(float x, float y, float z, int face)
     }
 }
 
-bool VoxelChunk::shouldRenderFace(int x, int y, int z, int faceDir) const
-{
-    // Only render faces that are exposed to air
-    int adjX = x, adjY = y, adjZ = z;
-    switch (faceDir)
-    {
-        case 0:
-            adjZ++;
-            break;  // Front face (+Z)
-        case 1:
-            adjZ--;
-            break;  // Back face (-Z)
-        case 2:
-            adjY++;
-            break;  // Top face (+Y)
-        case 3:
-            adjY--;
-            break;  // Bottom face (-Y)
-        case 4:
-            adjX++;
-            break;  // Right face (+X)
-        case 5:
-            adjX--;
-            break;  // Left face (-X)
-    }
-    if (adjX < 0 || adjX >= SIZE || adjY < 0 || adjY >= SIZE || adjZ < 0 || adjZ >= SIZE)
-        return true;  // Always render boundary faces
-    return getVoxel(adjX, adjY, adjZ) == 0;
-}
-
 bool VoxelChunk::isVoxelSolid(int x, int y, int z) const
 {
     uint8_t v = getVoxel(x, y, z);
@@ -159,6 +129,29 @@ bool VoxelChunk::isVoxelSolid(int x, int y, int z) const
     // Treat decorative instanced grass as non-solid for meshing/collision
     if (v == BlockID::DECOR_GRASS) return false;
     return true;
+}
+
+// Helper: Check if neighbor voxel is solid (intra-chunk only)
+// Returns 0 (AIR) if neighbor is out of bounds
+uint8_t VoxelChunk::getNeighborVoxel(int x, int y, int z, int direction) const
+{
+    // Direction offsets: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z
+    static const int dx[] = {1, -1, 0, 0, 0, 0};
+    static const int dy[] = {0, 0, 1, -1, 0, 0};
+    static const int dz[] = {0, 0, 0, 0, 1, -1};
+    
+    int nx = x + dx[direction];
+    int ny = y + dy[direction];
+    int nz = z + dz[direction];
+    
+    // Check if neighbor is within this chunk
+    if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && nz >= 0 && nz < SIZE)
+    {
+        return getVoxel(nx, ny, nz);
+    }
+    
+    // Out of chunk bounds = render face (intra-chunk culling only)
+    return 0;
 }
 
 void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, float x,
@@ -307,22 +300,9 @@ void VoxelChunk::generateMesh(bool generateLighting)
     
     auto endTime = std::chrono::high_resolution_clock::now();
     
-    // Calculate individual timings
-    auto grassScanDuration = std::chrono::duration_cast<std::chrono::microseconds>(greedyMeshStart - grassScanStart).count();
-    auto greedyMeshDuration = std::chrono::duration_cast<std::chrono::microseconds>(collisionStart - greedyMeshStart).count();
-    auto collisionDuration = std::chrono::duration_cast<std::chrono::microseconds>(lightingStart - collisionStart).count();
-    auto lightingDuration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - lightingStart).count();
-    auto totalDuration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
-    
-    // Only log if mesh generation takes more than 1ms (performance concern)
-    if (totalDuration > 1000) {
-        std::cout << "  ⚙️ Chunk mesh: " << (totalDuration / 1000.0f) << "ms "
-                  << "(scan=" << (grassScanDuration / 1000.0f) << "ms, "
-                  << "greedy=" << (greedyMeshDuration / 1000.0f) << "ms, "
-                  << "collision=" << (collisionDuration / 1000.0f) << "ms, "
-                  << "lighting=" << (lightingDuration / 1000.0f) << "ms) "
-                  << "[" << mesh.vertices.size() << " verts]" << std::endl;
-    }
+    // Note: Mesh generation profiling disabled to reduce console spam
+    // Timing: scan, greedy meshing, collision, lighting
+    // Can be re-enabled for performance debugging if needed
     
     // Note: updateLightMapTextures() will be called during rendering when OpenGL context is available
 }
@@ -914,10 +894,6 @@ void VoxelChunk::generateGreedyQuads(int direction, std::vector<Vertex>& vertice
     // Direction mapping:
     // 0: +X (right), 1: -X (left), 2: +Y (up), 3: -Y (down), 4: +Z (forward), 5: -Z (back)
     
-    const int dx[] = {1, -1, 0, 0, 0, 0};
-    const int dy[] = {0, 0, 1, -1, 0, 0};
-    const int dz[] = {0, 0, 0, 0, 1, -1};
-    
     // For each direction, we have a different slicing plane
     int u, v, w;  // u,v = plane coordinates, w = depth coordinate
     int uMax, vMax, wMax;
@@ -963,12 +939,15 @@ void VoxelChunk::generateGreedyQuads(int direction, std::vector<Vertex>& vertice
                 }
                 
                 uint8_t currentVoxel = getVoxel(x, y, z);
-                uint8_t neighborVoxel = getVoxel(x + dx[direction], y + dy[direction], z + dz[direction]);
                 
-                // Check if this face should be rendered
-                if (currentVoxel != 0 && (neighborVoxel == 0 || !canMergeVoxels(currentVoxel, neighborVoxel)))
+                // Only add face to mask if it's exposed (neighbor is air or doesn't exist)
+                if (currentVoxel != 0)
                 {
-                    mask[uPos + vPos * SIZE] = currentVoxel;
+                    uint8_t neighborVoxel = getNeighborVoxel(x, y, z, direction);
+                    if (neighborVoxel == 0)  // Exposed to air - render this face
+                    {
+                        mask[uPos + vPos * SIZE] = currentVoxel;
+                    }
                 }
             }
         }

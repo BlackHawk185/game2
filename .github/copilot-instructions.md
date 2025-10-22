@@ -34,6 +34,7 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Test incrementally**: After significant changes, ensure the engine builds and runs before proceeding to the next feature.
 - **Aggressive cleanup**: Remove deprecated code entirely rather than commenting it out. The project evolves rapidly and accumulating old code hurts maintainability.
 - **Event-driven architecture**: Prefer event-driven systems over continuous polling for better performance and cleaner code organization.
+- **NO FALLBACK CODE EVER**: NEVER write "safety net", "fallback", "just in case", or "edge case" code. If the main solution doesn't work, fix the main solution. Do not add defensive/redundant checks that paper over problems. The user will remove these immediately and finds them wasteful.
 
 ## Current Engine Architecture Status
 

@@ -23,6 +23,7 @@
 #include "../Rendering/CascadedShadowMap.h"
 #include "../Rendering/GlobalLightingManager.h"
 #include "../Physics/FluidSystem.h"
+#include "../Physics/PhysicsSystem.h"  // For ground detection
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "../Time/TimeEffects.h"
@@ -114,11 +115,15 @@ bool GameClient::connectToGameState(GameState* gameState)
         g_physics.setIslandSystem(gameState->getIslandSystem());
     }
 
-    // Set up camera position based on game state
+    // Set up camera position based on game state using centralized spawn function
     if (m_gameState->getPrimaryPlayer())
     {
         Vec3 playerPos = m_gameState->getPrimaryPlayer()->getPosition();
-        m_camera.position = playerPos;
+        spawnPlayerAt(playerPos);  // Use centralized function
+    }
+    else
+    {
+        std::cout << "⚠️  WARNING: No primary player found! Camera position NOT initialized!" << std::endl;
     }
 
     // Removed verbose debug output
@@ -466,6 +471,28 @@ void GameClient::processKeyboard(float deltaTime)
         g_physics.debugCollisionInfo(m_camera.position, 0.5f);
     }
     wasDebugKeyPressed = isDebugKeyPressed;
+    
+    // Toggle noclip mode (press N for debug flying)
+    static bool wasNoclipKeyPressed = false;
+    bool isNoclipKeyPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_N) == GLFW_PRESS;
+    
+    if (isNoclipKeyPressed && !wasNoclipKeyPressed)
+    {
+        m_noclipMode = !m_noclipMode;
+        std::cout << (m_noclipMode ? "🕊️ Noclip enabled (flying)" : "🚶 Physics enabled (walking)") << std::endl;
+    }
+    wasNoclipKeyPressed = isNoclipKeyPressed;
+
+    // Toggle camera smoothing (press L to see raw physics - helpful for debugging)
+    static bool wasSmoothingKeyPressed = false;
+    bool isSmoothingKeyPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_L) == GLFW_PRESS;
+    
+    if (isSmoothingKeyPressed && !wasSmoothingKeyPressed)
+    {
+        m_disableCameraSmoothing = !m_disableCameraSmoothing;
+        std::cout << (m_disableCameraSmoothing ? "📹 Camera smoothing disabled (raw physics)" : "📹 Camera smoothing enabled (smooth)") << std::endl;
+    }
+    wasSmoothingKeyPressed = isSmoothingKeyPressed;
 
     // Exit
     if (glfwGetKey(m_window->getHandle(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -751,51 +778,212 @@ void GameClient::renderShadowPass()
 
 void GameClient::handleCameraMovement(float deltaTime)
 {
-    // Camera movement input
-    float moveSpeed = 10.0f;
-    Vec3 movement(0, 0, 0);
-
+    // **NOCLIP MODE** - Free flying for debugging
+    if (m_noclipMode)
+    {
+        float flySpeed = 30.0f;
+        Vec3 movement(0, 0, 0);
+        
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
+            movement = movement + m_camera.front * flySpeed * deltaTime;
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
+            movement = movement - m_camera.front * flySpeed * deltaTime;
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
+            movement = movement - m_camera.right * flySpeed * deltaTime;
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
+            movement = movement + m_camera.right * flySpeed * deltaTime;
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
+            movement = movement + m_camera.up * flySpeed * deltaTime;
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+            movement = movement - m_camera.up * flySpeed * deltaTime;
+        
+        m_camera.position = m_camera.position + movement;
+        
+        if (m_gameState && m_gameState->getPrimaryPlayer())
+            m_gameState->setPrimaryPlayerPosition(m_camera.position);
+        
+        if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f)
+            m_networkManager->sendPlayerMovement(m_camera.position, movement / deltaTime, deltaTime);
+        
+        return;
+    }
+    
+    // **PHYSICS-BASED PLAYER MOVEMENT**
+    
+    // 1. Gather input direction (horizontal only - no vertical input)
+    Vec3 inputDirection(0, 0, 0);
+    
     if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
     {
-        movement = movement + m_camera.front * moveSpeed * deltaTime;
+        inputDirection = inputDirection + m_camera.front;
     }
     if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
     {
-        movement = movement - m_camera.front * moveSpeed * deltaTime;
+        inputDirection = inputDirection - m_camera.front;
     }
     if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
     {
-        movement = movement - m_camera.right * moveSpeed * deltaTime;
+        inputDirection = inputDirection - m_camera.right;
     }
     if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
     {
-        movement = movement + m_camera.right * moveSpeed * deltaTime;
+        inputDirection = inputDirection + m_camera.right;
     }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
+    
+    // Flatten input to horizontal plane (ignore Y component)
+    inputDirection.y = 0;
+    if (inputDirection.length() > 0.001f)
     {
-        movement = movement + m_camera.up * moveSpeed * deltaTime;
+        inputDirection = inputDirection.normalized();
     }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+    
+    // Check for jump input
+    bool jumpThisFrame = glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS;
+    
+    // ==========================================
+    // PHASE 1: APPLY PHYSICS (player movement only, no island velocity yet)
+    // ==========================================
+    
+    // Apply gravity to player's own velocity
+    m_playerVelocity.y -= m_gravity * deltaTime;
+    
+    // Ground physics and jumping (based on LAST frame's ground state)
+    if (m_isGrounded)
     {
-        movement = movement - m_camera.up * moveSpeed * deltaTime;
+        // Stop falling when on ground
+        if (m_playerVelocity.y < 0)
+        {
+            m_playerVelocity.y = 0;
+        }
+        
+        // Handle jump
+        if (jumpThisFrame && !m_jumpPressed)
+        {
+            m_playerVelocity.y = m_jumpStrength;
+        }
+        
+        // Apply ground friction to horizontal velocity
+        m_playerVelocity.x *= m_groundFriction;
+        m_playerVelocity.z *= m_groundFriction;
+    }
+    else
+    {
+        // Apply air resistance
+        m_playerVelocity.x *= m_airFriction;
+        m_playerVelocity.z *= m_airFriction;
+    }
+    
+    m_jumpPressed = jumpThisFrame;
+    
+    // Apply input acceleration
+    float controlStrength = m_isGrounded ? 1.0f : m_airControl;
+    Vec3 targetHorizontalVelocity = inputDirection * m_moveSpeed;
+    Vec3 currentHorizontalVelocity = Vec3(m_playerVelocity.x, 0, m_playerVelocity.z);
+    
+    // Smoothly accelerate toward target velocity
+    Vec3 velocityDelta = (targetHorizontalVelocity - currentHorizontalVelocity) * controlStrength * 10.0f * deltaTime;
+    m_playerVelocity.x += velocityDelta.x;
+    m_playerVelocity.z += velocityDelta.z;
+    
+    // ==========================================
+    // PHASE 2: COLLISION DETECTION (CAPSULE)
+    // ==========================================
+    
+    Vec3 intendedPosition = m_physicsPosition + m_playerVelocity * deltaTime;
+    
+    // Snap-to-contact collision resolution using capsule
+    Vec3 collisionNormal;
+    float contactT = g_physics.findCapsuleContactPoint(m_physicsPosition, intendedPosition, 
+                                                        m_capsuleRadius, m_capsuleHeight, &collisionNormal);
+    
+    // Move to the contact point (or full distance if no collision)
+    Vec3 movement = intendedPosition - m_physicsPosition;
+    m_physicsPosition = m_physicsPosition + movement * contactT;
+    
+    // If we hit something (didn't make full movement), adjust velocity
+    if (contactT < 1.0f)
+    {
+        // Special case: If contactT is 0, we're already overlapping - push out along normal
+        if (contactT == 0.0f)
+        {
+            // Push out by a small amount to separate from the collision
+            m_physicsPosition = m_physicsPosition + collisionNormal * 0.01f;
+        }
+        
+        // Project velocity onto collision plane for sliding
+        float velocityAlongNormal = m_playerVelocity.dot(collisionNormal);
+        
+        // Only adjust velocity if moving INTO the surface
+        if (velocityAlongNormal < 0)
+        {
+            // Remove the component pushing into the surface
+            m_playerVelocity = m_playerVelocity - collisionNormal * velocityAlongNormal;
+            
+            // Special handling for ceiling hits - stop upward movement
+            if (collisionNormal.y < -0.5f)
+            {
+                m_playerVelocity.y = 0;
+            }
+            
+            // Apply slight friction when sliding along surfaces
+            if (abs(collisionNormal.y) < 0.5f)  // Horizontal-ish surfaces (walls)
+            {
+                m_playerVelocity = m_playerVelocity * 0.95f;  // 5% friction per collision
+            }
+        }
+    }
+    
+    // ==========================================
+    // PHASE 3: DETECT GROUND & INHERIT VELOCITY FOR NEXT FRAME
+    // ==========================================
+    
+    // Now that we've moved, check if we're on ground using capsule ground detection
+    const float raycastMargin = 0.1f;
+    GroundInfo groundInfo = g_physics.detectGroundCapsule(m_physicsPosition, m_capsuleRadius, 
+                                                          m_capsuleHeight, raycastMargin);
+    m_isGrounded = groundInfo.isGrounded;
+    
+    // If we just landed on an island, inherit its velocity for NEXT frame
+    if (m_isGrounded)
+    {
+        // Add island's movement to our position THIS frame (move with the platform)
+        Vec3 islandMovement = groundInfo.groundVelocity * deltaTime;
+        m_physicsPosition = m_physicsPosition + islandMovement;
+    }
+    
+    // ==========================================
+    // PHASE 4: CAMERA SMOOTHING
+    // ==========================================
+    
+    // Player is 3 blocks tall, eye level is at ~90% of height (2.7 blocks from feet)
+    // Physics center is at 1.5 blocks from feet, so eye is 1.2 blocks above physics center
+    const float eyeHeightOffset = 1.2f;
+    Vec3 eyePosition = m_physicsPosition + Vec3(0.0f, eyeHeightOffset, 0.0f);
+    
+    if (m_disableCameraSmoothing)
+    {
+        // Debug mode: Snap camera directly to eye position to see raw physics behavior
+        m_camera.position = eyePosition;
+    }
+    else
+    {
+        // Normal mode: Smooth camera interpolation to hide jitter
+        Vec3 positionDelta = eyePosition - m_camera.position;
+        float smoothingFactor = 1.0f - std::pow(m_cameraSmoothing, deltaTime * 60.0f);  // Frame-rate independent
+        m_camera.position = m_camera.position + positionDelta * smoothingFactor;
     }
 
-    // **DIRECT MOVEMENT**: Camera moves freely without collision
-    // If you want camera collision, add VelocityComponent to camera and let PhysicsSystem handle it
-    Vec3 intendedPosition = m_camera.position + movement;
-    m_camera.position = intendedPosition;
-
-    // Update player position in game state if local
+    // Update player position in game state if local (use smoothed camera position)
     if (m_gameState && m_gameState->getPrimaryPlayer())
     {
         m_gameState->setPrimaryPlayerPosition(m_camera.position);
     }
 
-    // Send movement to server if we're a remote client
-    if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f)
+    // Send movement to server if we're a remote client (send physics position for accuracy)
+    // TODO: Send inputs instead of position for better server validation
+    if (m_isRemoteClient && m_networkManager)
     {
-        Vec3 velocity = movement / deltaTime;  // Calculate velocity
-        m_networkManager->sendPlayerMovement(m_camera.position, velocity, deltaTime);
+        m_networkManager->sendPlayerMovement(m_physicsPosition, m_playerVelocity, deltaTime);
     }
 }
 
@@ -841,11 +1029,10 @@ void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)
         return;
     }
 
-    // Set camera position to the spawn location
-    m_camera.position = worldState.playerSpawnPosition;
-    m_camera.position.y += 2.0f;  // Position camera slightly above spawn point
-
-    // Removed verbose debug output
+    // Spawn player at server-provided location using centralized function
+    Vec3 spawnPos = worldState.playerSpawnPosition;
+    spawnPos.y += 2.0f;  // Position camera slightly above spawn point
+    spawnPlayerAt(spawnPos);
 }
 
 void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& position,
@@ -1053,6 +1240,20 @@ void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update)
             // Handle other entity types in the future
             break;
     }
+}
+
+// ================================
+// CRITICAL: Centralized Player Spawn Function
+// ================================
+// This is the ONLY function that should set player position
+// Ensures m_camera.position and m_physicsPosition stay in sync
+void GameClient::spawnPlayerAt(const Vec3& worldPosition)
+{
+    m_camera.position = worldPosition;
+    m_physicsPosition = worldPosition;
+    m_playerVelocity = Vec3(0.0f, 0.0f, 0.0f);  // Reset velocity on spawn
+    
+    std::cout << "🎯 Player spawned at: (" << worldPosition.x << ", " << worldPosition.y << ", " << worldPosition.z << ")" << std::endl;
 }
 
 // Window resize callback handled via Engine::Core::Window::setResizeCallback

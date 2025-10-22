@@ -8,9 +8,11 @@
 #include <memory>
 #include <string>
 #include <chrono>
+#include <unordered_set>
 
 #include "VoxelChunk.h"
 #include "BlockType.h"
+#include "ConnectivityAnalyzer.h"
 #include "../Profiling/Profiler.h"
 #include "../Rendering/MDIRenderer.h"
 #include <FastNoise/FastNoise.h>
@@ -184,10 +186,10 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     int voxelsGenerated = 0;
     int chunksCreated = 0;
     
-    // **IMPROVED HEIGHT SCALING** - Much taller islands with varied surfaces
-    // Increased from 0.01875f to 0.15f for 8x more height variation
-    float baseHeightRatio = 0.15f;  // 15% of radius for height (was 1.875%)
-    float heightScaling = 1.0f + (radius / 100.0f); // More aggressive scaling
+    // **ISLAND HEIGHT CONFIGURATION** - More natural vertical proportions
+    // Increased height ratio for less pancake-like islands
+    float baseHeightRatio = 0.15f;  // 15% of radius for height (increased from 8%)
+    float heightScaling = 1.0f;     // Normal scaling for more vertical variation
     int islandHeight = static_cast<int>(radius * baseHeightRatio * heightScaling);
     
     int searchRadius = static_cast<int>(radius * 1.4f);
@@ -208,15 +210,15 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     {
         float dy = static_cast<float>(y);
         
-        // Pre-calculate vertical density (same for all X/Z in this Y layer)
+        // Pre-calculate vertical density with smooth gradual falloff (no hard cutoffs)
         float islandHeightRange = islandHeight * 2.0f;
-        float normalizedY = (dy + islandHeight) / islandHeightRange;
-        float verticalDensity = 1.0f;
-        if (normalizedY < 0.2f) {
-            verticalDensity = normalizedY / 0.2f;
-        } else if (normalizedY > 0.7f) {
-            verticalDensity = 1.0f - ((normalizedY - 0.7f) / 0.3f) * 0.5f;
-        }
+        float normalizedY = (dy + islandHeight) / islandHeightRange;  // 0 at bottom, 1 at top
+        
+        // Smooth parabolic falloff from center - creates natural rounded shape
+        // Center (0.5) = full density, edges taper gradually
+        float centerOffset = normalizedY - 0.5f;  // -0.5 to +0.5
+        float verticalDensity = 1.0f - (centerOffset * centerOffset * 4.0f);  // Parabola
+        verticalDensity = std::max(0.0f, verticalDensity);  // Clamp to 0-1
         
         // Pre-calculate Y-based noise component (shared across X/Z)
         float noiseY_freq1 = dy * noiseScale * 0.5f + seedOffset2;
@@ -295,8 +297,9 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                 float terrainOctave2 = (std::sin(terrainX_freq2) * std::cos(terrainZ_freq2) + 1.0f) * 0.5f;
                 terrainNoise += terrainOctave2 * amplitude;
                 
-                // **FINAL ISLAND DENSITY** - Combine all factors
-                float finalDensity = islandBase * verticalDensity * 
+                // **FINAL ISLAND DENSITY** - Combine all factors (smooth, no hard cutoffs)
+                // Parabolic vertical density already creates natural rounded shape
+                float finalDensity = islandBase * verticalDensity *
                                     (surfaceNoise * 0.6f + terrainNoise * 0.4f);
                 
                 bool shouldPlaceVoxel = (finalDensity > densityThreshold);
@@ -353,6 +356,22 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     
     std::cout << "🔨 Voxel Generation: " << voxelGenDuration << "ms (" << voxelsGenerated << " voxels, " 
               << island->chunks.size() << " chunks)" << std::endl;
+    
+    // **CONNECTIVITY CLEANUP (FAST PATH)** - Remove disconnected satellite chunks
+    auto connectivityStart = std::chrono::high_resolution_clock::now();
+    
+    // Use fast path: assumes (0,0,0) is part of main island, deletes everything else
+    int voxelsRemoved = ConnectivityAnalyzer::cleanupSatellites(island, Vec3(0, 0, 0));
+    
+    if (voxelsRemoved > 0) {
+        std::cout << "✅ Cleaned up " << voxelsRemoved << " satellite voxels" << std::endl;
+    } else {
+        std::cout << "✅ Island is fully connected (no satellites)" << std::endl;
+    }
+    
+    auto connectivityEnd = std::chrono::high_resolution_clock::now();
+    auto connectivityDuration = std::chrono::duration_cast<std::chrono::milliseconds>(connectivityEnd - connectivityStart).count();
+    std::cout << "🔍 Connectivity Cleanup: " << connectivityDuration << "ms" << std::endl;
     
     auto meshGenStart = std::chrono::high_resolution_clock::now();
     
@@ -433,7 +452,7 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
     Vec3 localPos;
     Vec3 chunkCoord;
     Vec3 islandCenter;
-    int mdiIndex = -1;
+    bool isNewChunk = false;
     {
         std::lock_guard<std::mutex> lock(m_islandsMutex);
         auto itIsl = m_islands.find(islandID);
@@ -445,9 +464,11 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
         islandCenter = island.physicsCenter;
         std::unique_ptr<VoxelChunk>& chunkPtr = island.chunks[chunkCoord];
         if (!chunkPtr)
+        {
             chunkPtr = std::make_unique<VoxelChunk>();
+            isNewChunk = true;
+        }
         chunk = chunkPtr.get();
-        mdiIndex = chunk->getMDIIndex();
     }
 
     // Set voxel and rebuild meshes outside of islands mutex to avoid deadlocks
@@ -461,15 +482,30 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
     chunk->generateMesh();
     chunk->buildCollisionMesh();  // Rebuild collision mesh for accurate physics
     
-    // Update MDI renderer for real-time voxel changes
-    if (g_mdiRenderer && mdiIndex >= 0)
+    // Register or update MDI renderer for real-time voxel changes
+    if (g_mdiRenderer)
     {
         Vec3 worldOffset = islandCenter + Vec3(
             chunkCoord.x * VoxelChunk::SIZE,
             chunkCoord.y * VoxelChunk::SIZE,
             chunkCoord.z * VoxelChunk::SIZE
         );
-        g_mdiRenderer->updateChunkMesh(mdiIndex, chunk);
+        
+        if (isNewChunk)
+        {
+            // New chunk: register with MDI renderer
+            int mdiIndex = g_mdiRenderer->registerChunk(chunk, worldOffset);
+            chunk->setMDIIndex(mdiIndex);
+        }
+        else
+        {
+            // Existing chunk: update mesh data
+            int mdiIndex = chunk->getMDIIndex();
+            if (mdiIndex >= 0)
+            {
+                g_mdiRenderer->updateChunkMesh(mdiIndex, chunk);
+            }
+        }
     }
 }
 
