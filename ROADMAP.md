@@ -663,12 +663,23 @@ bool canModifyVoxel(Vec3 position, uint32_t playerID) {
 
 ## Version History
 
+**v1.2 - 2025-10-22**
+- Phase 2 COMPLETE: Block Properties System + QFG Block
+  - Created BlockProperties struct with full metadata (Phase 2.1) ✅
+  - Populated properties for all existing blocks (Phase 2.2) ✅
+  - Added QFG block type with full properties (Phase 2.3) ✅
+  - BlockID::QUANTUM_FIELD_GENERATOR registered (ID 14)
+  - QFG uses quantumFieldGenerator.glb model
+  - Properties: hardness 10, emits light 15, quantum field flag, interactable, tick rate 1.0
+- QFG ready to render and test!
+
 **v1.1 - 2025-10-22**
 - Phase 1 COMPLETE: Generic multi-model OBJ block system
   - VoxelChunk: Generic model instance storage (Phase 1.1) ✅
   - ModelInstanceRenderer: Multi-model support (Phase 1.2) ✅
   - GameClient: Render all OBJ blocks (Phase 1.3) ✅
   - GameClient: Load all OBJ models at startup (Phase 1.4) ✅
+  - Phase 1.5 Testing: Grass rendering confirmed ✅
 - System ready for QFG block addition
 - Discovered QFG model already exists (quantumFieldGenerator.glb)
 
