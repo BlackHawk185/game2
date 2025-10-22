@@ -391,8 +391,7 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                     chunkCoord.y * VoxelChunk::SIZE,
                     chunkCoord.z * VoxelChunk::SIZE
                 );
-                int mdiIndex = g_mdiRenderer->registerChunk(chunk.get(), worldOffset);
-                chunk->setMDIIndex(mdiIndex);  // Store for future transform updates
+                g_mdiRenderer->queueChunkRegistration(chunk.get(), worldOffset);
             }
         }
     }
@@ -481,32 +480,6 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
     chunk->setVoxel(x, y, z, voxelType);
     chunk->generateMesh();
     chunk->buildCollisionMesh();  // Rebuild collision mesh for accurate physics
-    
-    // Register or update MDI renderer for real-time voxel changes
-    if (g_mdiRenderer)
-    {
-        Vec3 worldOffset = islandCenter + Vec3(
-            chunkCoord.x * VoxelChunk::SIZE,
-            chunkCoord.y * VoxelChunk::SIZE,
-            chunkCoord.z * VoxelChunk::SIZE
-        );
-        
-        if (isNewChunk)
-        {
-            // New chunk: register with MDI renderer
-            int mdiIndex = g_mdiRenderer->registerChunk(chunk, worldOffset);
-            chunk->setMDIIndex(mdiIndex);
-        }
-        else
-        {
-            // Existing chunk: update mesh data
-            int mdiIndex = chunk->getMDIIndex();
-            if (mdiIndex >= 0)
-            {
-                g_mdiRenderer->updateChunkMesh(mdiIndex, chunk);
-            }
-        }
-    }
 }
 
 void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType)

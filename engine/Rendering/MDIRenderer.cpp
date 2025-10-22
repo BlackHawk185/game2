@@ -303,6 +303,53 @@ int MDIRenderer::registerChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     return chunkIndex;
 }
 
+// ================================
+// DEFERRED UPDATE QUEUE (THREAD-SAFE)
+// ================================
+
+void MDIRenderer::queueChunkRegistration(VoxelChunk* chunk, const Vec3& worldOffset)
+{
+    std::lock_guard<std::mutex> lock(m_pendingMutex);
+    m_pendingRegistrations.push_back({chunk, worldOffset, nullptr});
+}
+
+void MDIRenderer::queueChunkMeshUpdate(int chunkIndex, VoxelChunk* chunk)
+{
+    std::lock_guard<std::mutex> lock(m_pendingMutex);
+    m_pendingMeshUpdates.push_back({chunkIndex, chunk});
+}
+
+void MDIRenderer::processPendingUpdates()
+{
+    PROFILE_SCOPE("MDIRenderer::processPendingUpdates");
+    
+    // Process registrations
+    std::vector<PendingRegistration> registrations;
+    std::vector<PendingMeshUpdate> meshUpdates;
+    
+    {
+        std::lock_guard<std::mutex> lock(m_pendingMutex);
+        registrations.swap(m_pendingRegistrations);
+        meshUpdates.swap(m_pendingMeshUpdates);
+    }
+    
+    // Now execute on render thread
+    for (const auto& pending : registrations)
+    {
+        int mdiIndex = registerChunk(pending.chunk, pending.worldOffset);
+        if (mdiIndex >= 0 && pending.chunk)
+        {
+            std::cout << "✅ Chunk " << pending.chunk << " registered at MDI index " << mdiIndex << std::endl;
+            pending.chunk->setMDIIndex(mdiIndex);
+        }
+    }
+    
+    for (const auto& pending : meshUpdates)
+    {
+        updateChunkMesh(pending.chunkIndex, pending.chunk);
+    }
+}
+
 void MDIRenderer::updateChunkTransform(int chunkIndex, const Vec3& worldOffset)
 {
     if (chunkIndex < 0 || chunkIndex >= static_cast<int>(m_chunkData.size()))
@@ -497,7 +544,6 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_transformBuffer);
     
     // Single MDI draw call for ALL chunks!
-    // Use maxChunks as the draw count - chunks with count=0 will be skipped by GPU
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
     glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 
                                 static_cast<GLsizei>(m_maxChunks), 0);
@@ -528,7 +574,6 @@ void MDIRenderer::renderAllDepth(SimpleShader* depthShader, const glm::mat4& lig
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_transformBuffer);
     
     // Single MDI draw call for shadow pass
-    // Use maxChunks as the draw count - chunks with count=0 will be skipped by GPU
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
     glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr,
                                 static_cast<GLsizei>(m_maxChunks), 0);

@@ -577,9 +577,7 @@ void GameClient::processBlockInteraction(float deltaTime)
                     m_inputState.cachedTargetBlock.localBlockPos, 0);
             }
 
-            // Apply optimistically for immediate visual feedback
-            m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID,
-                                  m_inputState.cachedTargetBlock.localBlockPos, 0);
+            // Server will respond with authoritative update - no client-side optimistic update
 
             // Clear the cached target block immediately to remove the yellow outline
             m_inputState.cachedTargetBlock = RayHit();
@@ -616,8 +614,7 @@ void GameClient::processBlockInteraction(float deltaTime)
                         m_inputState.cachedTargetBlock.islandID, placePos, BlockID::STONE);
                 }
 
-                // Apply optimistically for immediate visual feedback
-                m_gameState->setVoxel(m_inputState.cachedTargetBlock.islandID, placePos, BlockID::STONE);
+                // Server will respond with authoritative update - no client-side optimistic update
 
                 // Clear the cached target block to refresh the selection
                 m_inputState.cachedTargetBlock = RayHit();
@@ -642,6 +639,13 @@ void GameClient::renderWorld()
     if (!m_gameState)
     {
         return;
+    }
+    
+    // Process pending mesh updates from game logic thread (MUST be on render thread for OpenGL)
+    if (g_mdiRenderer)
+    {
+        PROFILE_SCOPE("Process pending mesh updates");
+        g_mdiRenderer->processPendingUpdates();
     }
     
     // Sync island physics to chunk transforms (client-side only)
@@ -1135,7 +1139,7 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
         chunk->generateMesh();        // Regenerate the mesh with the new data
         chunk->buildCollisionMesh();  // Build collision faces from vertices
         
-        // Register with MDI renderer for batched rendering
+        // Queue chunk registration for render thread (thread-safe)
         if (g_mdiRenderer && island)
         {
             Vec3 worldOffset = island->physicsCenter + Vec3(
@@ -1143,8 +1147,10 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
                 chunkCoord.y * VoxelChunk::SIZE,
                 chunkCoord.z * VoxelChunk::SIZE
             );
-            int mdiIndex = g_mdiRenderer->registerChunk(chunk, worldOffset);
-            chunk->setMDIIndex(mdiIndex);  // Store for future transform updates
+            
+            // Use queued registration to avoid OpenGL cross-thread issues
+            // The processPendingUpdates() will check if already registered
+            g_mdiRenderer->queueChunkRegistration(chunk, worldOffset);
         }
     }
     else
@@ -1162,18 +1168,41 @@ void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update)
         return;
     }
 
-    // Removed verbose debug output
-
     // Apply the authoritative voxel change from server
     m_gameState->setVoxel(update.islandID, update.localPos, update.voxelType);
+
+    // Update MDI renderer (client-side only - server doesn't render)
+    if (g_mdiRenderer)
+    {
+        auto* islandSystem = m_gameState->getIslandSystem();
+        Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(update.localPos);
+        auto* chunk = islandSystem->getChunkFromIsland(update.islandID, chunkCoord);
+        if (chunk)
+        {
+            if (chunk->getMDIIndex() < 0)
+            {
+                // New chunk - register it
+                Vec3 islandCenter = islandSystem->getIslandCenter(update.islandID);
+                Vec3 worldOffset = islandCenter + Vec3(
+                    chunkCoord.x * VoxelChunk::SIZE,
+                    chunkCoord.y * VoxelChunk::SIZE,
+                    chunkCoord.z * VoxelChunk::SIZE
+                );
+                g_mdiRenderer->queueChunkRegistration(chunk, worldOffset);
+            }
+            else
+            {
+                // Existing chunk - update mesh
+                g_mdiRenderer->queueChunkMeshUpdate(chunk->getMDIIndex(), chunk);
+            }
+        }
+    }
 
     // **FIXED**: Always force immediate raycast update when server sends voxel changes
     // This ensures block selection is immediately accurate after server updates
     m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
         m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
     m_inputState.raycastTimer = 0.0f;
-
-    // The setVoxel call should automatically trigger mesh regeneration in GameState
 }
 
 void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update)

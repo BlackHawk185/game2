@@ -103,6 +103,23 @@ public:
     void updateChunkMesh(int chunkIndex, VoxelChunk* chunk);
     
     /**
+     * Queue chunk registration for next render frame (thread-safe)
+     * Use this from game logic thread to avoid OpenGL cross-thread violations
+     */
+    void queueChunkRegistration(VoxelChunk* chunk, const Vec3& worldOffset);
+    
+    /**
+     * Queue chunk mesh update for next render frame (thread-safe)
+     * Use this from game logic thread to avoid OpenGL cross-thread violations
+     */
+    void queueChunkMeshUpdate(int chunkIndex, VoxelChunk* chunk);
+    
+    /**
+     * Process all pending updates (must be called from render thread)
+     */
+    void processPendingUpdates();
+    
+    /**
      * Remove chunk from MDI rendering
      */
     void unregisterChunk(int chunkIndex);
@@ -172,6 +189,25 @@ private:
     std::vector<DrawElementsCommand> m_drawCommands;  // Indirect commands
     std::vector<glm::mat4> m_transforms;              // Transform matrices
     std::vector<int> m_freeSlots;                     // Recycled chunk indices
+    
+    // ================================
+    // DEFERRED UPDATE QUEUE (THREAD-SAFE)
+    // ================================
+    
+    struct PendingRegistration {
+        VoxelChunk* chunk;
+        Vec3 worldOffset;
+        int* outMDIIndex;  // Optional: where to store the result
+    };
+    
+    struct PendingMeshUpdate {
+        int chunkIndex;
+        VoxelChunk* chunk;
+    };
+    
+    std::mutex m_pendingMutex;
+    std::vector<PendingRegistration> m_pendingRegistrations;
+    std::vector<PendingMeshUpdate> m_pendingMeshUpdates;
     
     // ================================
     // BUFFER MANAGEMENT

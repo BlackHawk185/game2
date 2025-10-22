@@ -132,10 +132,10 @@ private:
     float m_airFriction = 0.94f;        // Air resistance (reduced from 0.98 for more drag)
     float m_cameraSmoothing = 0.15f;    // Camera interpolation speed (lower = smoother)
     
-    // Capsule collision dimensions (player is 3 blocks tall, ~0.9 blocks wide)
-    float m_capsuleRadius = 0.45f;      // Horizontal radius (fits through 2-block gap)
+    // Capsule collision dimensions (player is 3 blocks tall, ~1.1 blocks wide)
+    float m_capsuleRadius = 0.55f;      // Horizontal radius (requires 2-block gap, won't fit through 1)
     float m_capsuleHeight = 3.0f;       // Total height including caps
-    float m_capsuleCylinderHeight = 2.1f; // Height of cylindrical portion (3.0 - 2*0.45)
+    float m_capsuleCylinderHeight = 1.9f; // Height of cylindrical portion (3.0 - 2*0.55)
     
     // Input state
     struct InputState {
