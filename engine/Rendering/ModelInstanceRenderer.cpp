@@ -14,7 +14,8 @@
 std::unique_ptr<ModelInstanceRenderer> g_modelRenderer = nullptr;
 
 namespace {
-    static const char* kVS = R"GLSL(
+    // Wind-animated shader for grass/foliage
+    static const char* kVS_Wind = R"GLSL(
 #version 460 core
 layout (location=0) in vec3 aPos;
 layout (location=1) in vec3 aNormal;
@@ -56,6 +57,43 @@ void main(){
     vViewZ = -(uView * world).z;
 }
 )GLSL";
+    
+    // Static shader for non-animated models (QFG, rocks, etc.)
+    static const char* kVS_Static = R"GLSL(
+#version 460 core
+layout (location=0) in vec3 aPos;
+layout (location=1) in vec3 aNormal;
+layout (location=2) in vec2 aUV;
+layout (location=3) in vec4 aInstance; // xyz=position offset, w=unused
+
+uniform mat4 uView;
+uniform mat4 uProjection;
+uniform mat4 uModel;       // chunk/world offset
+uniform mat4 uLightVP[4];
+uniform int  uCascadeCount;
+uniform float uTime;
+
+out vec2 vUV;   
+out vec3 vNormalWS;
+out vec3 vWorldPos;
+out vec4 vLightSpacePos[4];
+out float vViewZ;
+
+void main(){
+    // No wind animation - static model
+    vec4 world = uModel * vec4(aPos + aInstance.xyz, 1.0);
+    gl_Position = uProjection * uView * world;
+    vUV = aUV;
+    vNormalWS = mat3(uModel) * aNormal;
+    vWorldPos = world.xyz;
+    for (int i=0;i<uCascadeCount;i++) {
+        vLightSpacePos[i] = uLightVP[i] * world;
+    }
+    vViewZ = -(uView * world).z;
+}
+)GLSL";
+
+    static const char* kVS = kVS_Wind;  // Keep legacy for compatibility
 
     static const char* kFS = R"GLSL(
 #version 460 core
@@ -196,6 +234,29 @@ bool ModelInstanceRenderer::ensureShaders() {
     uGrassTexture = glGetUniformLocation(m_program, "uGrassTexture");
 
     return true;
+}
+
+// Compile shader for specific block type (NEW)
+GLuint ModelInstanceRenderer::compileShaderForBlock(uint8_t blockID) {
+    // Determine which vertex shader to use based on block type
+    const char* vertexShader = kVS_Static;  // Default to static (no wind)
+    
+    // Wind animation for grass and foliage
+    if (blockID == 13) {  // BlockID::DECOR_GRASS
+        vertexShader = kVS_Wind;
+    }
+    // TODO: Add other wind-animated blocks (leaves, reeds, etc.)
+    
+    // Compile and link
+    GLuint vs = Compile(GL_VERTEX_SHADER, vertexShader);
+    GLuint fs = Compile(GL_FRAGMENT_SHADER, kFS);  // Same fragment shader for all
+    if (!vs || !fs) return 0;
+    
+    GLuint program = Link(vs, fs);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+    
+    return program;
 }
 
 bool ModelInstanceRenderer::initialize() {
@@ -360,6 +421,16 @@ bool ModelInstanceRenderer::loadModel(uint8_t blockID, const std::string& path) 
         }
     }
 
+    // NEW: Compile shader for this block type if not already compiled
+    if (m_shaders.find(blockID) == m_shaders.end()) {
+        GLuint shader = compileShaderForBlock(blockID);
+        if (shader == 0) {
+            std::cerr << "Failed to compile shader for block " << (int)blockID << std::endl;
+            return false;
+        }
+        m_shaders[blockID] = shader;
+    }
+
     return gpuModel.valid;
 }
 
@@ -439,6 +510,11 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
     if (modelIt == m_models.end() || !modelIt->second.valid || !ensureShaders()) return;
     if (!ensureChunkInstancesUploaded(blockID, chunk)) return;
 
+    // Get shader for this block type
+    auto shaderIt = m_shaders.find(blockID);
+    if (shaderIt == m_shaders.end()) return;
+    GLuint shader = shaderIt->second;
+
     // Ensure sane fixed-function state before color draw
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDrawBuffer(GL_BACK);
@@ -447,34 +523,46 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
     glDisable(GL_POLYGON_OFFSET_FILL);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    glUseProgram(m_program);
+    glUseProgram(shader);
+
+    // Get uniform locations for this shader
+    int loc_View = glGetUniformLocation(shader, "uView");
+    int loc_Proj = glGetUniformLocation(shader, "uProjection");
+    int loc_Model = glGetUniformLocation(shader, "uModel");
+    int loc_Time = glGetUniformLocation(shader, "uTime");
+    int loc_CascadeCount = glGetUniformLocation(shader, "uCascadeCount");
+    int loc_LightDir = glGetUniformLocation(shader, "uLightDir");
+    int loc_CascadeSplits = glGetUniformLocation(shader, "uCascadeSplits");
+    int loc_ShadowTexel = glGetUniformLocation(shader, "uShadowTexel");
+    int loc_ShadowMap0 = glGetUniformLocation(shader, "uShadowMaps[0]");
+    int loc_Texture = glGetUniformLocation(shader, "uGrassTexture");
 
     // Matrices
-    glUniformMatrix4fv(uView, 1, GL_FALSE, &view[0][0]);
-    glUniformMatrix4fv(uProj, 1, GL_FALSE, &proj[0][0]);
+    glUniformMatrix4fv(loc_View, 1, GL_FALSE, &view[0][0]);
+    glUniformMatrix4fv(loc_Proj, 1, GL_FALSE, &proj[0][0]);
     glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
-    glUniformMatrix4fv(uModel, 1, GL_FALSE, &model[0][0]);
-    glUniform1f(uTime, m_time);
+    glUniformMatrix4fv(loc_Model, 1, GL_FALSE, &model[0][0]);
+    glUniform1f(loc_Time, m_time);
 
     // Single cascade shadow
-    glUniform1i(uCascadeCount, 1);
-    GLint loc = glGetUniformLocation(m_program, "uLightVP[0]");
-    glUniformMatrix4fv(loc, 1, GL_FALSE, &m_lightVPs[0][0][0]);
-    glUniform3f(uLightDir, m_lightDir.x, m_lightDir.y, m_lightDir.z);
+    glUniform1i(loc_CascadeCount, 1);
+    GLint loc_LightVP = glGetUniformLocation(shader, "uLightVP[0]");
+    glUniformMatrix4fv(loc_LightVP, 1, GL_FALSE, &m_lightVPs[0][0][0]);
+    glUniform3f(loc_LightDir, m_lightDir.x, m_lightDir.y, m_lightDir.z);
     
     // Split distance & texel size
-    if (uCascadeSplits>=0) glUniform1fv(uCascadeSplits, 1, m_cascadeSplits);
+    if (loc_CascadeSplits>=0) glUniform1fv(loc_CascadeSplits, 1, m_cascadeSplits);
     int sz = g_csm.getSize(0);
     float texel = sz > 0 ? (1.0f / float(sz)) : (1.0f / 8192.0f);
-    if (uShadowTexel>=0) glUniform1fv(uShadowTexel, 1, &texel);
+    if (loc_ShadowTexel>=0) glUniform1fv(loc_ShadowTexel, 1, &texel);
     
     // Bind shadow map texture
     glActiveTexture(GL_TEXTURE7);
     glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
-    if (uShadowMaps0>=0) glUniform1i(uShadowMaps0, 7);
+    if (loc_ShadowMap0>=0) glUniform1i(loc_ShadowMap0, 7);
     
     // Bind texture (engine grass.png for grass, GLB albedo for others)
-    if (uGrassTexture>=0) {
+    if (loc_Texture>=0) {
         glActiveTexture(GL_TEXTURE5);
         GLuint tex = 0;
         if (blockID == 13 && m_engineGrassTex) {  // 13 = BlockID::DECOR_GRASS
@@ -487,7 +575,7 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
         }
         if (tex) {
             glBindTexture(GL_TEXTURE_2D, tex);
-            glUniform1i(uGrassTexture, 5);
+            glUniform1i(loc_Texture, 5);
         }
     }
 

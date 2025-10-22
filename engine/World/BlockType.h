@@ -20,6 +20,18 @@ namespace BlockID {
     constexpr uint8_t DECOR_GRASS = 13;  // Decorative grass tuft model (instanced, non-voxel meshing)
     constexpr uint8_t QUANTUM_FIELD_GENERATOR = 14;  // QFG - Core faction mechanic
     
+    // Elemental/crafted blocks (voxel blocks for now, can be OBJ later)
+    constexpr uint8_t COAL = 20;
+    constexpr uint8_t IRON_BLOCK = 21;
+    constexpr uint8_t GOLD_BLOCK = 22;
+    constexpr uint8_t COPPER_BLOCK = 23;
+    constexpr uint8_t WATER = 24;
+    constexpr uint8_t SAND = 25;
+    constexpr uint8_t SALT_BLOCK = 26;
+    constexpr uint8_t LIMESTONE = 27;
+    constexpr uint8_t ICE = 28;
+    constexpr uint8_t DIAMOND_BLOCK = 29;
+    
     constexpr uint8_t MAX_BLOCK_TYPES = 255;
 }
 

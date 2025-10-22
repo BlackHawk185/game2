@@ -79,10 +79,14 @@ private:
     bool ensureChunkInstancesUploaded(uint8_t blockID, VoxelChunk* chunk);
     bool ensureShaders();
     bool buildGPUFromModel(uint8_t blockID);
+    GLuint compileShaderForBlock(uint8_t blockID);  // NEW: Per-model shader compilation
 
     // Internal GL helpers
-    GLuint m_program = 0;       // forward shader (grass-specific with wind)
+    GLuint m_program = 0;       // DEPRECATED: forward shader (grass-specific with wind) - use m_shaders instead
 
+    // NEW: Per-model shaders
+    std::unordered_map<uint8_t, GLuint> m_shaders;
+    
     // Uniform locations (forward)
     int uProj = -1, uView = -1, uModel = -1;
     int uCascadeCount = -1, uLightVP = -1, uCascadeSplits = -1, uShadowMaps = -1;

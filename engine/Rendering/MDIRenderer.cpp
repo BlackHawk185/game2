@@ -170,8 +170,9 @@ bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t maxVertices, uint32_t 
         m_dirtTextureID = tryLoadTexture("dirt.png");
         m_stoneTextureID = tryLoadTexture("stone.png");
         m_grassTextureID = tryLoadTexture("grass.png");
+        m_sandTextureID = tryLoadTexture("sand.png");
         
-        if (m_dirtTextureID && m_stoneTextureID && m_grassTextureID) {
+        if (m_dirtTextureID && m_stoneTextureID && m_grassTextureID && m_sandTextureID) {
             std::cout << "✅ Block textures loaded successfully" << std::endl;
         }
     }
@@ -518,7 +519,7 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     // Set material type for voxels
     m_shader->setInt("uMaterialType", 0);  // 0 = voxel
     
-    // Bind block textures (dirt, stone, grass)
+    // Bind block textures (dirt, stone, grass, sand)
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, m_dirtTextureID);
     m_shader->setInt("uTexture", 0);
@@ -530,6 +531,10 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     glActiveTexture(GL_TEXTURE2);
     glBindTexture(GL_TEXTURE_2D, m_grassTextureID);
     m_shader->setInt("uGrassTexture", 2);
+    
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, m_sandTextureID);
+    m_shader->setInt("uSandTexture", 3);
     
     // Bind single shadow map
     glActiveTexture(GL_TEXTURE7);

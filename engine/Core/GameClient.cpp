@@ -4,6 +4,8 @@
 #include <GLFW/glfw3.h>
 #include <glad/gl.h>
 #include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_opengl3.h>
 
 #include <iostream>
 #include <memory>
@@ -15,6 +17,10 @@
 #include "../Network/NetworkManager.h"
 #include "../Network/NetworkMessages.h"
 #include "../Rendering/Renderer.h"
+#include "../Rendering/BlockHighlightRenderer.h"
+#include "../UI/HUD.h"
+#include "../UI/Inventory.h"  // DEPRECATED: Old block-based inventory
+#include "../UI/PeriodicTableUI.h"  // NEW: Periodic table UI for hotbar binding
 #include "../Core/Window.h"
 #include "../Rendering/MDIRenderer.h"
 #include "../Rendering/ModelInstanceRenderer.h"
@@ -39,6 +45,19 @@ GameClient::GameClient()
 
     // Set global day/night cycle pointer
     g_dayNightCycle = &m_dayNightCycle;
+    
+    // Initialize default hotbar elements (keys 1-9)
+    m_hotbarElements = {
+        Element::H,   // 1 - Hydrogen
+        Element::C,   // 2 - Carbon
+        Element::O,   // 3 - Oxygen
+        Element::Si,  // 4 - Silicon
+        Element::Na,  // 5 - Sodium
+        Element::Cl,  // 6 - Chlorine
+        Element::Ca,  // 7 - Calcium
+        Element::Fe,  // 8 - Iron
+        Element::Cu   // 9 - Copper
+    };
 
     // Set up network callbacks
     if (auto client = m_networkManager->getClient())
@@ -180,6 +199,9 @@ bool GameClient::update(float deltaTime)
     {
         return false;
     }
+    
+    // Track frame time for FPS calculation
+    m_lastFrameDeltaTime = deltaTime;
 
     // Update networking if remote client
     if (m_isRemoteClient && m_networkManager)
@@ -273,6 +295,11 @@ void GameClient::shutdown()
         g_modelRenderer->shutdown();
         g_modelRenderer.reset();
     }
+    
+    // Cleanup ImGui
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
     // Cleanup window
     if (m_window)
@@ -421,12 +448,34 @@ bool GameClient::initializeGraphics()
         }
     }
 
+    // Initialize block highlighter for selected block wireframe
+    m_blockHighlighter = std::make_unique<BlockHighlightRenderer>();
+    if (!m_blockHighlighter->initialize())
+    {
+        std::cerr << "Warning: Failed to initialize BlockHighlightRenderer" << std::endl;
+        m_blockHighlighter.reset();
+    }
+    
+    // Initialize HUD overlay
+    m_hud = std::make_unique<HUD>();
+    
+    // Initialize Inventory (hotbar) - DEPRECATED
+    m_inventory = std::make_unique<Inventory>();
+    
+    // Initialize Periodic Table UI
+    m_periodicTableUI = std::make_unique<PeriodicTableUI>();
+
     // Initialize ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     (void) io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavNoCaptureKeyboard; // Don't capture keyboard
     ImGui::StyleColorsDark();
+    
+    // Initialize ImGui backends
+    ImGui_ImplGlfw_InitForOpenGL(m_window->getHandle(), true);
+    ImGui_ImplOpenGL3_Init("#version 460");
 
     return true;
 }
@@ -450,6 +499,77 @@ void GameClient::processKeyboard(float deltaTime)
         if (glfwGetKey(m_window->getHandle(), GLFW_KEY_0) == GLFW_PRESS) g_timeEffects->resetTime();
         if (glfwGetKey(m_window->getHandle(), GLFW_KEY_T) == GLFW_PRESS) g_timeEffects->toggleTimePulse();
         */
+    }
+    
+    // Tab key - toggle periodic table UI
+    {
+        static bool tabKeyPressed = false;
+        bool isTabPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_TAB) == GLFW_PRESS;
+        
+        if (isTabPressed && !tabKeyPressed) {
+            m_periodicTableUI->toggle();
+            
+            // Toggle mouse cursor and camera control
+            if (m_periodicTableUI->isOpen()) {
+                glfwSetInputMode(m_window->getHandle(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+                std::cout << "Periodic table opened (mouse visible)" << std::endl;
+            } else {
+                glfwSetInputMode(m_window->getHandle(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+                std::cout << "Periodic table closed (mouse captured)" << std::endl;
+            }
+        }
+        
+        tabKeyPressed = isTabPressed;
+    }
+    
+    // NEW: Element-based crafting system (keys 1-9 add elements to queue)
+    // Skip if periodic table is open (it handles key input itself)
+    if (!m_periodicTableUI->isOpen())
+    {
+        static bool numberKeysPressed[10] = {false};  // 0-9
+        
+        // Keys 1-9: Add elements from customizable hotbar
+        for (int i = 0; i < 9; ++i)
+        {
+            int key = GLFW_KEY_1 + i;  // GLFW_KEY_1 through GLFW_KEY_9
+            bool isPressed = glfwGetKey(m_window->getHandle(), key) == GLFW_PRESS;
+            
+            if (isPressed && !numberKeysPressed[i])
+            {
+                // Auto-unlock previous recipe when starting a new element sequence
+                if (m_elementQueue.isEmpty() && m_lockedRecipe) {
+                    m_lockedRecipe = nullptr;
+                    std::cout << "Previous recipe unlocked (starting new craft)" << std::endl;
+                }
+                
+                // Add element from customizable hotbar
+                Element elem = m_hotbarElements[i];
+                m_elementQueue.addElement(elem);
+                
+                // Check if this matches a recipe
+                auto& recipeSystem = ElementRecipeSystem::getInstance();
+                const BlockRecipe* recipe = recipeSystem.matchRecipe(m_elementQueue);
+                
+                if (recipe) {
+                    std::cout << "✓ Recipe matched: " << recipe->name << " (" << recipe->formula << ")" << std::endl;
+                } else {
+                    std::cout << "Element added: " << ElementRecipeSystem::getElementSymbol(elem) 
+                              << " (Queue: " << m_elementQueue.toFormula() << ")" << std::endl;
+                }
+            }
+            
+            numberKeysPressed[i] = isPressed;
+        }
+        
+        // Key 0: Clear element queue
+        bool isZeroPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_0) == GLFW_PRESS;
+        if (isZeroPressed && !numberKeysPressed[9])
+        {
+            m_elementQueue.clear();
+            m_lockedRecipe = nullptr;
+            std::cout << "Element queue cleared" << std::endl;
+        }
+        numberKeysPressed[9] = isZeroPressed;
     }
 
     // Fluid particle spawning controls
@@ -480,6 +600,16 @@ void GameClient::processKeyboard(float deltaTime)
         g_physics.debugCollisionInfo(m_camera.position, 0.5f);
     }
     wasDebugKeyPressed = isDebugKeyPressed;
+    
+    // Toggle HUD debug info (press F3)
+    static bool wasF3KeyPressed = false;
+    bool isF3KeyPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_F3) == GLFW_PRESS;
+    
+    if (isF3KeyPressed && !wasF3KeyPressed && m_hud)
+    {
+        m_hud->toggleDebugInfo();
+    }
+    wasF3KeyPressed = isF3KeyPressed;
     
     // Toggle noclip mode (press N for debug flying)
     static bool wasNoclipKeyPressed = false;
@@ -515,6 +645,13 @@ void GameClient::processMouse(float deltaTime)
     static double lastX = m_windowWidth / 2.0;
     static double lastY = m_windowHeight / 2.0;
     static bool firstMouse = true;
+    
+    // Don't process mouse movement if periodic table is open
+    if (m_periodicTableUI && m_periodicTableUI->isOpen()) {
+        // Reset firstMouse so we don't get snap when closing UI
+        firstMouse = true;
+        return;
+    }
 
     double xpos, ypos;
     glfwGetCursorPos(m_window->getHandle(), &xpos, &ypos);
@@ -602,12 +739,31 @@ void GameClient::processBlockInteraction(float deltaTime)
         m_inputState.leftMousePressed = false;
     }
 
-    // Right click - place block
+    // Right click - place block or lock/switch recipe
     if (rightClick && !m_inputState.rightMousePressed)
     {
         m_inputState.rightMousePressed = true;
 
-        if (m_inputState.cachedTargetBlock.hit)
+        // If we have a queued element sequence, try to lock/switch to it
+        if (!m_elementQueue.isEmpty())
+        {
+            auto& recipeSystem = ElementRecipeSystem::getInstance();
+            const BlockRecipe* newRecipe = recipeSystem.matchRecipe(m_elementQueue);
+            
+            if (newRecipe) {
+                // Valid recipe - lock/switch to it
+                m_lockedRecipe = newRecipe;
+                std::cout << "🔒 Recipe locked: " << m_lockedRecipe->name 
+                          << " (" << m_lockedRecipe->formula << ")" << std::endl;
+                m_elementQueue.clear();
+            } else {
+                // Invalid recipe - clear the queue
+                std::cout << "❌ No recipe matches " << m_elementQueue.toFormula() << " - clearing queue" << std::endl;
+                m_elementQueue.clear();
+            }
+        }
+        // If no queue but we have a locked recipe and valid target, place block
+        else if (m_lockedRecipe && m_inputState.cachedTargetBlock.hit)
         {
             Vec3 placePos = VoxelRaycaster::getPlacementPosition(m_inputState.cachedTargetBlock);
             uint8_t existingVoxel =
@@ -615,15 +771,21 @@ void GameClient::processBlockInteraction(float deltaTime)
 
             if (existingVoxel == 0)
             {
+                // Use locked recipe block
+                uint8_t blockToPlace = m_lockedRecipe->blockID;
+                
                 // Send network request for block place
                 if (m_networkManager && m_networkManager->getClient() &&
                     m_networkManager->getClient()->isConnected())
                 {
                     m_networkManager->getClient()->sendVoxelChangeRequest(
-                        m_inputState.cachedTargetBlock.islandID, placePos, BlockID::STONE);
+                        m_inputState.cachedTargetBlock.islandID, placePos, blockToPlace);
                 }
 
                 // Server will respond with authoritative update - no client-side optimistic update
+                
+                // Keep recipe locked for continuous placement
+                std::cout << "Block placed (" << m_lockedRecipe->name << " still locked)" << std::endl;
 
                 // Clear the cached target block to refresh the selection
                 m_inputState.cachedTargetBlock = RayHit();
@@ -703,9 +865,10 @@ void GameClient::renderWorld()
         {
             std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
             m_gameState->getIslandSystem()->getAllChunksWithWorldPos(snapshot);
+            
+            // Use Camera's projection matrix (same FOV as voxel rendering)
             float aspect = (float) m_windowWidth / (float) m_windowHeight;
-            float fov = 45.0f;
-            glm::mat4 projectionMatrix = glm::perspective(fov * 3.14159265358979323846f / 180.0f, aspect, 0.1f, 1000.0f);
+            glm::mat4 projectionMatrix = m_camera.getProjectionMatrix(aspect);
             glm::mat4 viewMatrix = m_camera.getViewMatrix();
             
             // Render all OBJ-type blocks (grass, trees, lamps, QFG, etc.)
@@ -719,6 +882,28 @@ void GameClient::renderWorld()
                         g_modelRenderer->renderModelChunk(blockType.id, p.first, p.second, viewMatrix, projectionMatrix);
                     }
                 }
+            }
+        }
+        
+        // Render block highlight (yellow wireframe cube on selected block)
+        if (m_blockHighlighter && m_inputState.cachedTargetBlock.hit)
+        {
+            PROFILE_SCOPE("renderBlockHighlight");
+            
+            // Convert island-relative position to world position for rendering
+            auto& islands = m_gameState->getIslandSystem()->getIslands();
+            auto it = islands.find(m_inputState.cachedTargetBlock.islandID);
+            if (it != islands.end())
+            {
+                Vec3 worldBlockPos = m_inputState.cachedTargetBlock.localBlockPos + it->second.physicsCenter;
+                
+                // Use Camera's projection matrix (same FOV as voxel rendering)
+                float aspect = (float) m_windowWidth / (float) m_windowHeight;
+                glm::mat4 projectionMatrix = m_camera.getProjectionMatrix(aspect);
+                glm::mat4 viewMatrix = m_camera.getViewMatrix();
+                
+                // Convert glm matrices to float arrays for BlockHighlightRenderer
+                m_blockHighlighter->render(worldBlockPos, glm::value_ptr(viewMatrix), glm::value_ptr(projectionMatrix));
             }
         }
     }
@@ -802,21 +987,25 @@ void GameClient::handleCameraMovement(float deltaTime)
     // **NOCLIP MODE** - Free flying for debugging
     if (m_noclipMode)
     {
-        float flySpeed = 30.0f;
+        // Skip input gathering if periodic table is open
         Vec3 movement(0, 0, 0);
         
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
-            movement = movement + m_camera.front * flySpeed * deltaTime;
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
-            movement = movement - m_camera.front * flySpeed * deltaTime;
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
-            movement = movement - m_camera.right * flySpeed * deltaTime;
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
-            movement = movement + m_camera.right * flySpeed * deltaTime;
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
-            movement = movement + m_camera.up * flySpeed * deltaTime;
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-            movement = movement - m_camera.up * flySpeed * deltaTime;
+        if (!m_periodicTableUI || !m_periodicTableUI->isOpen()) {
+            float flySpeed = 30.0f;
+            
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
+                movement = movement + m_camera.front * flySpeed * deltaTime;
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
+                movement = movement - m_camera.front * flySpeed * deltaTime;
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
+                movement = movement - m_camera.right * flySpeed * deltaTime;
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
+                movement = movement + m_camera.right * flySpeed * deltaTime;
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
+                movement = movement + m_camera.up * flySpeed * deltaTime;
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+                movement = movement - m_camera.up * flySpeed * deltaTime;
+        }
         
         m_camera.position = m_camera.position + movement;
         
@@ -834,21 +1023,24 @@ void GameClient::handleCameraMovement(float deltaTime)
     // 1. Gather input direction (horizontal only - no vertical input)
     Vec3 inputDirection(0, 0, 0);
     
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
-    {
-        inputDirection = inputDirection + m_camera.front;
-    }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
-    {
-        inputDirection = inputDirection - m_camera.front;
-    }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
-    {
-        inputDirection = inputDirection - m_camera.right;
-    }
-    if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
-    {
-        inputDirection = inputDirection + m_camera.right;
+    // Skip input gathering if periodic table is open, but still run physics
+    if (!m_periodicTableUI || !m_periodicTableUI->isOpen()) {
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
+        {
+            inputDirection = inputDirection + m_camera.front;
+        }
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
+        {
+            inputDirection = inputDirection - m_camera.front;
+        }
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
+        {
+            inputDirection = inputDirection - m_camera.right;
+        }
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
+        {
+            inputDirection = inputDirection + m_camera.right;
+        }
     }
     
     // Flatten input to horizontal plane (ignore Y component)
@@ -858,8 +1050,11 @@ void GameClient::handleCameraMovement(float deltaTime)
         inputDirection = inputDirection.normalized();
     }
     
-    // Check for jump input
-    bool jumpThisFrame = glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS;
+    // Check for jump input (skip if UI open)
+    bool jumpThisFrame = false;
+    if (!m_periodicTableUI || !m_periodicTableUI->isOpen()) {
+        jumpThisFrame = glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS;
+    }
     
     // ==========================================
     // PHASE 1: APPLY PHYSICS (player movement only, no island velocity yet)
@@ -1018,13 +1213,81 @@ void GameClient::renderWaitingScreen()
 
 void GameClient::renderUI()
 {
-    // TODO: Implement ImGui UI rendering
-    // This will show server connection status, performance metrics, etc.
+    // Start ImGui frame
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    
+    // Render HUD
+    if (m_hud)
+    {
+        // Update HUD state
+        m_hud->setPlayerPosition(m_camera.position.x, m_camera.position.y, m_camera.position.z);
+        m_hud->setPlayerHealth(100.0f, 100.0f); // TODO: Wire up actual health system
+        
+        // Calculate FPS from delta time
+        float fps = (m_lastFrameDeltaTime > 0.0001f) ? (1.0f / m_lastFrameDeltaTime) : 60.0f;
+        m_hud->setFPS(fps);
+        
+        // Set current block in hand (TODO: get from inventory/hotbar)
+        m_hud->setCurrentBlock("Stone");
+        
+        // Set target block (block player is looking at) with elemental formula
+        if (m_inputState.cachedTargetBlock.hit && m_gameState)
+        {
+            uint8_t blockID = m_gameState->getVoxel(
+                m_inputState.cachedTargetBlock.islandID,
+                m_inputState.cachedTargetBlock.localBlockPos
+            );
+            
+            auto& registry = BlockTypeRegistry::getInstance();
+            const BlockTypeInfo* blockInfo = registry.getBlockType(blockID);
+            
+            // Try to find recipe for this block to show its formula
+            std::string formula = "";
+            auto& recipeSystem = ElementRecipeSystem::getInstance();
+            for (const auto& recipe : recipeSystem.getAllRecipes()) {
+                if (recipe.blockID == blockID) {
+                    formula = recipe.formula;
+                    break;
+                }
+            }
+            
+            if (blockInfo)
+            {
+                m_hud->setTargetBlock(blockInfo->name, formula);
+            }
+            else
+            {
+                m_hud->clearTargetBlock();
+            }
+        }
+        else
+        {
+            m_hud->clearTargetBlock();
+        }
+        
+        // Render HUD overlay
+        m_hud->render(m_lastFrameDeltaTime);
+        
+        // NEW: Render element queue hotbar (with customizable elements)
+        m_hud->renderElementQueue(m_elementQueue, m_lockedRecipe, m_hotbarElements);
+        
+        // Render periodic table UI if open
+        if (m_periodicTableUI->isOpen()) {
+            m_periodicTableUI->render(m_hotbarElements);
+        }
+    }
+    
+    // Show connection status for remote clients
     if (m_isRemoteClient)
     {
-        // Show connection status for remote clients
-        // TODO: Add proper UI text rendering
+        // Additional remote client UI could go here
     }
+    
+    // Finalize ImGui frame and render
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
 void GameClient::onWindowResize(int width, int height)

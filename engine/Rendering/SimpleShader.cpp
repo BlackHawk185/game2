@@ -88,6 +88,7 @@ in float BlockType;
 uniform sampler2D uTexture;      // Default/dirt texture
 uniform sampler2D uStoneTexture; // Stone texture
 uniform sampler2D uGrassTexture; // Grass texture
+uniform sampler2D uSandTexture;  // Sand texture
 uniform sampler2D uShadowMaps[4];
 uniform int uCascadeCount;
 uniform float uCascadeSplits[4];
@@ -171,6 +172,38 @@ void main()
         } else if (blockID == 3) {
             // Grass blocks
             texColor = texture(uGrassTexture, TexCoord);
+        }
+        // Elemental/crafted blocks (20-29) - placeholder colors until textures are made
+        else if (blockID == 20) {
+            // Coal - dark gray/black
+            texColor = vec4(0.2, 0.2, 0.2, 1.0);
+        } else if (blockID == 21) {
+            // Iron Block - metallic gray
+            texColor = vec4(0.7, 0.7, 0.8, 1.0);
+        } else if (blockID == 22) {
+            // Gold Block - golden yellow
+            texColor = vec4(1.0, 0.84, 0.0, 1.0);
+        } else if (blockID == 23) {
+            // Copper Block - copper/orange
+            texColor = vec4(0.72, 0.45, 0.20, 1.0);
+        } else if (blockID == 24) {
+            // Water - blue transparent
+            texColor = vec4(0.2, 0.5, 0.9, 0.6);
+        } else if (blockID == 25) {
+            // Sand - use sand texture
+            texColor = texture(uSandTexture, TexCoord);
+        } else if (blockID == 26) {
+            // Salt Block - white/crystalline
+            texColor = vec4(0.95, 0.95, 0.98, 1.0);
+        } else if (blockID == 27) {
+            // Limestone - light gray/beige
+            texColor = vec4(0.83, 0.81, 0.75, 1.0);
+        } else if (blockID == 28) {
+            // Ice - light blue transparent
+            texColor = vec4(0.7, 0.9, 1.0, 0.8);
+        } else if (blockID == 29) {
+            // Diamond Block - cyan/bright blue
+            texColor = vec4(0.4, 0.9, 1.0, 1.0);
         } else {
             // Default fallback (air/unknown)
             texColor = texture(uTexture, TexCoord);

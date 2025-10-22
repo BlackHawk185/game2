@@ -233,6 +233,7 @@ private:
     unsigned int m_dirtTextureID = 0;
     unsigned int m_stoneTextureID = 0;
     unsigned int m_grassTextureID = 0;
+    unsigned int m_sandTextureID = 0;
     
     // ================================
     // INTERNAL METHODS

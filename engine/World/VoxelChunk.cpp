@@ -266,8 +266,8 @@ void VoxelChunk::generateMesh(bool generateLighting)
                 // Check if this is an OBJ-type block
                 const BlockTypeInfo* blockInfo = registry.getBlockType(blockID);
                 if (blockInfo && blockInfo->renderType == BlockRenderType::OBJ) {
-                    // Anchor at voxel center (Y=0 for ground-based models)
-                    Vec3 instancePos((float)x + 0.5f, (float)y, (float)z + 0.5f);
+                    // Position at block corner - GLB models should be authored centered at origin
+                    Vec3 instancePos((float)x, (float)y, (float)z);
                     addModelInstance(blockID, instancePos);
                 }
             }
@@ -950,16 +950,26 @@ void VoxelChunk::generateGreedyQuads(int direction, std::vector<Vertex>& vertice
                     case 4: case 5: x = uPos; y = vPos; z = wPos; break;
                 }
                 
+                // Skip if this is not a solid voxel (air or OBJ-type blocks)
+                if (!isVoxelSolid(x, y, z))
+                {
+                    continue;
+                }
+                
                 uint8_t currentVoxel = getVoxel(x, y, z);
                 
-                // Only add face to mask if it's exposed (neighbor is air or doesn't exist)
-                if (currentVoxel != 0)
+                // Only add face to mask if it's exposed
+                // Face is exposed if neighbor is air OR neighbor is non-solid (OBJ-type block)
+                uint8_t neighborVoxel = getNeighborVoxel(x, y, z, direction);
+                bool neighborIsSolid = (neighborVoxel != 0) && isVoxelSolid(
+                    x + (direction == 0 ? 1 : direction == 1 ? -1 : 0),
+                    y + (direction == 2 ? 1 : direction == 3 ? -1 : 0),
+                    z + (direction == 4 ? 1 : direction == 5 ? -1 : 0)
+                );
+                
+                if (!neighborIsSolid)  // Exposed to air or non-solid block - render this face
                 {
-                    uint8_t neighborVoxel = getNeighborVoxel(x, y, z, direction);
-                    if (neighborVoxel == 0)  // Exposed to air - render this face
-                    {
-                        mask[uPos + vPos * SIZE] = currentVoxel;
-                    }
+                    mask[uPos + vPos * SIZE] = currentVoxel;
                 }
             }
         }

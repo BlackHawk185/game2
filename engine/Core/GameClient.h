@@ -6,6 +6,7 @@
 #include "../Input/Camera.h"
 #include "../Culling/FrustumCuller.h"
 #include "../World/VoxelRaycaster.h"
+#include "../World/ElementRecipes.h"  // NEW: Element-based crafting system
 #include "../Network/NetworkManager.h"  // Re-enabled with ENet integration working
 #include "../Time/DayNightCycle.h"  // NEW: Day/night cycle integration
 #include <memory>
@@ -13,6 +14,10 @@
 
 // Forward declarations
 class GameState;
+class BlockHighlightRenderer;
+class HUD;
+class Inventory;  // DEPRECATED: Old block-based inventory
+class PeriodicTableUI;
 struct GLFWwindow;
 struct VoxelChangeUpdate;
 struct WorldStateMessage;
@@ -112,10 +117,17 @@ private:
     // Rendering systems
     Camera m_camera;
     FrustumCuller m_frustumCuller;
+    std::unique_ptr<BlockHighlightRenderer> m_blockHighlighter;
+    std::unique_ptr<HUD> m_hud;
+    std::unique_ptr<Inventory> m_inventory;  // DEPRECATED: Old block-based inventory
+    std::unique_ptr<PeriodicTableUI> m_periodicTableUI;  // NEW: Periodic table for hotbar binding
     
     // NEW: Day/night cycle system for dynamic lighting
     DayNightCycle m_dayNightCycle;
     Vec3 m_lastSunDirection{0.0f, 0.0f, 0.0f};  // Track sun direction changes
+    
+    // FPS tracking
+    float m_lastFrameDeltaTime = 0.016f; // Start at ~60 FPS
     
     // Player physics state
     Vec3 m_playerVelocity{0.0f, 0.0f, 0.0f};        // Player's own velocity (input, gravity, jumps)
@@ -144,6 +156,11 @@ private:
         float raycastTimer = 0.0f;
         RayHit cachedTargetBlock;  // Cache raycast results for performance
     } m_inputState;
+    
+    // NEW: Element-based crafting system
+    ElementQueue m_elementQueue;
+    const BlockRecipe* m_lockedRecipe = nullptr;  // Recipe locked in for placement
+    std::array<Element, 9> m_hotbarElements;  // Customizable hotbar (keys 1-9)
     
     // Client state
     bool m_initialized = false;

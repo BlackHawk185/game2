@@ -15,6 +15,7 @@ add_library(engine STATIC
     World/BlockType.cpp
     World/ConnectivityAnalyzer.cpp
     World/ConnectivityTest.cpp
+    World/ElementRecipes.cpp
     
     # Game objects
     Player.cpp
@@ -29,10 +30,16 @@ add_library(engine STATIC
     Rendering/ShadowMap.cpp
     Rendering/CascadedShadowMap.cpp
     Rendering/ModelInstanceRenderer.cpp
+    Rendering/BlockHighlightRenderer.cpp
     Assets/GLBLoader.cpp
     
     # Input systems
     Input/Camera.cpp
+    
+    # UI systems
+    UI/HUD.cpp
+    UI/Inventory.cpp
+    UI/PeriodicTableUI.cpp
     
     # Math systems
     Math/Vec3.cpp
@@ -67,9 +74,16 @@ file(GLOB IMGUI_SRC
     ${CMAKE_SOURCE_DIR}/libs/imgui/*.cpp
 )
 
+# Add ImGui backend implementations
+set(IMGUI_BACKEND_SRC
+    ${CMAKE_SOURCE_DIR}/libs/imgui/backends/imgui_impl_glfw.cpp
+    ${CMAKE_SOURCE_DIR}/libs/imgui/backends/imgui_impl_opengl3.cpp
+)
+
 # Add third-party sources to engine target
 target_sources(engine PRIVATE
     ${IMGUI_SRC}
+    ${IMGUI_BACKEND_SRC}
 )
 
 # Enable precompiled headers (PCH)
@@ -79,6 +93,7 @@ target_precompile_headers(engine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/pch.h")
 target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/libs/imgui
+    ${CMAKE_SOURCE_DIR}/libs/imgui/backends
     ${CMAKE_SOURCE_DIR}/libs/tinygltf
     ${CMAKE_SOURCE_DIR}/libs/stb
     ${CMAKE_SOURCE_DIR}/libs/bimg/3rdparty/stb
