@@ -406,10 +406,19 @@ bool GameClient::initializeGraphics()
         g_modelRenderer.reset();
         return false;
     }
-    // Load grass model asset
-    if (!g_modelRenderer->loadGrassModel("assets/models/grass.glb"))
+    
+    // Load all OBJ-type block models from registry
+    auto& registry = BlockTypeRegistry::getInstance();
+    for (const auto& blockType : registry.getAllBlockTypes())
     {
-        std::cerr << "Warning: could not load assets/models/grass.glb. Grass will not render." << std::endl;
+        if (blockType.renderType == BlockRenderType::OBJ && !blockType.assetPath.empty())
+        {
+            if (!g_modelRenderer->loadModel(blockType.id, blockType.assetPath))
+            {
+                std::cerr << "Warning: Failed to load model for '" << blockType.name 
+                          << "' from " << blockType.assetPath << std::endl;
+            }
+        }
     }
 
     // Initialize ImGui
@@ -699,9 +708,17 @@ void GameClient::renderWorld()
             glm::mat4 projectionMatrix = glm::perspective(fov * 3.14159265358979323846f / 180.0f, aspect, 0.1f, 1000.0f);
             glm::mat4 viewMatrix = m_camera.getViewMatrix();
             
-            for (auto& p : snapshot)
+            // Render all OBJ-type blocks (grass, trees, lamps, QFG, etc.)
+            auto& registry = BlockTypeRegistry::getInstance();
+            for (const auto& blockType : registry.getAllBlockTypes())
             {
-                g_modelRenderer->renderGrassChunk(p.first, p.second, viewMatrix, projectionMatrix);
+                if (blockType.renderType == BlockRenderType::OBJ)
+                {
+                    for (auto& p : snapshot)
+                    {
+                        g_modelRenderer->renderModelChunk(blockType.id, p.first, p.second, viewMatrix, projectionMatrix);
+                    }
+                }
             }
         }
     }
