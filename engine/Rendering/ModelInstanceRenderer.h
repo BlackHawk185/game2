@@ -1,10 +1,11 @@
-// ModelInstanceRenderer.h - Instanced rendering for GLB-based models (e.g., decorative grass)
+// ModelInstanceRenderer.h - Instanced rendering for GLB-based models (generic multi-model support)
 #pragma once
 
 #include <vector>
 #include <unordered_map>
 #include <memory>
 #include <string>
+#include <utility>  // for std::pair
 #include <glm/glm.hpp>
 
 #include "../Math/Vec3.h"
@@ -26,11 +27,18 @@ struct ModelGPU {
     bool valid = false;
 };
 
-// Per-chunk instance buffer
+// Per-chunk, per-block-type instance buffer
 struct ChunkInstanceBuffer {
     GLuint instanceVBO = 0; // mat3x4 or per-instance vec4 data, kept minimal here
     GLsizei count = 0;
     bool isUploaded = false; // Track if data is already uploaded to GPU
+};
+
+// Hash function for std::pair<VoxelChunk*, uint8_t> (for instance buffer map)
+struct ChunkBlockPairHash {
+    std::size_t operator()(const std::pair<VoxelChunk*, uint8_t>& pair) const {
+        return std::hash<void*>()(pair.first) ^ (std::hash<uint8_t>()(pair.second) << 1);
+    }
 };
 
 class ModelInstanceRenderer {
@@ -41,10 +49,13 @@ public:
     bool initialize();
     void shutdown();
 
-    // Load grass model from GLB path (cached)
-    bool loadGrassModel(const std::string& path);
+    // Generic model loading (NEW)
+    bool loadModel(uint8_t blockID, const std::string& glbPath);
+    
+    // Legacy grass-specific loader (for backwards compatibility)
+    bool loadGrassModel(const std::string& path) { return loadModel(13, path); }  // 13 = BlockID::DECOR_GRASS
 
-    // Update per-frame (for time-based wind)
+    // Update per-frame (for time-based animations)
     void update(float deltaTime);
 
     // Cascade and lighting data
@@ -53,18 +64,24 @@ public:
     void setCascadeSplits(const float* splits, int count);
     void setLightDir(const glm::vec3& lightDir);
 
-    // Render passes for decorative grass per chunk
-    void renderGrassChunk(VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj);
+    // Generic model chunk rendering (NEW)
+    void renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj);
+    
+    // Legacy grass-specific render (for backwards compatibility)
+    void renderGrassChunk(VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj) {
+        renderModelChunk(13, chunk, worldOffset, view, proj);  // 13 = BlockID::DECOR_GRASS
+    }
+    
     void beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP);
     void endDepthPassCascade(int screenWidth, int screenHeight);
 
 private:
-    bool ensureChunkInstancesUploaded(VoxelChunk* chunk);
+    bool ensureChunkInstancesUploaded(uint8_t blockID, VoxelChunk* chunk);
     bool ensureShaders();
-    bool buildGPUFromModel();
+    bool buildGPUFromModel(uint8_t blockID);
 
     // Internal GL helpers
-    GLuint m_program = 0;       // forward shader
+    GLuint m_program = 0;       // forward shader (grass-specific with wind)
 
     // Uniform locations (forward)
     int uProj = -1, uView = -1, uModel = -1;
@@ -79,17 +96,17 @@ private:
     float m_cascadeSplits[4] = {0,0,0,0};
     glm::vec3 m_lightDir{ -0.3f, -1.0f, -0.2f };
 
-    // Time for wind
+    // Time for animations
     float m_time = 0.0f;
 
-    // GPU model
-    ModelGPU m_grassModel;
-    std::string m_grassPath;
-    GLuint m_albedoTex = 0;       // GLB baseColor texture if available
-    GLuint m_engineGrassTex = 0;  // Engine grass.png texture (preferred)
+    // NEW: Multiple GPU models by BlockID
+    std::unordered_map<uint8_t, ModelGPU> m_models;
+    std::unordered_map<uint8_t, std::string> m_modelPaths;  // Track loaded paths
+    std::unordered_map<uint8_t, GLuint> m_albedoTextures;   // Per-model textures
+    GLuint m_engineGrassTex = 0;  // Engine grass.png texture (for grass model)
 
-    // Instance buffers per chunk
-    std::unordered_map<VoxelChunk*, ChunkInstanceBuffer> m_chunkInstances;
+    // NEW: Instance buffers per (chunk, blockID) pair
+    std::unordered_map<std::pair<VoxelChunk*, uint8_t>, ChunkInstanceBuffer, ChunkBlockPairHash> m_chunkInstances;
 };
 
 // Global instance (owned pointer)

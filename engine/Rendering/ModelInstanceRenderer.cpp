@@ -203,21 +203,40 @@ bool ModelInstanceRenderer::initialize() {
 }
 
 void ModelInstanceRenderer::shutdown() {
+    // Clean up all instance buffers
     for (auto& kv : m_chunkInstances) {
         if (kv.second.instanceVBO) glDeleteBuffers(1, &kv.second.instanceVBO);
     }
     m_chunkInstances.clear();
-    for (auto& prim : m_grassModel.primitives) {
-        if (prim.vao) glDeleteVertexArrays(1, &prim.vao);
-        if (prim.vbo) glDeleteBuffers(1, &prim.vbo);
-        if (prim.ebo) glDeleteBuffers(1, &prim.ebo);
+    
+    // Clean up all loaded models
+    for (auto& modelPair : m_models) {
+        for (auto& prim : modelPair.second.primitives) {
+            if (prim.vao) glDeleteVertexArrays(1, &prim.vao);
+            if (prim.vbo) glDeleteBuffers(1, &prim.vbo);
+            if (prim.ebo) glDeleteBuffers(1, &prim.ebo);
+        }
     }
-    m_grassModel.primitives.clear();
+    m_models.clear();
+    
+    // Clean up textures
+    for (auto& texPair : m_albedoTextures) {
+        if (texPair.second) glDeleteTextures(1, &texPair.second);
+    }
+    m_albedoTextures.clear();
+    if (m_engineGrassTex) { glDeleteTextures(1, &m_engineGrassTex); m_engineGrassTex = 0; }
+    
+    // Clean up shaders
     if (m_program) { glDeleteProgram(m_program); m_program = 0; }
 }
 
-bool ModelInstanceRenderer::loadGrassModel(const std::string& path) {
-    if (m_grassModel.valid && m_grassPath == path) return true;
+bool ModelInstanceRenderer::loadModel(uint8_t blockID, const std::string& path) {
+    // Check if already loaded
+    if (m_models.find(blockID) != m_models.end() && m_modelPaths[blockID] == path) {
+        return m_models[blockID].valid;
+    }
+    
+    // Load GLB file from disk
     GLBModelCPU cpu;
     std::vector<std::string> candidates{ path,
         std::string("../") + path,
@@ -225,13 +244,30 @@ bool ModelInstanceRenderer::loadGrassModel(const std::string& path) {
         std::string("../../../") + path,
         std::string("C:/Users/steve-17/Desktop/game2/") + path
     };
-    bool ok=false;
+    bool ok = false;
+    std::string resolvedPath;
     for (auto& p : candidates) {
-        if (GLBLoader::loadGLB(p, cpu)) { ok=true; m_grassPath=p; break; }
+        if (GLBLoader::loadGLB(p, cpu)) { 
+            ok = true; 
+            resolvedPath = p;
+            break;
+        }
     }
     if (!ok) return false;
 
-    m_grassModel.primitives.clear();
+    // Clear any existing model for this blockID
+    auto it = m_models.find(blockID);
+    if (it != m_models.end()) {
+        for (auto& prim : it->second.primitives) {
+            if (prim.vao) glDeleteVertexArrays(1, &prim.vao);
+            if (prim.vbo) glDeleteBuffers(1, &prim.vbo);
+            if (prim.ebo) glDeleteBuffers(1, &prim.ebo);
+        }
+    }
+    
+    // Build GPU model from CPU data
+    ModelGPU gpuModel;
+    gpuModel.primitives.clear();
     for (auto& cpuPrim : cpu.primitives) {
         ModelPrimitiveGPU gp;
         glGenVertexArrays(1, &gp.vao);
@@ -253,18 +289,21 @@ bool ModelInstanceRenderer::loadGrassModel(const std::string& path) {
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(sizeof(float)*6));
         glBindVertexArray(0);
         gp.indexCount = (int)cpuPrim.indices.size();
-        m_grassModel.primitives.emplace_back(gp);
+        gpuModel.primitives.emplace_back(gp);
     }
-    m_grassModel.valid = !m_grassModel.primitives.empty();
+    gpuModel.valid = !gpuModel.primitives.empty();
+    
+    // Store the model
+    m_models[blockID] = gpuModel;
+    m_modelPaths[blockID] = path;
 
     // Load base color texture from GLB (first material's baseColorTexture)
-    if (m_albedoTex) { glDeleteTextures(1, &m_albedoTex); m_albedoTex = 0; }
+    GLuint albedoTex = 0;
     try {
         tinygltf::TinyGLTF gltf;
         tinygltf::Model model;
         std::string err, warn;
-        // Try the selected path (m_grassPath), which may be absolute from earlier search
-        if (gltf.LoadBinaryFromFile(&model, &err, &warn, m_grassPath)) {
+        if (gltf.LoadBinaryFromFile(&model, &err, &warn, resolvedPath)) {
             int texIndex = -1;
             if (!model.materials.empty()) {
                 const auto& mat = model.materials[0];
@@ -277,8 +316,8 @@ bool ModelInstanceRenderer::loadGrassModel(const std::string& path) {
                 if (imgIndex >= 0 && imgIndex < (int)model.images.size()) {
                     const auto& img = model.images[imgIndex];
                     GLenum fmt = (img.component == 4) ? GL_RGBA : (img.component == 3) ? GL_RGB : GL_RED;
-                    glGenTextures(1, &m_albedoTex);
-                    glBindTexture(GL_TEXTURE_2D, m_albedoTex);
+                    glGenTextures(1, &albedoTex);
+                    glBindTexture(GL_TEXTURE_2D, albedoTex);
                     glTexImage2D(GL_TEXTURE_2D, 0, fmt, img.width, img.height, 0, fmt, GL_UNSIGNED_BYTE, img.image.data());
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
                     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -290,31 +329,38 @@ bool ModelInstanceRenderer::loadGrassModel(const std::string& path) {
             }
         }
     } catch (...) {
-        // ignore
+        // ignore texture loading failures
     }
-
-    // Prefer engine grass.png texture for consistency with voxel blocks
-    if (!g_textureManager) g_textureManager = new TextureManager();
-    // Try to reuse already-loaded texture
-    m_engineGrassTex = g_textureManager->getTexture("grass.png");
-    if (m_engineGrassTex == 0) {
-        const char* candidates[] = {
-            "assets/textures/",
-            "../assets/textures/",
-            "../../assets/textures/",
-            "../../../assets/textures/"
-        };
-        for (const auto& dir : candidates) {
-            std::filesystem::path p = std::filesystem::path(dir) / "grass.png";
-            if (std::filesystem::exists(p)) { m_engineGrassTex = g_textureManager->loadTexture(p.string(), false, true); break; }
-        }
+    m_albedoTextures[blockID] = albedoTex;
+    
+    // Special case: Load engine grass.png texture for grass block (BlockID::DECOR_GRASS = 13)
+    if (blockID == 13) {
+        if (!g_textureManager) g_textureManager = new TextureManager();
+        m_engineGrassTex = g_textureManager->getTexture("grass.png");
         if (m_engineGrassTex == 0) {
-            std::filesystem::path fallback("C:/Users/steve-17/Desktop/game2/assets/textures/grass.png");
-            if (std::filesystem::exists(fallback)) m_engineGrassTex = g_textureManager->loadTexture(fallback.string(), false, true);
+            const char* candidates[] = {
+                "assets/textures/",
+                "../assets/textures/",
+                "../../assets/textures/",
+                "../../../assets/textures/"
+            };
+            for (const auto& dir : candidates) {
+                std::filesystem::path p = std::filesystem::path(dir) / "grass.png";
+                if (std::filesystem::exists(p)) { 
+                    m_engineGrassTex = g_textureManager->loadTexture(p.string(), false, true); 
+                    break;
+                }
+            }
+            if (m_engineGrassTex == 0) {
+                std::filesystem::path fallback("C:/Users/steve-17\Desktop\game2/assets/textures/grass.png");
+                if (std::filesystem::exists(fallback)) {
+                    m_engineGrassTex = g_textureManager->loadTexture(fallback.string(), false, true);
+                }
+            }
         }
     }
 
-    return m_grassModel.valid;
+    return gpuModel.valid;
 }
 
 void ModelInstanceRenderer::update(float deltaTime) {
@@ -328,24 +374,32 @@ void ModelInstanceRenderer::setCascadeSplits(const float* splits, int count) {
 }
 void ModelInstanceRenderer::setLightDir(const glm::vec3& lightDir) { m_lightDir = lightDir; }
 
-bool ModelInstanceRenderer::ensureChunkInstancesUploaded(VoxelChunk* chunk) {
+bool ModelInstanceRenderer::ensureChunkInstancesUploaded(uint8_t blockID, VoxelChunk* chunk) {
     if (!chunk) return false;
-    auto it = m_chunkInstances.find(chunk);
-    const auto& instances = chunk->getGrassInstancePositions();
+    
+    // Check if model is loaded
+    auto modelIt = m_models.find(blockID);
+    if (modelIt == m_models.end() || !modelIt->second.valid) return false;
+    
+    // Get instances for this block type
+    const auto& instances = chunk->getModelInstances(blockID);
     GLsizei count = static_cast<GLsizei>(instances.size());
     if (count == 0) return false;
 
+    // Find or create instance buffer for (chunk, blockID) pair
+    auto key = std::make_pair(chunk, blockID);
+    auto it = m_chunkInstances.find(key);
+    
     if (it == m_chunkInstances.end()) {
         ChunkInstanceBuffer buf;
         glGenBuffers(1, &buf.instanceVBO);
-        m_chunkInstances.emplace(chunk, buf);
-        it = m_chunkInstances.find(chunk);
+        m_chunkInstances.emplace(key, buf);
+        it = m_chunkInstances.find(key);
     }
     
     ChunkInstanceBuffer& buf = it->second;
     
     // Only upload if data hasn't been uploaded yet or chunk mesh needs update
-    // VoxelChunk's needsUpdate flag indicates if the chunk geometry has changed
     if (buf.isUploaded && !chunk->getMesh().needsUpdate && buf.count == count) {
         return true; // Already up to date
     }
@@ -367,8 +421,8 @@ bool ModelInstanceRenderer::ensureChunkInstancesUploaded(VoxelChunk* chunk) {
     buf.count = count;
     buf.isUploaded = true;
 
-    // Hook instance attrib to all model VAOs
-    for (auto& prim : m_grassModel.primitives) {
+    // Hook instance attrib to all model VAOs for this blockID
+    for (auto& prim : modelIt->second.primitives) {
         glBindVertexArray(prim.vao);
         glBindBuffer(GL_ARRAY_BUFFER, buf.instanceVBO);
         glEnableVertexAttribArray(3);
@@ -379,9 +433,11 @@ bool ModelInstanceRenderer::ensureChunkInstancesUploaded(VoxelChunk* chunk) {
     return true;
 }
 
-void ModelInstanceRenderer::renderGrassChunk(VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj) {
-    if (!m_grassModel.valid || !ensureShaders()) return;
-    if (!ensureChunkInstancesUploaded(chunk)) return;
+void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj) {
+    // Check if model is loaded
+    auto modelIt = m_models.find(blockID);
+    if (modelIt == m_models.end() || !modelIt->second.valid || !ensureShaders()) return;
+    if (!ensureChunkInstancesUploaded(blockID, chunk)) return;
 
     // Ensure sane fixed-function state before color draw
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -417,22 +473,37 @@ void ModelInstanceRenderer::renderGrassChunk(VoxelChunk* chunk, const Vec3& worl
     glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
     if (uShadowMaps0>=0) glUniform1i(uShadowMaps0, 7);
     
-    // Bind grass texture (engine grass preferred; fallback to GLB albedo)
+    // Bind texture (engine grass.png for grass, GLB albedo for others)
     if (uGrassTexture>=0) {
         glActiveTexture(GL_TEXTURE5);
-        GLuint tex = m_engineGrassTex ? m_engineGrassTex : m_albedoTex;
-        glBindTexture(GL_TEXTURE_2D, tex);
-        glUniform1i(uGrassTexture, 5);
+        GLuint tex = 0;
+        if (blockID == 13 && m_engineGrassTex) {  // 13 = BlockID::DECOR_GRASS
+            tex = m_engineGrassTex;
+        } else {
+            auto texIt = m_albedoTextures.find(blockID);
+            if (texIt != m_albedoTextures.end()) {
+                tex = texIt->second;
+            }
+        }
+        if (tex) {
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glUniform1i(uGrassTexture, 5);
+        }
     }
 
-    // Draw instanced for each primitive
-    ChunkInstanceBuffer& buf = m_chunkInstances[chunk];
-    // Render two-sided foliage
+    // Get instance buffer for this (chunk, blockID) pair
+    auto key = std::make_pair(chunk, blockID);
+    auto bufIt = m_chunkInstances.find(key);
+    if (bufIt == m_chunkInstances.end()) return;  // Should never happen after ensureChunkInstancesUploaded
+    
+    ChunkInstanceBuffer& buf = bufIt->second;
+    
+    // Render two-sided foliage (disable culling for grass-like models)
     GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
     if (wasCull) glDisable(GL_CULL_FACE);
     
-    // Render instanced grass for each primitive
-    for (auto& prim : m_grassModel.primitives) {
+    // Render instanced models for each primitive
+    for (auto& prim : modelIt->second.primitives) {
         glBindVertexArray(prim.vao);
         glDrawElementsInstanced(GL_TRIANGLES, prim.indexCount, GL_UNSIGNED_INT, 0, buf.count);
         glBindVertexArray(0);
