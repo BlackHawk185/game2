@@ -74,6 +74,10 @@ public:
     static const char* getElementName(Element elem);
     static const char* getElementSymbol(Element elem);
     
+    // Get element color for UI rendering (returns ImU32 color)
+    // Shared by periodic table and hotbar for consistency
+    static uint32_t getElementColor(Element elem);
+    
     // Get all recipes (for UI display)
     const std::vector<BlockRecipe>& getAllRecipes() const { return m_recipes; }
     

@@ -41,24 +41,8 @@ void PeriodicTableUI::renderElementBox(const ElementBox& box, float x, float y, 
     
     bool isHovered = (box.element == hoveredElement);
     
-    // Box colors based on element type (simplified groups)
-    ImU32 boxColor;
-    if (box.col == 1 || box.col == 2) {
-        // Alkali/Alkaline earth metals (Groups 1-2)
-        boxColor = IM_COL32(180, 140, 200, 220);  // Purple
-    } else if (box.col >= 13 && box.col <= 16) {
-        // Non-metals (Groups 13-16)
-        boxColor = IM_COL32(140, 200, 140, 220);  // Green
-    } else if (box.col == 17) {
-        // Halogens (Group 17)
-        boxColor = IM_COL32(200, 200, 140, 220);  // Yellow
-    } else if (box.col == 18) {
-        // Noble gases (Group 18)
-        boxColor = IM_COL32(140, 180, 220, 220);  // Light blue
-    } else {
-        // Transition metals
-        boxColor = IM_COL32(200, 160, 140, 220);  // Orange
-    }
+    // Use shared color function for consistency with hotbar
+    ImU32 boxColor = ElementRecipeSystem::getElementColor(box.element);
     
     // Highlight if hovered
     if (isHovered) {

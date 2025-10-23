@@ -92,6 +92,11 @@ void ElementRecipeSystem::initializeRecipes() {
     m_recipes.push_back(BlockRecipe::create({Element::C, Element::C, Element::C, Element::C}, 
                                            BlockID::DIAMOND_BLOCK, "Diamond", "C4"));
     
+    // Quantum Field Generator - AuFeC₄ (Gold + Iron + Diamond structure)
+    // Requires advanced materials: gold conductor, iron framework, carbon matrix
+    m_recipes.push_back(BlockRecipe::create({Element::Au, Element::Fe, Element::C, Element::C, Element::C, Element::C}, 
+                                           BlockID::QUANTUM_FIELD_GENERATOR, "Quantum Field Generator", "AuFeC4"));
+    
     // Build lookup map (sorted element count signature -> recipe)
     for (const auto& recipe : m_recipes) {
         std::string key = createRecipeKey(recipe.elements);
@@ -180,5 +185,55 @@ const char* ElementRecipeSystem::getElementSymbol(Element elem) {
         case Element::Cu: return "Cu";
         case Element::Au: return "Au";
         default: return "?";
+    }
+}
+
+uint32_t ElementRecipeSystem::getElementColor(Element elem) {
+    // Returns ImU32 color (ABGR format: 0xAABBGGRR)
+    // Color scheme based on periodic table groups
+    
+    switch (elem) {
+        // Group 1: Alkali metals (purple)
+        case Element::H:  // Hydrogen (special case, but in group 1)
+        case Element::Li:
+        case Element::Na:
+        case Element::K:
+            return 0xDCB48CC8;  // Purple: RGBA(200, 140, 180, 220)
+        
+        // Group 2: Alkaline earth metals (purple)
+        case Element::Mg:
+        case Element::Ca:
+            return 0xDCB48CC8;  // Purple
+        
+        // Groups 13-16: Non-metals and metalloids (green)
+        case Element::C:
+        case Element::N:
+        case Element::O:
+        case Element::Si:
+        case Element::P:
+        case Element::S:
+        case Element::Al:
+            return 0xDC8CC88C;  // Green: RGBA(140, 200, 140, 220)
+        
+        // Group 17: Halogens (yellow)
+        case Element::F:
+        case Element::Cl:
+            return 0xDC8CDCF0;  // Yellow: RGBA(240, 220, 140, 220)
+        
+        // Group 18: Noble gases (light blue)
+        case Element::He:
+        case Element::Ne:
+            return 0xDCF0DCB4;  // Light blue: RGBA(180, 220, 240, 220)
+        
+        // Transition metals (orange)
+        case Element::Fe:
+        case Element::Cu:
+        case Element::Au:
+            return 0xDC8CB4F0;  // Orange: RGBA(240, 180, 140, 220)
+        
+        // None/Unknown (gray)
+        case Element::None:
+        default:
+            return 0xC8969696;  // Gray: RGBA(150, 150, 150, 200)
     }
 }

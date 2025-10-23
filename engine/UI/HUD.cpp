@@ -292,22 +292,33 @@ void HUD::renderElementQueue(const ElementQueue& queue, const BlockRecipe* locke
         
         Element elem = hotbarElements[i];
         
-        // Slot background
+        // Get element color (shared with periodic table)
+        ImU32 elementColor = ElementRecipeSystem::getElementColor(elem);
+        
+        // Slot background with element color
         drawList->AddRectFilled(
             ImVec2(x, y),
             ImVec2(x + slotSize, y + slotSize),
-            IM_COL32(40, 40, 40, 200),
+            elementColor,
             4.0f  // Corner rounding
+        );
+        
+        // Inner darker background for contrast (slightly transparent)
+        drawList->AddRectFilled(
+            ImVec2(x + 3, y + 3),
+            ImVec2(x + slotSize - 3, y + slotSize - 3),
+            IM_COL32(30, 30, 30, 180),
+            3.0f
         );
         
         // Slot border
         drawList->AddRect(
             ImVec2(x, y),
             ImVec2(x + slotSize, y + slotSize),
-            IM_COL32(150, 150, 150, 200),
+            IM_COL32(200, 200, 200, 220),
             4.0f,
             0,
-            2.0f
+            2.5f  // Slightly thicker border
         );
         
         // Slot number (1-9) in top-left corner
@@ -316,7 +327,7 @@ void HUD::renderElementQueue(const ElementQueue& queue, const BlockRecipe* locke
         numberStr[1] = '\0';
         drawList->AddText(
             ImVec2(x + 4.0f, y + 2.0f),
-            IM_COL32(180, 180, 180, 255),
+            IM_COL32(220, 220, 220, 255),
             numberStr
         );
         
