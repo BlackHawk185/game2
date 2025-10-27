@@ -495,6 +495,7 @@ bool GameClient::initializeGraphics()
 
 void GameClient::processKeyboard(float deltaTime)
 {
+    (void)deltaTime; // Currently unused but reserved for future input timing
     // Time effects (temporary, will be refactored)
     if (g_timeEffects)
     {
@@ -1038,6 +1039,7 @@ void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)
 void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& position,
                                                 const uint8_t* voxelData, uint32_t dataSize)
 {
+    (void)islandID; // Island ID tracked by IslandChunkSystem internally
     if (!m_gameState)
     {
         std::cerr << "Cannot handle island data: No game state initialized" << std::endl;

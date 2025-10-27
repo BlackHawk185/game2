@@ -373,6 +373,7 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
 
 void GameServer::handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeRequest& request)
 {
+    (void)peer; // Peer info not needed for voxel changes currently
     // Removed verbose debug output
 
     if (!m_gameState)

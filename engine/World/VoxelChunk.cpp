@@ -159,6 +159,7 @@ uint8_t VoxelChunk::getNeighborVoxel(int x, int y, int z, int direction) const
 void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, float x,
                          float y, float z, int face, uint8_t blockType)
 {
+    (void)blockType; // Reserved for future texture atlas indexing
     uint32_t startIndex = static_cast<uint32_t>(vertices.size());
 
     // Face order: 0=+Z, 1=-Z, 2=+Y, 3=-Y, 4=+X, 5=-X
@@ -242,6 +243,7 @@ void VoxelChunk::generateMesh(bool generateLighting)
     PROFILE_SCOPE("VoxelChunk::generateMesh");
     
     auto startTime = std::chrono::high_resolution_clock::now();
+    (void)startTime; // Reserved for future timing metrics
     
     std::lock_guard<std::mutex> lock(meshMutex);
     mesh.vertices.clear();
@@ -250,6 +252,7 @@ void VoxelChunk::generateMesh(bool generateLighting)
     clearAllModelInstances();  // Clear all model instances before scanning
 
     auto grassScanStart = std::chrono::high_resolution_clock::now();
+    (void)grassScanStart; // Reserved for future timing metrics
     
     // Pre-scan for all OBJ-type blocks to create instance anchors (and ensure they are not meshed)
     auto& registry = BlockTypeRegistry::getInstance();
@@ -271,16 +274,19 @@ void VoxelChunk::generateMesh(bool generateLighting)
     }
     
     auto greedyMeshStart = std::chrono::high_resolution_clock::now();
+    (void)greedyMeshStart; // Reserved for future timing metrics
 
     // Use greedy meshing for optimal performance
     generateGreedyMesh();
     
     auto collisionStart = std::chrono::high_resolution_clock::now();
+    (void)collisionStart; // Reserved for future timing metrics
     
     // Build collision mesh immediately after generating vertices
     buildCollisionMeshFromVertices();
     
     auto lightingStart = std::chrono::high_resolution_clock::now();
+    (void)lightingStart; // Reserved for future timing metrics
     
     mesh.needsUpdate = true;
     collisionMesh.needsUpdate = false; // Collision mesh is now up-to-date
@@ -307,6 +313,7 @@ void VoxelChunk::generateMesh(bool generateLighting)
     }
     
     auto endTime = std::chrono::high_resolution_clock::now();
+    (void)endTime; // Reserved for future timing metrics
     
     // Note: Mesh generation profiling disabled to reduce console spam
     // Timing: scan, greedy meshing, collision, lighting
@@ -428,6 +435,7 @@ void VoxelChunk::render(const Vec3& worldOffset)
 
 void VoxelChunk::renderLOD(int lodLevel, const Vec3& cameraPos)
 {
+    (void)lodLevel; (void)cameraPos; // Reserved for future LOD system
     // Simple LOD implementation - just render normally for now
     render();
 }
