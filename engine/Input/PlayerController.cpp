@@ -127,6 +127,8 @@ void PlayerController::updateNoclip(GLFWwindow* window, float deltaTime)
 
 void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, IslandChunkSystem* islandSystem)
 {
+    (void)islandSystem; // Reserved for future island-specific physics interactions
+    
     // ==========================================
     // PHASE 1: GATHER INPUT
     // ==========================================
@@ -177,6 +179,29 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
     }
     else
     {
+        // Check for climbing - if holding space in air and moving into a wall
+        if (jumpThisFrame && inputDirection.lengthSquared() > 0.01f)
+        {
+            // Try moving forward slightly to detect wall collision
+            Vec3 forwardTest = m_physicsPosition + (inputDirection.normalized() * 0.3f);
+            Vec3 climbNormal;
+            if (g_physics.checkCapsuleCollision(forwardTest, m_capsuleRadius, m_capsuleHeight, climbNormal, nullptr))
+            {
+                // Wall detected! Check if we can climb over it (max 3 blocks)
+                // Check 1 block forward and 1 block above player's top
+                Vec3 climbCheckPos = m_physicsPosition + (inputDirection.normalized() * 1.0f);
+                climbCheckPos.y += (m_capsuleHeight * 0.5f) + 1.0f; // Top of capsule + 1 block
+                
+                Vec3 topCheckNormal;
+                if (!g_physics.checkCapsuleCollision(climbCheckPos, m_capsuleRadius, m_capsuleHeight, topCheckNormal, nullptr))
+                {
+                    // No obstruction above - can climb!
+                    m_playerVelocity.y = m_climbSpeed;
+                }
+                // else: Wall is too tall (>3 blocks), don't allow climbing
+            }
+        }
+        
         // Apply air resistance
         m_playerVelocity.x *= m_airFriction;
         m_playerVelocity.z *= m_airFriction;
@@ -213,24 +238,18 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
         if (collidingIsland)
         {
             // Move relative to the island to prevent clipping through moving walls
-            relativeMovement = relativeMovement - (collidingIsland->velocity * deltaTime);
+            // Only apply to horizontal (X/Z) axes to avoid choppy vertical movement (jumping/climbing)
+            Vec3 islandMovement = collidingIsland->velocity * deltaTime;
+            relativeMovement.x -= islandMovement.x;
+            relativeMovement.z -= islandMovement.z;
+            // relativeMovement.y stays unchanged - vertical movement should be independent
         }
         
         // Try axis-separated movement
+        // Process Y first to allow jumping/climbing to work smoothly
         Vec3 testPos;
         
-        // Try X
-        testPos = m_physicsPosition + Vec3(relativeMovement.x, 0, 0);
-        if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
-        {
-            m_physicsPosition = testPos;
-        }
-        else
-        {
-            m_playerVelocity.x = 0;
-        }
-        
-        // Try Y
+        // Try Y (vertical movement - jumping/falling/climbing)
         testPos = m_physicsPosition + Vec3(0, relativeMovement.y, 0);
         if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
@@ -241,11 +260,78 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
             m_playerVelocity.y = 0;
         }
         
-        // Try Z
+        // Try X (with step-up if blocked)
+        testPos = m_physicsPosition + Vec3(relativeMovement.x, 0, 0);
+        if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+        {
+            m_physicsPosition = testPos;
+        }
+        else if (m_isGrounded) // Only step up when grounded
+        {
+            // Try stepping up - raise by max step height and try horizontal movement again
+            Vec3 steppedPos = m_physicsPosition + Vec3(relativeMovement.x, m_maxStepHeight, 0);
+            if (!g_physics.checkCapsuleCollision(steppedPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+            {
+                // Check if there's ground beneath the stepped position (within step height range)
+                GroundInfo stepGroundInfo = g_physics.detectGroundCapsule(steppedPos, m_capsuleRadius, m_capsuleHeight, m_maxStepHeight + 0.5f);
+                if (stepGroundInfo.isGrounded && stepGroundInfo.distanceToGround <= (m_maxStepHeight + 0.1f))
+                {
+                    // Valid step-up! Place player on top of the step
+                    std::cout << "STEP-UP: distance=" << stepGroundInfo.distanceToGround << std::endl;
+                    m_physicsPosition = steppedPos;
+                    m_physicsPosition.y -= stepGroundInfo.distanceToGround; // Settle onto the step surface
+                }
+                else
+                {
+                    // No ground beneath - block movement
+                    std::cout << "STEP-UP FAILED: grounded=" << stepGroundInfo.isGrounded << " distance=" << stepGroundInfo.distanceToGround << std::endl;
+                    m_playerVelocity.x = 0;
+                }
+            }
+            else
+            {
+                // Can't step up - blocked
+                std::cout << "STEP-UP BLOCKED: collision at stepped position" << std::endl;
+                m_playerVelocity.x = 0;
+            }
+        }
+        else
+        {
+            std::cout << "NOT GROUNDED - no step-up attempt" << std::endl;
+            m_playerVelocity.x = 0;
+        }
+        
+        // Try Z (with step-up if blocked)
         testPos = m_physicsPosition + Vec3(0, 0, relativeMovement.z);
         if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
             m_physicsPosition = testPos;
+        }
+        else if (m_isGrounded) // Only step up when grounded
+        {
+            // Try stepping up - raise by max step height and try horizontal movement again
+            Vec3 steppedPos = m_physicsPosition + Vec3(0, m_maxStepHeight, relativeMovement.z);
+            if (!g_physics.checkCapsuleCollision(steppedPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+            {
+                // Check if there's ground beneath the stepped position (within step height range)
+                GroundInfo stepGroundInfo = g_physics.detectGroundCapsule(steppedPos, m_capsuleRadius, m_capsuleHeight, m_maxStepHeight + 0.5f);
+                if (stepGroundInfo.isGrounded && stepGroundInfo.distanceToGround <= (m_maxStepHeight + 0.1f))
+                {
+                    // Valid step-up! Place player on top of the step
+                    m_physicsPosition = steppedPos;
+                    m_physicsPosition.y -= stepGroundInfo.distanceToGround; // Settle onto the step surface
+                }
+                else
+                {
+                    // No ground beneath - block movement
+                    m_playerVelocity.z = 0;
+                }
+            }
+            else
+            {
+                // Can't step up - blocked
+                m_playerVelocity.z = 0;
+            }
         }
         else
         {

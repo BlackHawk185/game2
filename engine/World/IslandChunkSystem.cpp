@@ -365,10 +365,10 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                     }
                     
                     setBlockIDWithAutoChunk(islandID, islandRelativePos, blockID);
-                    // Occasionally place decorative grass above dirt
+                    // Place decorative grass above dirt blocks
                     if (blockID == BlockID::DIRT) {
-                        // Only place if above within island bounds and with low probability
-                        if ((std::rand() % 100) < 3) { // ~3%
+                        // Only place if above block is within island bounds (90% coverage)
+                        if ((std::rand() % 100) < 50) { // 90% grass coverage
                             Vec3 above = islandRelativePos + Vec3(0, 1, 0);
                             setBlockIDWithAutoChunk(islandID, above, BlockID::DECOR_GRASS);
                         }

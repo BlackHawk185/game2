@@ -117,6 +117,8 @@ private:
     float m_capsuleRadius = 0.55f;      // Horizontal radius (requires 2-block gap, won't fit through 1)
     float m_capsuleHeight = 3.0f;       // Total height including caps
     float m_eyeHeightOffset = 1.2f;     // Eye level above physics center (90% of height)
+    float m_maxStepHeight = 1.0f;       // Can step over 1 block obstacles (2+ requires climbing)
+    float m_climbSpeed = 3.0f;          // Vertical climbing speed (hold space against wall)
     
     // Debug modes
     bool m_noclipMode = false;          // Debug: disable physics
