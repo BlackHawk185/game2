@@ -48,19 +48,54 @@ IslandChunkSystem::~IslandChunkSystem()
 
 uint32_t IslandChunkSystem::createIsland(const Vec3& physicsCenter)
 {
+    return createIsland(physicsCenter, 0);  // 0 = auto-assign ID
+}
+
+uint32_t IslandChunkSystem::createIsland(const Vec3& physicsCenter, uint32_t forceIslandID)
+{
     std::lock_guard<std::mutex> lock(m_islandsMutex);
-    uint32_t islandID = m_nextIslandID++;
+    
+    // Determine island ID
+    uint32_t islandID;
+    if (forceIslandID == 0)
+    {
+        // Auto-assign: use next available ID
+        islandID = m_nextIslandID++;
+    }
+    else
+    {
+        // Force specific ID (for network sync)
+        islandID = forceIslandID;
+        // Update next ID to avoid collisions
+        if (forceIslandID >= m_nextIslandID)
+        {
+            m_nextIslandID = forceIslandID + 1;
+        }
+    }
+    
+    // Create the island
     FloatingIsland& island = m_islands[islandID];
     island.islandID = islandID;
     island.physicsCenter = physicsCenter;
-    island.needsPhysicsUpdate = true;  // Ensure initial MDI transform sync
-    std::srand(static_cast<unsigned int>(std::time(nullptr)) + islandID * 137);
-    float randomX = (std::rand() % 201 - 100) / 100.0f;
-    float randomY = (std::rand() % 201 - 100) / 100.0f;
-    float randomZ = (std::rand() % 201 - 100) / 100.0f;
-    // Set velocity to ±0.4f for all axes (original drift speed)
-    island.velocity = Vec3(randomX * 0.4f, randomY * 0.4f, randomZ * 0.4f);
-    island.acceleration = Vec3(0.0f, 0.0f, 0.0f);  // No gravity for islands
+    island.needsPhysicsUpdate = true;
+    island.acceleration = Vec3(0.0f, 0.0f, 0.0f);
+    
+    // Set initial velocity
+    if (forceIslandID == 0)
+    {
+        // Server-created: random drift
+        std::srand(static_cast<unsigned int>(std::time(nullptr)) + islandID * 137);
+        float randomX = (std::rand() % 201 - 100) / 100.0f;
+        float randomY = (std::rand() % 201 - 100) / 100.0f;
+        float randomZ = (std::rand() % 201 - 100) / 100.0f;
+        island.velocity = Vec3(randomX * 0.4f, randomY * 0.4f, randomZ * 0.4f);
+    }
+    else
+    {
+        // Client-created: will be updated by network
+        island.velocity = Vec3(0.0f, 0.0f, 0.0f);
+    }
+    
     return islandID;
 }
 
@@ -499,12 +534,11 @@ void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& isl
         int chunkZ = static_cast<int>(std::floor(islandRelativePos.z / VoxelChunk::SIZE));
         Vec3 chunkCoord(chunkX, chunkY, chunkZ);
 
-        localX = static_cast<int>(islandRelativePos.x) % VoxelChunk::SIZE;
-        localY = static_cast<int>(islandRelativePos.y) % VoxelChunk::SIZE;
-        localZ = static_cast<int>(islandRelativePos.z) % VoxelChunk::SIZE;
-        if (localX < 0) localX += VoxelChunk::SIZE;
-        if (localY < 0) localY += VoxelChunk::SIZE;
-        if (localZ < 0) localZ += VoxelChunk::SIZE;
+        // Calculate local coordinates correctly for negative positions
+        // Use the same floor-based calculation to keep coordinates consistent
+        localX = static_cast<int>(std::floor(islandRelativePos.x)) - (chunkX * VoxelChunk::SIZE);
+        localY = static_cast<int>(std::floor(islandRelativePos.y)) - (chunkY * VoxelChunk::SIZE);
+        localZ = static_cast<int>(std::floor(islandRelativePos.z)) - (chunkZ * VoxelChunk::SIZE);
 
         std::unique_ptr<VoxelChunk>& chunkPtr = island.chunks[chunkCoord];
         if (!chunkPtr)

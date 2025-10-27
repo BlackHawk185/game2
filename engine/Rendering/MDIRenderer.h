@@ -65,14 +65,11 @@ public:
     // ================================
     
     /**
-     * Initialize MDI rendering system
+     * Initialize MDI rendering system with dynamic allocation
      * @param maxChunks - Maximum number of chunks to support
-     * @param maxVertices - Maximum total vertices across all chunks
-     * @param maxIndices - Maximum total indices across all chunks
+     * @param initialBufferChunks - Initial buffer capacity in chunks (grows dynamically)
      */
-    bool initialize(uint32_t maxChunks = 32768, 
-                   uint32_t maxVertices = 50000000,
-                   uint32_t maxIndices = 75000000);
+    bool initialize(uint32_t maxChunks = 32768, uint32_t initialBufferChunks = 4096);
     
     /**
      * Cleanup GPU resources
@@ -213,11 +210,15 @@ private:
     // BUFFER MANAGEMENT
     // ================================
     
+    // Per-chunk allocation limits (not preallocated, just max size checks)
+    static constexpr uint32_t MAX_VERTICES_PER_CHUNK = 8192;   // Reasonable limit for 16³ chunk
+    static constexpr uint32_t MAX_INDICES_PER_CHUNK = 12288;   // 6 indices per quad
+    
     uint32_t m_maxChunks = 0;
-    uint32_t m_maxVertices = 0;
-    uint32_t m_maxIndices = 0;
-    uint32_t m_currentVertexOffset = 0;  // Next free vertex position
-    uint32_t m_currentIndexOffset = 0;   // Next free index position
+    uint32_t m_totalVertexCapacity = 0;     // Total vertices allocated so far
+    uint32_t m_totalIndexCapacity = 0;      // Total indices allocated so far
+    uint32_t m_currentVertexOffset = 0;     // Next free vertex position
+    uint32_t m_currentIndexOffset = 0;      // Next free index position
     
     bool m_initialized = false;
     Statistics m_stats;
@@ -270,7 +271,6 @@ private:
     // Depth-only shader for shadow map pass
     GLuint m_depthProgram = 0;
     int m_depth_uLightVP = -1;
-    int m_depth_uModel = -1;
     
     // Helper to initialize depth shader
     bool initDepthShader();

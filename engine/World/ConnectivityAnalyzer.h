@@ -39,7 +39,8 @@ public:
     // **FRAGMENT EXTRACTION** - Extract a disconnected fragment to a new island
     // Flood-fills from fragmentAnchor to find all voxels in the fragment
     // Returns the ID of the newly created island
-    static uint32_t extractFragmentToNewIsland(IslandChunkSystem* system, uint32_t originalIslandID, const Vec3& fragmentAnchor);
+    // outRemovedVoxels will contain all voxel positions removed from the original island (for network sync)
+    static uint32_t extractFragmentToNewIsland(IslandChunkSystem* system, uint32_t originalIslandID, const Vec3& fragmentAnchor, std::vector<Vec3>* outRemovedVoxels = nullptr);
     
     // Check if breaking a specific voxel would split the island (OLD METHOD - deprecated)
     // Returns true if the voxel is "critical" (connects two separate parts)

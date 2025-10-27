@@ -18,9 +18,13 @@ struct FloatingIsland
     Vec3 physicsCenter{0, 0, 0};                                     // Center of mass for physics
     Vec3 velocity{0, 0, 0};                                          // Island velocity for physics simulation
     Vec3 acceleration{0, 0, 0};                                      // Island acceleration (gravity, wind, etc.)
+    Vec3 rotation{0, 0, 0};                                          // Euler angles (pitch, yaw, roll) in radians
+    Vec3 angularVelocity{0, 0, 0};                                   // Rotation speed (radians per second)
     std::map<Vec3, std::unique_ptr<VoxelChunk>> chunks;              // Multi-chunk support: chunkCoord -> VoxelChunk
     uint32_t islandID;                                               // Unique island identifier
     bool needsPhysicsUpdate = false;
+    bool isPiloted = false;                                          // Is a player currently piloting this entity?
+    uint32_t pilotPlayerID = 0;                                      // Which player is piloting (0 = none)
 
     // Helper functions for chunk coordinate conversion (operates on island-relative coordinates)
     static Vec3 islandPosToChunkCoord(const Vec3& islandRelativePos) {
@@ -75,6 +79,7 @@ class IslandChunkSystem
 
     // Island management
     uint32_t createIsland(const Vec3& physicsCenter);
+    uint32_t createIsland(const Vec3& physicsCenter, uint32_t forceIslandID);  // For network sync: force specific ID
     void destroyIsland(uint32_t islandID);
     FloatingIsland* getIsland(uint32_t islandID);
     const FloatingIsland* getIsland(uint32_t islandID) const;

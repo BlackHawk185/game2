@@ -41,6 +41,9 @@ public:
     void sendToClient(ENetPeer* client, const void* data, size_t size);
     void broadcastToAllClients(const void* data, size_t size);
     
+    // Get connected clients for iteration
+    const std::vector<ENetPeer*>& getConnectedClients() const { return connectedClients; }
+    
     // Callbacks for when clients connect/disconnect
     std::function<void(ENetPeer*)> onClientConnected;
     std::function<void(ENetPeer*)> onClientDisconnected;

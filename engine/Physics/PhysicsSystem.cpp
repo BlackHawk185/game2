@@ -7,6 +7,7 @@
 
 #include "../World/IslandChunkSystem.h"
 #include "../World/VoxelChunk.h"
+#include "../World/BlockType.h"  // For BlockTypeRegistry and BlockTypeInfo
 
 PhysicsSystem g_physics;
 
@@ -43,12 +44,13 @@ bool PhysicsSystem::checkEntityCollision(const Vec3& entityPos, Vec3& outNormal,
 
     // Check collision with all active islands
     const auto& islands = m_islandSystem->getIslands();
+    
     for (const auto& islandPair : islands)
     {
         const FloatingIsland* island = &islandPair.second;
         if (!island)
             continue;
-
+        
         // Convert entity position to island-local coordinates
         Vec3 localEntityPos = entityPos - island->physicsCenter;
         
@@ -504,6 +506,21 @@ GroundInfo PhysicsSystem::detectGround(const Vec3& playerPos, float playerRadius
     // Check all islands for ground collision
     const auto& islands = m_islandSystem->getIslands();
     
+    // DEBUG: Log island count and detect small islands
+    static int frameCounter = 0;
+    static bool foundSmallIsland = false;
+    if (++frameCounter % 120 == 0) {  // Every 2 seconds at 60fps
+        std::cout << "🌍 Physics checking " << islands.size() << " islands for collision" << std::endl;
+        for (const auto& islandPair : islands) {
+            std::cout << "   Island " << islandPair.first << ": " << islandPair.second.chunks.size() << " chunks";
+            if (islandPair.second.chunks.size() < 20) {
+                std::cout << " ⚠️ SMALL ISLAND!";
+                foundSmallIsland = true;
+            }
+            std::cout << std::endl;
+        }
+    }
+    
     float closestDistance = 999.0f;
     const FloatingIsland* closestIsland = nullptr;
     Vec3 closestHitPoint, closestHitNormal;
@@ -525,6 +542,31 @@ GroundInfo PhysicsSystem::detectGround(const Vec3& playerPos, float playerRadius
         int maxChunkY = static_cast<int>(std::ceil(localRayOrigin.y / VoxelChunk::SIZE));
         int minChunkZ = static_cast<int>(std::floor((localRayOrigin.z - checkRadius) / VoxelChunk::SIZE));
         int maxChunkZ = static_cast<int>(std::ceil((localRayOrigin.z + checkRadius) / VoxelChunk::SIZE));
+        
+        // DEBUG: Log what chunks we're checking vs what chunks exist (for small islands only)
+        static std::set<uint32_t> loggedIslands;
+        static int frameCounter = 0;
+        
+        if (island->chunks.size() > 0 && island->chunks.size() < 20) {
+            if (loggedIslands.find(island->islandID) == loggedIslands.end()) {
+                loggedIslands.insert(island->islandID);
+                std::cout << "🔍 New small island " << island->islandID << " detected in physics!" << std::endl;
+                std::cout << "   Physics center: (" << island->physicsCenter.x << ", " << island->physicsCenter.y << ", " << island->physicsCenter.z << ")" << std::endl;
+                std::cout << "   Chunks: ";
+                for (const auto& chunkPair : island->chunks) {
+                    std::cout << "(" << chunkPair.first.x << "," << chunkPair.first.y << "," << chunkPair.first.z << ") ";
+                }
+                std::cout << std::endl;
+            }
+            
+            // Every second when player is near, show what we're checking
+            if (++frameCounter % 60 == 0) {
+                std::cout << "🎯 Island " << island->islandID << " collision check:" << std::endl;
+                std::cout << "   Player: (" << rayOrigin.x << ", " << rayOrigin.y << ", " << rayOrigin.z << ")" << std::endl;
+                std::cout << "   Local: (" << localRayOrigin.x << ", " << localRayOrigin.y << ", " << localRayOrigin.z << ")" << std::endl;
+                std::cout << "   Checking chunks: X[" << minChunkX << "," << maxChunkX << "] Y[" << minChunkY << "," << maxChunkY << "] Z[" << minChunkZ << "," << maxChunkZ << "]" << std::endl;
+            }
+        }
         
         // Check chunks that could contain ground
         for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX)
@@ -820,6 +862,7 @@ bool PhysicsSystem::checkCapsuleCollision(const Vec3& capsuleCenter, float radiu
         return false;
     
     const auto& islands = m_islandSystem->getIslands();
+    
     for (const auto& islandPair : islands)
     {
         const FloatingIsland* island = &islandPair.second;
@@ -902,7 +945,9 @@ float PhysicsSystem::findCapsuleContactPoint(const Vec3& fromPos, const Vec3& to
     Vec3 searchStart = fromPos;
     Vec3 searchEnd = toPos;
     
-    for (int i = 0; i < 16; ++i)  // 16 iterations = 1/65536 precision
+    // Increased to 20 iterations for better precision (1/1048576 of movement distance)
+    // This prevents small gaps that fast-moving entities could slip through
+    for (int i = 0; i < 20; ++i)
     {
         Vec3 midPoint = (searchStart + searchEnd) * 0.5f;
         
@@ -957,6 +1002,7 @@ GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float r
     
     // Check all islands
     const auto& islands = m_islandSystem->getIslands();
+    
     for (const auto& islandPair : islands)
     {
         const FloatingIsland* island = &islandPair.second;
@@ -1027,6 +1073,7 @@ GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float r
                             info.groundVelocity = island->velocity;
                             info.groundContactPoint = hitPoint + chunkWorldPos;
                             info.distanceToGround = t;
+                            
                             return info;  // Return first hit
                         }
                     }
@@ -1036,4 +1083,223 @@ GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float r
     }
     
     return info;
+}
+
+// ==================================================================================
+// NEW: ULTRA-FAST VOXEL GRID COLLISION DETECTION
+// ==================================================================================
+// This replaces expensive face iteration with direct voxel grid queries
+// Performance: O(movement_distance) instead of O(num_faces)
+// No tunneling possible - solid voxels are volumetric, not paper-thin surfaces
+
+bool PhysicsSystem::sweepCapsuleVoxel(const Vec3& fromPos, const Vec3& toPos, float radius, float height,
+                                      Vec3& outContactPoint, Vec3& outNormal, const FloatingIsland** outIsland)
+{
+    if (!m_islandSystem)
+        return false;
+    
+    // Check all islands
+    const auto& islands = m_islandSystem->getIslands();
+    for (const auto& islandPair : islands)
+    {
+        const FloatingIsland* island = &islandPair.second;
+        if (!island)
+            continue;
+        
+        // Calculate chunk bounds that movement could intersect
+        Vec3 localFrom = fromPos - island->physicsCenter;
+        Vec3 localTo = toPos - island->physicsCenter;
+        
+        float checkRadius = radius + std::max(height, 2.0f);
+        Vec3 minBound(std::min(localFrom.x, localTo.x) - checkRadius,
+                      std::min(localFrom.y, localTo.y) - checkRadius,
+                      std::min(localFrom.z, localTo.z) - checkRadius);
+        Vec3 maxBound(std::max(localFrom.x, localTo.x) + checkRadius,
+                      std::max(localFrom.y, localTo.y) + checkRadius,
+                      std::max(localFrom.z, localTo.z) + checkRadius);
+        
+        int minChunkX = static_cast<int>(std::floor(minBound.x / VoxelChunk::SIZE));
+        int maxChunkX = static_cast<int>(std::ceil(maxBound.x / VoxelChunk::SIZE));
+        int minChunkY = static_cast<int>(std::floor(minBound.y / VoxelChunk::SIZE));
+        int maxChunkY = static_cast<int>(std::ceil(maxBound.y / VoxelChunk::SIZE));
+        int minChunkZ = static_cast<int>(std::floor(minBound.z / VoxelChunk::SIZE));
+        int maxChunkZ = static_cast<int>(std::ceil(maxBound.z / VoxelChunk::SIZE));
+        
+        // Check relevant chunks
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; ++chunkX)
+        {
+            for (int chunkY = minChunkY; chunkY <= maxChunkY; ++chunkY)
+            {
+                for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; ++chunkZ)
+                {
+                    Vec3 chunkCoord(chunkX, chunkY, chunkZ);
+                    auto chunkIt = island->chunks.find(chunkCoord);
+                    if (chunkIt == island->chunks.end() || !chunkIt->second)
+                        continue;
+                    
+                    Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                    
+                    if (sweepCapsuleThroughChunk(chunkIt->second.get(), chunkWorldPos,
+                                                 fromPos, toPos, radius, height,
+                                                 outContactPoint, outNormal))
+                    {
+                        if (outIsland)
+                            *outIsland = island;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    
+    return false;
+}
+
+bool PhysicsSystem::sweepCapsuleThroughChunk(const VoxelChunk* chunk, const Vec3& chunkWorldPos,
+                                             const Vec3& fromPos, const Vec3& toPos,
+                                             float radius, float height,
+                                             Vec3& outContactPoint, Vec3& outNormal)
+{
+    // Convert positions to chunk-local coordinates
+    Vec3 localFrom = fromPos - chunkWorldPos;
+    Vec3 localTo = toPos - chunkWorldPos;
+    Vec3 movement = localTo - localFrom;
+    float movementLength = movement.length();
+    
+    // Handle zero movement
+    if (movementLength < 0.0001f)
+    {
+        // Just check if currently overlapping
+        movement = Vec3(0, 0, 0);
+    }
+    
+    // Capsule parameters
+    float cylinderHalfHeight = (height - 2.0f * radius) * 0.5f;
+    
+    // Calculate AABB bounds of capsule sweep
+    float minX = std::min(localFrom.x, localTo.x) - radius;
+    float maxX = std::max(localFrom.x, localTo.x) + radius;
+    float minY = std::min(localFrom.y, localTo.y) - cylinderHalfHeight - radius;
+    float maxY = std::max(localFrom.y, localTo.y) + cylinderHalfHeight + radius;
+    float minZ = std::min(localFrom.z, localTo.z) - radius;
+    float maxZ = std::max(localFrom.z, localTo.z) + radius;
+    
+    // Convert to voxel coordinates
+    int voxMinX = std::max(0, static_cast<int>(std::floor(minX)));
+    int voxMaxX = std::min(VoxelChunk::SIZE - 1, static_cast<int>(std::ceil(maxX)));
+    int voxMinY = std::max(0, static_cast<int>(std::floor(minY)));
+    int voxMaxY = std::min(VoxelChunk::SIZE - 1, static_cast<int>(std::ceil(maxY)));
+    int voxMinZ = std::max(0, static_cast<int>(std::floor(minZ)));
+    int voxMaxZ = std::min(VoxelChunk::SIZE - 1, static_cast<int>(std::ceil(maxZ)));
+    
+    // Track closest collision
+    float closestT = 2.0f;  // > 1.0 means no collision
+    Vec3 closestNormal;
+    Vec3 closestContact;
+    
+    // Check each voxel in swept volume
+    for (int vz = voxMinZ; vz <= voxMaxZ; ++vz)
+    {
+        for (int vy = voxMinY; vy <= voxMaxY; ++vy)
+        {
+            for (int vx = voxMinX; vx <= voxMaxX; ++vx)
+            {
+                uint8_t voxel = chunk->getVoxel(vx, vy, vz);
+                if (voxel == 0)
+                    continue;
+                
+                const BlockTypeInfo* blockInfo = BlockTypeRegistry::getInstance().getBlockType(voxel);
+                if (!blockInfo || !blockInfo->properties.isSolid)
+                    continue;
+                
+                // Voxel AABB bounds
+                Vec3 voxelMin(static_cast<float>(vx), static_cast<float>(vy), static_cast<float>(vz));
+                Vec3 voxelMax(vx + 1.0f, vy + 1.0f, vz + 1.0f);
+                
+                // Simple capsule-AABB sweep: treat capsule as sphere (conservative)
+                // Check if sphere at fromPos overlaps expanded voxel AABB
+                Vec3 expandedMin = voxelMin - Vec3(radius, radius, radius);
+                Vec3 expandedMax = voxelMax + Vec3(radius, radius, radius);
+                
+                // Check if movement line segment intersects expanded AABB
+                // Handle zero movement case
+                if (movementLength < 0.0001f)
+                {
+                    // No movement - just check if currently overlapping
+                    if (localFrom.x >= expandedMin.x && localFrom.x <= expandedMax.x &&
+                        localFrom.y >= expandedMin.y && localFrom.y <= expandedMax.y &&
+                        localFrom.z >= expandedMin.z && localFrom.z <= expandedMax.z)
+                    {
+                        // Already overlapping
+                        Vec3 voxelCenter = (voxelMin + voxelMax) * 0.5f;
+                        outContactPoint = fromPos;
+                        outNormal = (localFrom - voxelCenter).normalized();
+                        return true;
+                    }
+                    continue;
+                }
+                
+                // Ray-AABB intersection (using movement as ray direction)
+                Vec3 invDir(
+                    std::abs(movement.x) > 0.0001f ? 1.0f / movement.x : 1e10f,
+                    std::abs(movement.y) > 0.0001f ? 1.0f / movement.y : 1e10f,
+                    std::abs(movement.z) > 0.0001f ? 1.0f / movement.z : 1e10f
+                );
+                
+                float t1 = (expandedMin.x - localFrom.x) * invDir.x;
+                float t2 = (expandedMax.x - localFrom.x) * invDir.x;
+                float tmin = std::min(t1, t2);
+                float tmax = std::max(t1, t2);
+                
+                t1 = (expandedMin.y - localFrom.y) * invDir.y;
+                t2 = (expandedMax.y - localFrom.y) * invDir.y;
+                tmin = std::max(tmin, std::min(t1, t2));
+                tmax = std::min(tmax, std::max(t1, t2));
+                
+                t1 = (expandedMin.z - localFrom.z) * invDir.z;
+                t2 = (expandedMax.z - localFrom.z) * invDir.z;
+                tmin = std::max(tmin, std::min(t1, t2));
+                tmax = std::min(tmax, std::max(t1, t2));
+                
+                // If tmax < 0, AABB is behind us
+                // If tmin > tmax, no intersection
+                // If tmin > 1, beyond our movement
+                if (tmax >= 0.0f && tmin <= tmax && tmin < closestT && tmin <= 1.0f)
+                {
+                    // Collision! Find which face we hit
+                    Vec3 hitPoint = localFrom + movement * std::max(0.0f, tmin);
+                    
+                    // Determine normal based on which face was hit first
+                    Vec3 normal(0, 0, 0);
+                    const float epsilon = 0.001f;
+                    
+                    if (std::abs(hitPoint.x - voxelMin.x + radius) < epsilon) normal = Vec3(-1, 0, 0);
+                    else if (std::abs(hitPoint.x - voxelMax.x - radius) < epsilon) normal = Vec3(1, 0, 0);
+                    else if (std::abs(hitPoint.y - voxelMin.y + radius) < epsilon) normal = Vec3(0, -1, 0);
+                    else if (std::abs(hitPoint.y - voxelMax.y - radius) < epsilon) normal = Vec3(0, 1, 0);
+                    else if (std::abs(hitPoint.z - voxelMin.z + radius) < epsilon) normal = Vec3(0, 0, -1);
+                    else if (std::abs(hitPoint.z - voxelMax.z - radius) < epsilon) normal = Vec3(0, 0, 1);
+                    else
+                    {
+                        // Default to normal pointing from voxel center to hit point
+                        Vec3 voxelCenter = (voxelMin + voxelMax) * 0.5f;
+                        normal = (hitPoint - voxelCenter).normalized();
+                    }
+                    
+                    closestT = tmin;
+                    closestNormal = normal;
+                    closestContact = hitPoint + chunkWorldPos;
+                }
+            }
+        }
+    }
+    
+    if (closestT <= 1.0f)
+    {
+        outContactPoint = closestContact;
+        outNormal = closestNormal;
+        return true;
+    }
+    
+    return false;
 }

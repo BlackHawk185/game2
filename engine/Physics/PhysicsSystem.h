@@ -54,6 +54,11 @@ class PhysicsSystem
     float findCapsuleContactPoint(const Vec3& fromPos, const Vec3& toPos, float radius, float height, Vec3* outContactNormal = nullptr);
     GroundInfo detectGroundCapsule(const Vec3& capsuleCenter, float radius, float height, float rayMargin = 0.1f);
     
+    // NEW: Direct voxel grid collision (MUCH faster - no face iteration!)
+    // Sweeps a capsule through voxel grid and returns first solid voxel hit
+    bool sweepCapsuleVoxel(const Vec3& fromPos, const Vec3& toPos, float radius, float height, 
+                           Vec3& outContactPoint, Vec3& outNormal, const FloatingIsland** outIsland = nullptr);
+    
     // Island system integration
     void setIslandSystem(IslandChunkSystem* islandSystem) { m_islandSystem = islandSystem; }
 
@@ -70,6 +75,12 @@ class PhysicsSystem
                                           Vec3& outNormal, float playerRadius, float* outPenetrationDepth = nullptr);
     bool checkChunkCapsuleCollision(const VoxelChunk* chunk, const Vec3& capsuleCenter, const Vec3& chunkWorldPos,
                                    Vec3& outNormal, float radius, float height);
+    
+    // NEW: Direct voxel grid sweep (AABB sweep through 3D grid - extremely fast!)
+    bool sweepCapsuleThroughChunk(const VoxelChunk* chunk, const Vec3& chunkWorldPos,
+                                  const Vec3& fromPos, const Vec3& toPos, 
+                                  float radius, float height,
+                                  Vec3& outContactPoint, Vec3& outNormal);
 };
 
 // Global physics system

@@ -23,16 +23,27 @@ MDIRenderer::~MDIRenderer()
     shutdown();
 }
 
-bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t maxVertices, uint32_t maxIndices)
+bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t initialBufferChunks)
 {
     if (m_initialized)
         return true;
     
-    std::cout << "🚀 Initializing MDI Renderer (capacity: " << maxChunks << " chunks)..." << std::endl;
+    std::cout << "🚀 Initializing MDI Renderer with dynamic allocation..." << std::endl;
+    std::cout << "   Max chunks: " << maxChunks << std::endl;
+    std::cout << "   Initial buffer capacity: " << initialBufferChunks << " chunks" << std::endl;
+    std::cout << "   Vertices per chunk: " << MAX_VERTICES_PER_CHUNK << std::endl;
+    std::cout << "   Indices per chunk: " << MAX_INDICES_PER_CHUNK << std::endl;
     
     m_maxChunks = maxChunks;
-    m_maxVertices = maxVertices;
-    m_maxIndices = maxIndices;
+    
+    // Allocate buffer for initial chunk count (will grow dynamically if needed)
+    m_totalVertexCapacity = initialBufferChunks * MAX_VERTICES_PER_CHUNK;
+    m_totalIndexCapacity = initialBufferChunks * MAX_INDICES_PER_CHUNK;
+    
+    size_t vertexBufferMB = (m_totalVertexCapacity * sizeof(Vertex)) / (1024 * 1024);
+    size_t indexBufferMB = (m_totalIndexCapacity * sizeof(uint32_t)) / (1024 * 1024);
+    std::cout << "   Initial vertex buffer: " << vertexBufferMB << " MB" << std::endl;
+    std::cout << "   Initial index buffer: " << indexBufferMB << " MB" << std::endl;
     
     // Allocate tracking arrays
     m_chunkData.resize(maxChunks);
@@ -46,7 +57,7 @@ bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t maxVertices, uint32_t 
     // Create shared VBO
     glGenBuffers(1, &m_vertexBuffer);
     glBindBuffer(GL_ARRAY_BUFFER, m_vertexBuffer);
-    glBufferData(GL_ARRAY_BUFFER, maxVertices * sizeof(Vertex), nullptr, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, m_totalVertexCapacity * sizeof(Vertex), nullptr, GL_DYNAMIC_DRAW);
     
     // Setup vertex attributes (MUST match Vertex struct in VoxelChunk.h)
     // Vertex struct: x,y,z, nx,ny,nz, u,v, lu,lv, ao, faceIndex, blockType (13 floats total)
@@ -82,7 +93,7 @@ bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t maxVertices, uint32_t 
     // Create shared EBO
     glGenBuffers(1, &m_indexBuffer);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_indexBuffer);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, maxIndices * sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_totalIndexCapacity * sizeof(uint32_t), nullptr, GL_DYNAMIC_DRAW);
     
     // Create indirect command buffer
     glGenBuffers(1, &m_indirectBuffer);
@@ -231,11 +242,24 @@ int MDIRenderer::registerChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     if (mesh.vertices.empty() || mesh.indices.empty())
         return -1;
     
-    // Check if we have space
-    if (m_currentVertexOffset + mesh.vertices.size() > m_maxVertices ||
-        m_currentIndexOffset + mesh.indices.size() > m_maxIndices)
+    // Check if mesh exceeds reasonable limits
+    if (mesh.vertices.size() > MAX_VERTICES_PER_CHUNK ||
+        mesh.indices.size() > MAX_INDICES_PER_CHUNK)
     {
-        std::cout << "⚠️  MDI buffers full! Cannot register more chunks." << std::endl;
+        std::cerr << "❌ Chunk mesh exceeds limits! vertices=" 
+                  << mesh.vertices.size() << "/" << MAX_VERTICES_PER_CHUNK
+                  << " indices=" << mesh.indices.size() << "/" << MAX_INDICES_PER_CHUNK << std::endl;
+        return -1;
+    }
+    
+    // Check if we have space in buffer (allocate only what we need)
+    if (m_currentVertexOffset + mesh.vertices.size() > m_totalVertexCapacity ||
+        m_currentIndexOffset + mesh.indices.size() > m_totalIndexCapacity)
+    {
+        std::cerr << "❌ Buffer capacity exceeded!" << std::endl;
+        std::cerr << "   Current: " << m_currentVertexOffset << "/" << m_totalVertexCapacity << " verts" << std::endl;
+        std::cerr << "   Current: " << m_currentIndexOffset << "/" << m_totalIndexCapacity << " indices" << std::endl;
+        std::cerr << "   Needed: +" << mesh.vertices.size() << " verts, +" << mesh.indices.size() << " indices" << std::endl;
         return -1;
     }
     
@@ -256,25 +280,28 @@ int MDIRenderer::registerChunk(VoxelChunk* chunk, const Vec3& worldOffset)
         }
     }
     
-    // Safety check: ensure chunkIndex is within vector bounds
+    // Safety check
     if (chunkIndex < 0 || chunkIndex >= static_cast<int>(m_chunkData.size()))
     {
-        std::cerr << "❌ Invalid chunk index " << chunkIndex << " (size: " << m_chunkData.size() << ")" << std::endl;
+        std::cerr << "❌ Invalid chunk index " << chunkIndex << std::endl;
         return -1;
     }
     
-    // Upload vertex data
-    uploadVertices(m_currentVertexOffset, mesh.vertices.data(), 
+    // Allocate space at current offset (variable size, grows dynamically)
+    uint32_t vertexOffset = m_currentVertexOffset;
+    uint32_t indexOffset = m_currentIndexOffset;
+    
+    // Upload mesh data
+    uploadVertices(vertexOffset, mesh.vertices.data(), 
                    static_cast<uint32_t>(mesh.vertices.size() * sizeof(Vertex)));
     
-    // Upload index data
-    uploadIndices(m_currentIndexOffset, mesh.indices.data(),
+    uploadIndices(indexOffset, mesh.indices.data(),
                   static_cast<uint32_t>(mesh.indices.size() * sizeof(uint32_t)));
     
     // Store chunk data
     ChunkDrawData& data = m_chunkData[chunkIndex];
-    data.vertexOffset = m_currentVertexOffset;
-    data.indexOffset = m_currentIndexOffset;
+    data.vertexOffset = vertexOffset;
+    data.indexOffset = indexOffset;
     data.vertexCount = static_cast<uint32_t>(mesh.vertices.size());
     data.indexCount = static_cast<uint32_t>(mesh.indices.size());
     data.modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
@@ -286,14 +313,14 @@ int MDIRenderer::registerChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     cmd.instanceCount = 1;
     cmd.firstIndex = data.indexOffset;
     cmd.baseVertex = data.vertexOffset;
-    cmd.baseInstance = chunkIndex;  // Used for fetching transform in shader
+    cmd.baseInstance = chunkIndex;
     
     // Store transform
     m_transforms[chunkIndex] = data.modelMatrix;
     
-    // Advance offsets
-    m_currentVertexOffset += data.vertexCount;
-    m_currentIndexOffset += data.indexCount;
+    // Advance offsets by ACTUAL mesh size (packed allocation)
+    m_currentVertexOffset += static_cast<uint32_t>(mesh.vertices.size());
+    m_currentIndexOffset += static_cast<uint32_t>(mesh.indices.size());
     
     // Update stats
     m_stats.registeredChunks++;
@@ -373,70 +400,66 @@ void MDIRenderer::updateChunkMesh(int chunkIndex, VoxelChunk* chunk)
     
     if (mesh.vertices.empty() || mesh.indices.empty())
     {
-        // Empty mesh - just mark as inactive
+        // Empty mesh - mark as inactive
+        m_drawCommands[chunkIndex].count = 0;
+        return;
+    }
+    
+    // Check limits
+    if (mesh.vertices.size() > MAX_VERTICES_PER_CHUNK ||
+        mesh.indices.size() > MAX_INDICES_PER_CHUNK)
+    {
+        std::cerr << "❌ Chunk mesh exceeds limits during update!" << std::endl;
         m_drawCommands[chunkIndex].count = 0;
         return;
     }
     
     ChunkDrawData& data = m_chunkData[chunkIndex];
     
-    // Check if mesh fits in existing allocation
-    if (mesh.vertices.size() == data.vertexCount && mesh.indices.size() == data.indexCount)
+    // If new mesh fits in old allocation, update in-place
+    if (mesh.vertices.size() <= data.vertexCount && mesh.indices.size() <= data.indexCount)
     {
-        // Perfect match - update in place (no reallocation needed!)
         uploadVertices(data.vertexOffset, mesh.vertices.data(), 
                       static_cast<uint32_t>(mesh.vertices.size() * sizeof(Vertex)));
         
         uploadIndices(data.indexOffset, mesh.indices.data(),
                      static_cast<uint32_t>(mesh.indices.size() * sizeof(uint32_t)));
         
-        // Update draw command (counts should be same but refresh anyway)
-        m_drawCommands[chunkIndex].count = data.indexCount;
-    }
-    else if (mesh.vertices.size() <= data.vertexCount && mesh.indices.size() <= data.indexCount)
-    {
-        // New mesh is smaller or equal - can reuse existing allocation
-        uploadVertices(data.vertexOffset, mesh.vertices.data(), 
-                      static_cast<uint32_t>(mesh.vertices.size() * sizeof(Vertex)));
-        
-        uploadIndices(data.indexOffset, mesh.indices.data(),
-                     static_cast<uint32_t>(mesh.indices.size() * sizeof(uint32_t)));
-        
-        // Update stats BEFORE changing counts (need old values)
+        // Update counts
         m_stats.totalVertices = m_stats.totalVertices - data.vertexCount + mesh.vertices.size();
         m_stats.totalIndices = m_stats.totalIndices - data.indexCount + mesh.indices.size();
         
-        // Update counts to reflect new (smaller) mesh
         data.vertexCount = static_cast<uint32_t>(mesh.vertices.size());
         data.indexCount = static_cast<uint32_t>(mesh.indices.size());
         
-        // Update draw command with new index count
-        DrawElementsCommand& cmd = m_drawCommands[chunkIndex];
-        cmd.count = data.indexCount;
+        m_drawCommands[chunkIndex].count = data.indexCount;
     }
     else
     {
-        // New mesh is larger - need to allocate new space
-        // Check if we have room for the larger mesh
-        if (m_currentVertexOffset + mesh.vertices.size() > m_maxVertices ||
-            m_currentIndexOffset + mesh.indices.size() > m_maxIndices)
+        // Mesh grew - need to allocate new space (old space becomes wasted)
+        // This creates fragmentation but avoids expensive defrag
+        
+        if (m_currentVertexOffset + mesh.vertices.size() > m_totalVertexCapacity ||
+            m_currentIndexOffset + mesh.indices.size() > m_totalIndexCapacity)
         {
-            // Buffer full - mark as inactive
+            std::cerr << "⚠️ Buffer full! Cannot grow chunk mesh." << std::endl;
             m_drawCommands[chunkIndex].count = 0;
-            std::cerr << "⚠️  MDI buffers full! Cannot update chunk with larger mesh." << std::endl;
             return;
         }
         
-        // Allocate new space at the end of the buffer (old space is orphaned)
-        uploadVertices(m_currentVertexOffset, mesh.vertices.data(), 
+        // Allocate new space
+        uint32_t newVertexOffset = m_currentVertexOffset;
+        uint32_t newIndexOffset = m_currentIndexOffset;
+        
+        uploadVertices(newVertexOffset, mesh.vertices.data(),
                       static_cast<uint32_t>(mesh.vertices.size() * sizeof(Vertex)));
         
-        uploadIndices(m_currentIndexOffset, mesh.indices.data(),
+        uploadIndices(newIndexOffset, mesh.indices.data(),
                      static_cast<uint32_t>(mesh.indices.size() * sizeof(uint32_t)));
         
-        // Update chunk data with new allocation
-        data.vertexOffset = m_currentVertexOffset;
-        data.indexOffset = m_currentIndexOffset;
+        // Update to new allocation (old space is orphaned)
+        data.vertexOffset = newVertexOffset;
+        data.indexOffset = newIndexOffset;
         data.vertexCount = static_cast<uint32_t>(mesh.vertices.size());
         data.indexCount = static_cast<uint32_t>(mesh.indices.size());
         
@@ -447,8 +470,8 @@ void MDIRenderer::updateChunkMesh(int chunkIndex, VoxelChunk* chunk)
         cmd.baseVertex = data.vertexOffset;
         
         // Advance offsets
-        m_currentVertexOffset += data.vertexCount;
-        m_currentIndexOffset += data.indexCount;
+        m_currentVertexOffset += static_cast<uint32_t>(mesh.vertices.size());
+        m_currentIndexOffset += static_cast<uint32_t>(mesh.indices.size());
         
         // Update stats
         m_stats.totalVertices += data.vertexCount;
@@ -594,31 +617,118 @@ void MDIRenderer::resetStatistics()
 
 bool MDIRenderer::uploadVertices(uint32_t offset, const void* data, uint32_t sizeBytes)
 {
+    // Calculate byte offset (offset is in vertex count)
+    size_t byteOffset = static_cast<size_t>(offset) * sizeof(Vertex);
+    size_t totalBufferSize = static_cast<size_t>(m_totalVertexCapacity) * sizeof(Vertex);
+    
+    // Bounds check
+    if (byteOffset + sizeBytes > totalBufferSize)
+    {
+        std::cout << "❌ Vertex upload would overflow buffer!" << std::endl;
+        std::cout << "   Offset: " << offset << " verts (" << byteOffset << " bytes)" << std::endl;
+        std::cout << "   Size: " << sizeBytes << " bytes" << std::endl;
+        std::cout << "   Total: " << (byteOffset + sizeBytes) << " bytes" << std::endl;
+        std::cout << "   Buffer capacity: " << totalBufferSize << " bytes" << std::endl;
+        return false;
+    }
+    
     glBindBuffer(GL_ARRAY_BUFFER, m_vertexBuffer);
-    glBufferSubData(GL_ARRAY_BUFFER, offset * sizeof(Vertex), sizeBytes, data);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    
+    // Clear any prior errors
+    while (glGetError() != GL_NO_ERROR) {}
+    
+    // Check if buffer is still valid
+    GLint bufferSize = 0;
+    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &bufferSize);
+    
+    if (bufferSize == 0)
+    {
+        std::cout << "❌ Vertex buffer is invalid or deleted!" << std::endl;
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        return false;
+    }
+    
+    if (byteOffset + sizeBytes > static_cast<size_t>(bufferSize))
+    {
+        std::cout << "❌ Upload exceeds actual buffer size!" << std::endl;
+        std::cout << "   Actual buffer size: " << bufferSize << " bytes" << std::endl;
+        std::cout << "   Expected buffer size: " << totalBufferSize << " bytes" << std::endl;
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        return false;
+    }
+    
+    glBufferSubData(GL_ARRAY_BUFFER, static_cast<GLintptr>(byteOffset), sizeBytes, data);
     
     GLenum error = glGetError();
     if (error != GL_NO_ERROR)
     {
         std::cout << "❌ Error uploading vertices: " << error << std::endl;
+        std::cout << "   Offset: " << offset << " verts (" << byteOffset << " bytes)" << std::endl;
+        std::cout << "   Size: " << sizeBytes << " bytes" << std::endl;
+        std::cout << "   Actual buffer size: " << bufferSize << " bytes" << std::endl;
+        std::cout << "   Buffer capacity: " << totalBufferSize << " bytes" << std::endl;
+        std::cout << "   Buffer ID: " << m_vertexBuffer << std::endl;
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
         return false;
     }
+    
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
     return true;
 }
 
 bool MDIRenderer::uploadIndices(uint32_t offset, const void* data, uint32_t sizeBytes)
 {
+    // Calculate byte offset (offset is in index count)
+    size_t byteOffset = static_cast<size_t>(offset) * sizeof(uint32_t);
+    size_t totalBufferSize = static_cast<size_t>(m_totalIndexCapacity) * sizeof(uint32_t);
+    
+    // Bounds check
+    if (byteOffset + sizeBytes > totalBufferSize)
+    {
+        std::cout << "❌ Index upload would overflow buffer!" << std::endl;
+        std::cout << "   Offset: " << offset << " indices (" << byteOffset << " bytes)" << std::endl;
+        std::cout << "   Size: " << sizeBytes << " bytes" << std::endl;
+        std::cout << "   Total: " << (byteOffset + sizeBytes) << " bytes" << std::endl;
+        std::cout << "   Buffer capacity: " << totalBufferSize << " bytes" << std::endl;
+        return false;
+    }
+    
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_indexBuffer);
-    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, offset * sizeof(uint32_t), sizeBytes, data);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    
+    // Check if buffer is still valid
+    GLint bufferSize = 0;
+    glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &bufferSize);
+    
+    if (bufferSize == 0)
+    {
+        std::cout << "❌ Index buffer is invalid or deleted!" << std::endl;
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        return false;
+    }
+    
+    if (byteOffset + sizeBytes > static_cast<size_t>(bufferSize))
+    {
+        std::cout << "❌ Upload exceeds actual buffer size!" << std::endl;
+        std::cout << "   Actual buffer size: " << bufferSize << " bytes" << std::endl;
+        std::cout << "   Expected buffer size: " << totalBufferSize << " bytes" << std::endl;
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        return false;
+    }
+    
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLintptr>(byteOffset), sizeBytes, data);
     
     GLenum error = glGetError();
     if (error != GL_NO_ERROR)
     {
         std::cout << "❌ Error uploading indices: " << error << std::endl;
+        std::cout << "   Offset: " << offset << " indices (" << byteOffset << " bytes)" << std::endl;
+        std::cout << "   Size: " << sizeBytes << " bytes" << std::endl;
+        std::cout << "   Buffer capacity: " << totalBufferSize << " bytes" << std::endl;
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
         return false;
     }
+    
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     return true;
 }
 
@@ -727,6 +837,7 @@ void MDIRenderer::beginDepthPassCascade(int cascadeIndex, const glm::mat4& light
 
 void MDIRenderer::renderDepthCascade(int cascadeIndex)
 {
+    (void)cascadeIndex; // Mark as intentionally unused
     if (!m_initialized || m_stats.activeChunks == 0)
         return;
     

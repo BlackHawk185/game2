@@ -136,6 +136,8 @@ private:
     bool m_jumpPressed = false;
     bool m_noclipMode = false;          // Debug: disable physics
     bool m_disableCameraSmoothing = false;  // Debug: disable camera LERP to see raw physics
+    bool m_isPiloting = false;          // Is player currently piloting a vehicle?
+    uint32_t m_pilotedIslandID = 0;     // Which island is being piloted
     float m_moveSpeed = 24.0f;          // Walk speed (adjusted 1.5x for larger world scale)
     float m_jumpStrength = 8.0f;       // Jump velocity (adjusted 1.5x for larger world scale)
     float m_gravity = 20.0f;            // Gravity acceleration

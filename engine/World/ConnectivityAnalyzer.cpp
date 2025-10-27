@@ -439,13 +439,89 @@ bool ConnectivityAnalyzer::wouldBreakingCauseSplit(const FloatingIsland* island,
     }
     
     // The 2 neighbors are NOT adjacent - breaking this block will split the island!
-    // Set output to first neighbor as the fragment anchor
-    outFragmentAnchor = neighbors[0];
+    // OPTIMIZATION: Race flood-fill from both neighbors to find which side is smaller
+    // This avoids flood-filling a massive island when we only need the small fragment
     
+    std::unordered_set<Vec3> visited0;
+    std::unordered_set<Vec3> visited1;
+    std::queue<Vec3> queue0;
+    std::queue<Vec3> queue1;
+    
+    visited0.insert(islandRelativePos); // Exclude the broken block
+    visited1.insert(islandRelativePos);
+    
+    queue0.push(neighbors[0]);
+    queue1.push(neighbors[1]);
+    visited0.insert(neighbors[0]);
+    visited1.insert(neighbors[1]);
+    
+    int count0 = 1;
+    int count1 = 1;
+    
+    // Race both flood-fills, alternating one step at a time
+    while (!queue0.empty() || !queue1.empty())
+    {
+        // Expand fragment 0 by one layer
+        if (!queue0.empty())
+        {
+            int layerSize = queue0.size();
+            for (int i = 0; i < layerSize; i++)
+            {
+                Vec3 current = queue0.front();
+                queue0.pop();
+                
+                for (const Vec3& neighbor : getNeighbors(current))
+                {
+                    if (visited0.find(neighbor) != visited0.end()) continue;
+                    if (!isSolidVoxel(island, neighbor)) continue;
+                    
+                    visited0.insert(neighbor);
+                    queue0.push(neighbor);
+                    count0++;
+                }
+            }
+        }
+        
+        // Expand fragment 1 by one layer
+        if (!queue1.empty())
+        {
+            int layerSize = queue1.size();
+            for (int i = 0; i < layerSize; i++)
+            {
+                Vec3 current = queue1.front();
+                queue1.pop();
+                
+                for (const Vec3& neighbor : getNeighbors(current))
+                {
+                    if (visited1.find(neighbor) != visited1.end()) continue;
+                    if (!isSolidVoxel(island, neighbor)) continue;
+                    
+                    visited1.insert(neighbor);
+                    queue1.push(neighbor);
+                    count1++;
+                }
+            }
+        }
+        
+        // If one side finished (found all its voxels), it's the smaller fragment
+        if (queue0.empty() && !queue1.empty())
+        {
+            outFragmentAnchor = neighbors[0];
+            return true;
+        }
+        if (queue1.empty() && !queue0.empty())
+        {
+            outFragmentAnchor = neighbors[1];
+            return true;
+        }
+    }
+    
+    // Both finished at same time - pick the smaller count
+    outFragmentAnchor = (count0 <= count1) ? neighbors[0] : neighbors[1];
     return true;
 }
 
-uint32_t ConnectivityAnalyzer::extractFragmentToNewIsland(IslandChunkSystem* system, uint32_t originalIslandID, const Vec3& fragmentAnchor)
+uint32_t ConnectivityAnalyzer::extractFragmentToNewIsland(IslandChunkSystem* system, uint32_t originalIslandID, const Vec3& fragmentAnchor, std::vector<Vec3>* outRemovedVoxels)
 {
     if (!system) return 0;
     
@@ -482,8 +558,9 @@ uint32_t ConnectivityAnalyzer::extractFragmentToNewIsland(IslandChunkSystem* sys
     centerOfMass = centerOfMass / static_cast<float>(fragmentVoxels.size());
     
     // Create new island for fragment
-    Vec3 newIslandCenter = mainIsland->physicsCenter + centerOfMass;
-    uint32_t newIslandID = system->createIsland(newIslandCenter);
+    // Physics center should be in WORLD space (main island world pos + fragment's local center of mass)
+    Vec3 worldCenterOfMass = mainIsland->physicsCenter + centerOfMass;
+    uint32_t newIslandID = system->createIsland(worldCenterOfMass);
     FloatingIsland* newIsland = system->getIsland(newIslandID);
     
     if (!newIsland) return 0;
@@ -491,7 +568,8 @@ uint32_t ConnectivityAnalyzer::extractFragmentToNewIsland(IslandChunkSystem* sys
     // Copy voxels from main island to fragment island and remove from main
     for (const Vec3& voxelPos : fragmentVoxels)
     {
-        // Get voxel type from main island
+        // Get voxel type from main island (before we delete it)
+        uint8_t voxelType = 0;
         Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(voxelPos);
         Vec3 localPos = FloatingIsland::islandPosToLocalPos(voxelPos);
         
@@ -506,14 +584,24 @@ uint32_t ConnectivityAnalyzer::extractFragmentToNewIsland(IslandChunkSystem* sys
                 ly >= 0 && ly < VoxelChunk::SIZE &&
                 lz >= 0 && lz < VoxelChunk::SIZE)
             {
-                uint8_t voxelType = it->second->getVoxel(lx, ly, lz);
-                
-                // Set in new island (relative to new island center)
-                Vec3 newIslandRelativePos = voxelPos - centerOfMass;
-                system->setVoxelInIsland(newIslandID, newIslandRelativePos, voxelType);
-                
-                // Remove from main island
-                it->second->setVoxel(lx, ly, lz, 0);
+                voxelType = it->second->getVoxel(lx, ly, lz);
+            }
+        }
+        
+        if (voxelType != 0)
+        {
+            // Place voxel in new island at position relative to fragment's center of mass
+            // This makes the fragment centered at (0,0,0) in the new island's local space
+            Vec3 newIslandRelativePos = voxelPos - centerOfMass;
+            system->setVoxelInIsland(newIslandID, newIslandRelativePos, voxelType);
+            
+            // Remove from main island using setVoxelInIsland to properly rebuild meshes
+            system->setVoxelInIsland(originalIslandID, voxelPos, 0);
+            
+            // Track removed voxel for network broadcast
+            if (outRemovedVoxels)
+            {
+                outRemovedVoxels->push_back(voxelPos);
             }
         }
     }
@@ -525,7 +613,7 @@ uint32_t ConnectivityAnalyzer::extractFragmentToNewIsland(IslandChunkSystem* sys
         // If center of mass is at origin, use random direction
         separationDir = Vec3(1, 0, 0);
     }
-    newIsland->velocity = mainIsland->velocity + separationDir * 3.0f;
+    newIsland->velocity = mainIsland->velocity + separationDir * 0.5f;
     
     std::cout << "🌊 Island split! Fragment with " << fragmentVoxels.size() 
               << " voxels broke off and became island " << newIslandID << std::endl;

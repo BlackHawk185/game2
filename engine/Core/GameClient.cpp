@@ -413,9 +413,9 @@ bool GameClient::initializeGraphics()
         g_textureManager = new TextureManager();
     }
     
-    // Initialize MDI renderer for massive chunk batching (16k+ chunks → 1 draw call)
+    // Initialize MDI renderer with fixed allocation (each chunk gets a fixed buffer slice)
     g_mdiRenderer = std::make_unique<MDIRenderer>();
-    if (!g_mdiRenderer->initialize(32768, 50000000, 75000000))
+    if (!g_mdiRenderer->initialize(32768))  // 32k chunks max with fixed allocation
     {
         std::cerr << "⚠️  Failed to initialize MDI renderer - falling back to per-chunk rendering" << std::endl;
         g_mdiRenderer.reset();
@@ -632,6 +632,24 @@ void GameClient::processKeyboard(float deltaTime)
         std::cout << (m_disableCameraSmoothing ? "📹 Camera smoothing disabled (raw physics)" : "📹 Camera smoothing enabled (smooth)") << std::endl;
     }
     wasSmoothingKeyPressed = isSmoothingKeyPressed;
+
+    // Toggle piloting (press E to pilot the island/vehicle you're standing on)
+    static bool wasEKeyPressed = false;
+    bool isEKeyPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_E) == GLFW_PRESS;
+    
+    if (isEKeyPressed && !wasEKeyPressed)
+    {
+        m_isPiloting = !m_isPiloting;
+        if (m_isPiloting)
+        {
+            std::cout << "🚀 Piloting ENABLED - WASD rotates, arrows for thrust" << std::endl;
+        }
+        else
+        {
+            std::cout << "🚶 Piloting DISABLED - normal movement" << std::endl;
+        }
+    }
+    wasEKeyPressed = isEKeyPressed;
 
     // Exit
     if (glfwGetKey(m_window->getHandle(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -1025,21 +1043,53 @@ void GameClient::handleCameraMovement(float deltaTime)
     
     // Skip input gathering if periodic table is open, but still run physics
     if (!m_periodicTableUI || !m_periodicTableUI->isOpen()) {
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
+        // If piloting, A/D rotate the vehicle instead of strafing
+        if (m_isPiloting && m_isGrounded && m_pilotedIslandID != 0)
         {
-            inputDirection = inputDirection + m_camera.front;
+            // Rotation controls when piloting
+            float turnSpeed = 1.0f; // radians per second
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
+            {
+                // Turn left (counter-clockwise, increase yaw)
+                auto* island = m_gameState->getIslandSystem()->getIsland(m_pilotedIslandID);
+                if (island) island->angularVelocity.y += turnSpeed * deltaTime;
+            }
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
+            {
+                // Turn right (clockwise, decrease yaw)
+                auto* island = m_gameState->getIslandSystem()->getIsland(m_pilotedIslandID);
+                if (island) island->angularVelocity.y -= turnSpeed * deltaTime;
+            }
+            
+            // Forward/backward thrust
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
+            {
+                inputDirection = inputDirection + m_camera.front;
+            }
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
+            {
+                inputDirection = inputDirection - m_camera.front;
+            }
         }
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
+        else
         {
-            inputDirection = inputDirection - m_camera.front;
-        }
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
-        {
-            inputDirection = inputDirection - m_camera.right;
-        }
-        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
-        {
-            inputDirection = inputDirection + m_camera.right;
+            // Normal movement controls
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
+            {
+                inputDirection = inputDirection + m_camera.front;
+            }
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
+            {
+                inputDirection = inputDirection - m_camera.front;
+            }
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
+            {
+                inputDirection = inputDirection - m_camera.right;
+            }
+            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
+            {
+                inputDirection = inputDirection + m_camera.right;
+            }
         }
     }
     
@@ -1102,51 +1152,55 @@ void GameClient::handleCameraMovement(float deltaTime)
     m_playerVelocity.z += velocityDelta.z;
     
     // ==========================================
-    // PHASE 2: COLLISION DETECTION (CAPSULE)
+    // PHASE 2: VOXEL GRID COLLISION - DEBUG VERSION
     // ==========================================
     
     Vec3 intendedPosition = m_physicsPosition + m_playerVelocity * deltaTime;
     
-    // Snap-to-contact collision resolution using capsule
+    // TEMPORARY: Just use the old capsule collision system that we know works
     Vec3 collisionNormal;
-    float contactT = g_physics.findCapsuleContactPoint(m_physicsPosition, intendedPosition, 
-                                                        m_capsuleRadius, m_capsuleHeight, &collisionNormal);
-    
-    // Move to the contact point (or full distance if no collision)
-    Vec3 movement = intendedPosition - m_physicsPosition;
-    m_physicsPosition = m_physicsPosition + movement * contactT;
-    
-    // If we hit something (didn't make full movement), adjust velocity
-    if (contactT < 1.0f)
+    if (g_physics.checkCapsuleCollision(intendedPosition, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
     {
-        // Special case: If contactT is 0, we're already overlapping - push out along normal
-        if (contactT == 0.0f)
+        // Would collide at destination - try axis-separated movement
+        Vec3 movement = intendedPosition - m_physicsPosition;
+        
+        // Try X
+        Vec3 testX = m_physicsPosition + Vec3(movement.x, 0, 0);
+        if (!g_physics.checkCapsuleCollision(testX, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
-            // Push out by a small amount to separate from the collision
-            m_physicsPosition = m_physicsPosition + collisionNormal * 0.01f;
+            m_physicsPosition = testX;
+        }
+        else
+        {
+            m_playerVelocity.x = 0;
         }
         
-        // Project velocity onto collision plane for sliding
-        float velocityAlongNormal = m_playerVelocity.dot(collisionNormal);
-        
-        // Only adjust velocity if moving INTO the surface
-        if (velocityAlongNormal < 0)
+        // Try Y
+        Vec3 testY = m_physicsPosition + Vec3(0, movement.y, 0);
+        if (!g_physics.checkCapsuleCollision(testY, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
-            // Remove the component pushing into the surface
-            m_playerVelocity = m_playerVelocity - collisionNormal * velocityAlongNormal;
-            
-            // Special handling for ceiling hits - stop upward movement
-            if (collisionNormal.y < -0.5f)
-            {
-                m_playerVelocity.y = 0;
-            }
-            
-            // Apply slight friction when sliding along surfaces
-            if (abs(collisionNormal.y) < 0.5f)  // Horizontal-ish surfaces (walls)
-            {
-                m_playerVelocity = m_playerVelocity * 0.95f;  // 5% friction per collision
-            }
+            m_physicsPosition = testY;
         }
+        else
+        {
+            m_playerVelocity.y = 0;
+        }
+        
+        // Try Z
+        Vec3 testZ = m_physicsPosition + Vec3(0, 0, movement.z);
+        if (!g_physics.checkCapsuleCollision(testZ, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+        {
+            m_physicsPosition = testZ;
+        }
+        else
+        {
+            m_playerVelocity.z = 0;
+        }
+    }
+    else
+    {
+        // No collision - move freely
+        m_physicsPosition = intendedPosition;
     }
     
     // ==========================================
@@ -1162,9 +1216,20 @@ void GameClient::handleCameraMovement(float deltaTime)
     // If we just landed on an island, inherit its velocity for NEXT frame
     if (m_isGrounded)
     {
+        // Track which island we're standing on for piloting
+        m_pilotedIslandID = groundInfo.standingOnIslandID;
+        
         // Add island's movement to our position THIS frame (move with the platform)
         Vec3 islandMovement = groundInfo.groundVelocity * deltaTime;
         m_physicsPosition = m_physicsPosition + islandMovement;
+    }
+    else
+    {
+        // Not grounded - clear piloted island
+        if (!m_isPiloting) // Only clear if not actively piloting
+        {
+            m_pilotedIslandID = 0;
+        }
     }
     
     // ==========================================
@@ -1391,17 +1456,20 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
 
     // Create or get the island
     FloatingIsland* island = islandSystem->getIsland(islandID);
+    
     if (!island)
     {
-        // Create the island if it doesn't exist
-        uint32_t localIslandID = islandSystem->createIsland(islandPosition);
-        island = islandSystem->getIsland(localIslandID);
+        // Create the island with the server's ID to keep them in sync
+        islandSystem->createIsland(islandPosition, islandID);
+        island = islandSystem->getIsland(islandID);
 
         if (!island)
         {
             std::cerr << "Failed to create island " << islandID << std::endl;
             return;
         }
+        
+        std::cout << "📦 Created new island " << islandID << " from server" << std::endl;
     }
 
     // Add chunk to island if it doesn't exist

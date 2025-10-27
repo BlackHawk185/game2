@@ -47,12 +47,39 @@ RayHit VoxelRaycaster::performDDA(const Vec3& rayStart, const Vec3& rayDirection
     
     const auto& islands = islandSystem->getIslands();
     
+    RayHit closestHit;
+    closestHit.distance = maxDistance + 1.0f;
+    
     // Check each island for intersection (islands are spatially separate)
     for (const auto& [islandID, island] : islands)
     {
-        // Quick AABB test - skip islands we can't possibly hit
-        Vec3 islandMin = island.physicsCenter + Vec3(-64, -64, -64); // Assuming max 128x128x128 islands
-        Vec3 islandMax = island.physicsCenter + Vec3(64, 64, 64);
+        // Calculate actual island bounds from its chunks
+        if (island.chunks.empty()) continue;
+        
+        // Get min/max chunk coordinates
+        int minChunkX = 999999, minChunkY = 999999, minChunkZ = 999999;
+        int maxChunkX = -999999, maxChunkY = -999999, maxChunkZ = -999999;
+        
+        for (const auto& [chunkCoord, chunk] : island.chunks) {
+            minChunkX = std::min(minChunkX, static_cast<int>(chunkCoord.x));
+            minChunkY = std::min(minChunkY, static_cast<int>(chunkCoord.y));
+            minChunkZ = std::min(minChunkZ, static_cast<int>(chunkCoord.z));
+            maxChunkX = std::max(maxChunkX, static_cast<int>(chunkCoord.x));
+            maxChunkY = std::max(maxChunkY, static_cast<int>(chunkCoord.y));
+            maxChunkZ = std::max(maxChunkZ, static_cast<int>(chunkCoord.z));
+        }
+        
+        // Convert chunk bounds to world space with proper margin
+        Vec3 islandMin = island.physicsCenter + Vec3(
+            minChunkX * VoxelChunk::SIZE - 1,
+            minChunkY * VoxelChunk::SIZE - 1,
+            minChunkZ * VoxelChunk::SIZE - 1
+        );
+        Vec3 islandMax = island.physicsCenter + Vec3(
+            (maxChunkX + 1) * VoxelChunk::SIZE + 1,
+            (maxChunkY + 1) * VoxelChunk::SIZE + 1,
+            (maxChunkZ + 1) * VoxelChunk::SIZE + 1
+        );
         
         // Simple ray-AABB intersection test
         float tMin = 0.0f;
@@ -129,12 +156,15 @@ RayHit VoxelRaycaster::performDDA(const Vec3& rayStart, const Vec3& rayDirection
                 
                 if (blockID != 0) // Hit solid block
                 {
-                    result.hit = true;
-                    result.islandID = islandID;
-                    result.localBlockPos = checkPos;
-                    result.normal = normal;
-                    result.distance = currentDistance;
-                    return result; // First hit wins
+                    // Track this hit if it's closer than our current best
+                    if (currentDistance < closestHit.distance) {
+                        closestHit.hit = true;
+                        closestHit.islandID = islandID;
+                        closestHit.localBlockPos = checkPos;
+                        closestHit.normal = normal;
+                        closestHit.distance = currentDistance;
+                    }
+                    break; // Found hit on this island, check other islands
                 }
                 
                 // Step to next voxel boundary
@@ -173,7 +203,7 @@ RayHit VoxelRaycaster::performDDA(const Vec3& rayStart, const Vec3& rayDirection
         next_island:;
     }
     
-    return result; // No hit found
+    return closestHit; // Return closest hit across all islands (or miss if none)
 }
 
 // **SIMPLIFIED COMPATIBILITY METHOD** - Just calls the main integrated method

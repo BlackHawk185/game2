@@ -149,16 +149,16 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (multiple floating islands)..." << std::endl;
 
     // **ISLAND CONFIGURATION** - Reduced for physics debugging
-    float mainRadius = 120.0f;     // Main island size (reduced from 500.0f for faster iteration)
-    float smallRadius = 50.0f;     // Smaller island size (reduced from 120.0f)
-    float spacing = 150.0f;        // Distance between island centers (reduced from 300.0f)
+    float mainRadius = 300.0f;     // Main island size (reduced from 500.0f for faster iteration)
+    float smallRadius = 150.0f;     // Smaller island size (reduced from 120.0f)
+    float spacing = 250.0f;        // Distance between island centers (reduced from 300.0f)
     
     // Create multiple islands with varied positions
     uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));        // Center
-    uint32_t island2ID = m_islandSystem.createIsland(Vec3(spacing, 50.0f, 0.0f));   // East
+    uint32_t island2ID = m_islandSystem.createIsland(Vec3(spacing, 30.0f, 0.0f));   // East
     uint32_t island3ID = m_islandSystem.createIsland(Vec3(-spacing, -30.0f, 0.0f)); // West
-    uint32_t island4ID = m_islandSystem.createIsland(Vec3(0.0f, 40.0f, spacing));   // North
-    uint32_t island5ID = m_islandSystem.createIsland(Vec3(0.0f, -50.0f, -spacing)); // South
+    uint32_t island4ID = m_islandSystem.createIsland(Vec3(0.0f, 30.0f, spacing));   // North
+    uint32_t island5ID = m_islandSystem.createIsland(Vec3(0.0f, -30.0f, -spacing)); // South
 
     // Track all islands
     m_islandIDs.push_back(island1ID);
@@ -181,10 +181,19 @@ void GameState::createDefaultWorld()
     std::cout << "[WORLD] Using random seeds: " << seed1 << ", " << seed2 << ", " << seed3 << ", " << seed4 << ", " << seed5 << std::endl;
     
     // Generate each island with random seeds for variety
+    std::cout << "[WORLD] Generating island 1 (center, radius=" << mainRadius << ")..." << std::endl;
     m_islandSystem.generateFloatingIslandOrganic(island1ID, seed1, mainRadius);      // Main island (large)
+    
+    std::cout << "[WORLD] Generating island 2 (east, radius=" << smallRadius << ")..." << std::endl;
     m_islandSystem.generateFloatingIslandOrganic(island2ID, seed2, smallRadius);     // East island (smaller)
+    
+    std::cout << "[WORLD] Generating island 3 (west, radius=" << smallRadius << ")..." << std::endl;
     m_islandSystem.generateFloatingIslandOrganic(island3ID, seed3, smallRadius);     // West island (smaller)
+    
+    std::cout << "[WORLD] Generating island 4 (north, radius=" << smallRadius << ")..." << std::endl;
     m_islandSystem.generateFloatingIslandOrganic(island4ID, seed4, smallRadius);     // North island (smaller)
+    
+    std::cout << "[WORLD] Generating island 5 (south, radius=" << smallRadius << ")..." << std::endl;
     m_islandSystem.generateFloatingIslandOrganic(island5ID, seed5, smallRadius);     // South island (smaller)
 
     // Log collision mesh generation for each island

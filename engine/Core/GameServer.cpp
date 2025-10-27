@@ -6,6 +6,7 @@
 
 #include "../Network/NetworkMessages.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data
+#include "../World/ConnectivityAnalyzer.h"  // For island splitting
 
 GameServer::GameServer()
 {
@@ -252,25 +253,29 @@ void GameServer::processTick(float deltaTime)
 
 void GameServer::processQueuedCommands()
 {
-    // Process voxel changes
-    for (const auto& cmd : m_pendingVoxelChanges)
+    // Process voxel changes - copy to avoid iterator invalidation
+    std::vector<VoxelChangeCommand> voxelChanges;
+    voxelChanges.swap(m_pendingVoxelChanges);  // Fast swap, clears original
+    
+    for (const auto& cmd : voxelChanges)
     {
         if (m_gameState)
         {
             m_gameState->setVoxel(cmd.islandID, cmd.localPos, cmd.voxelType);
         }
     }
-    m_pendingVoxelChanges.clear();
 
-    // Process player movements
-    for (const auto& cmd : m_pendingPlayerMovements)
+    // Process player movements - copy to avoid iterator invalidation
+    std::vector<PlayerMovementCommand> movements;
+    movements.swap(m_pendingPlayerMovements);  // Fast swap, clears original
+    
+    for (const auto& cmd : movements)
     {
         if (m_gameState)
         {
             m_gameState->applyPlayerMovement(cmd.movement, m_fixedDeltaTime);
         }
     }
-    m_pendingPlayerMovements.clear();
 }
 
 void GameServer::updateTickRateStats(float actualDeltaTime)
@@ -340,12 +345,16 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
     // Send basic world state first
     server->sendWorldStateToClient(peer, worldState);
 
-    // Now send compressed voxel data for each island
-    for (int i = 0; i < 3 && i < islandIDs.size(); i++)
+    // Now send compressed voxel data for ALL islands
+    std::cout << "[SERVER] Sending " << islandIDs.size() << " islands to client..." << std::endl;
+    for (size_t i = 0; i < islandIDs.size(); i++)
     {
         const FloatingIsland* island = islandSystem->getIsland(islandIDs[i]);
         if (island)
         {
+            std::cout << "[SERVER] Sending island " << (i+1) << "/" << islandIDs.size() 
+                      << " (ID=" << islandIDs[i] << ", " << island->chunks.size() << " chunks)" << std::endl;
+            
             // Send all chunks for this island
             for (const auto& [chunkCoord, chunk] : island->chunks)
             {
@@ -372,7 +381,110 @@ void GameServer::handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeReque
         return;
     }
 
-    // Apply the voxel change to the server's authoritative game state
+    auto* islandSystem = m_gameState->getIslandSystem();
+    if (!islandSystem)
+    {
+        std::cerr << "Cannot handle voxel change: no island system!" << std::endl;
+        return;
+    }
+
+    // Check if breaking this block would cause a split (only for block removal)
+    if (request.voxelType == 0)
+    {
+        FloatingIsland* island = islandSystem->getIsland(request.islandID);
+        if (island)
+        {
+            try
+            {
+                Vec3 fragmentAnchor;
+                if (ConnectivityAnalyzer::wouldBreakingCauseSplit(island, request.localPos, fragmentAnchor))
+                {
+                    std::cout << "🌊 Block break will cause island split! Extracting fragment..." << std::endl;
+                    
+                    // Remove the block first
+                    m_gameState->setVoxel(request.islandID, request.localPos, request.voxelType);
+                    
+                    // Extract the fragment to a new island
+                    std::vector<Vec3> removedVoxels;
+                    uint32_t newIslandID = ConnectivityAnalyzer::extractFragmentToNewIsland(
+                        islandSystem, request.islandID, fragmentAnchor, &removedVoxels);
+                    
+                    if (newIslandID != 0)
+                    {
+                        std::cout << "✅ Fragment extracted to new island " << newIslandID 
+                                  << " (" << removedVoxels.size() << " voxels removed from original)" << std::endl;
+                        
+                        auto server = m_networkManager->getServer();
+                        if (server)
+                        {
+                            // Broadcast all removed voxels from the original island
+                            for (const Vec3& removedPos : removedVoxels)
+                            {
+                                server->broadcastVoxelChange(request.islandID, removedPos, 0, 0);
+                            }
+                            
+                            // Broadcast new island to all clients
+                            const FloatingIsland* newIsland = islandSystem->getIsland(newIslandID);
+                            if (newIsland)
+                            {
+                                std::cout << "📡 Broadcasting new island " << newIslandID 
+                                          << " (" << newIsland->chunks.size() << " chunks) to all clients" << std::endl;
+                                
+                                // Make a copy of connected clients to avoid iterator invalidation
+                                auto clients = server->getConnectedClients();
+                                
+                                // Send all chunks of the new island to all connected clients
+                                for (ENetPeer* clientPeer : clients)
+                                {
+                                    // Make a copy of chunk coordinates to avoid iterator invalidation
+                                    std::vector<Vec3> chunkCoords;
+                                    chunkCoords.reserve(newIsland->chunks.size());
+                                    for (const auto& [coord, _] : newIsland->chunks)
+                                    {
+                                        chunkCoords.push_back(coord);
+                                    }
+                                    
+                                    for (const Vec3& chunkCoord : chunkCoords)
+                                    {
+                                        auto it = newIsland->chunks.find(chunkCoord);
+                                        if (it != newIsland->chunks.end() && it->second)
+                                        {
+                                            const uint8_t* voxelData = it->second->getRawVoxelData();
+                                            uint32_t voxelDataSize = it->second->getVoxelDataSize();
+                                            
+                                            server->sendCompressedChunkToClient(
+                                                clientPeer, newIslandID, chunkCoord, 
+                                                newIsland->physicsCenter, voxelData, voxelDataSize);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Broadcast the original block change
+                    if (auto server = m_networkManager->getServer())
+                    {
+                        server->broadcastVoxelChange(request.islandID, request.localPos, request.voxelType, 0);
+                    }
+                    
+                    return;
+                }
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << "❌ Error during split detection: " << e.what() << std::endl;
+                // Fall through to normal block break
+            }
+            catch (...)
+            {
+                std::cerr << "❌ Unknown error during split detection!" << std::endl;
+                // Fall through to normal block break
+            }
+        }
+    }
+
+    // Normal block change (no split detected)
     m_gameState->setVoxel(request.islandID, request.localPos, request.voxelType);
 
     // Broadcast the change to all connected clients (including the sender for confirmation)
@@ -413,36 +525,24 @@ void GameServer::broadcastIslandStates()
     lastBroadcastTime = currentTime;
     broadcastCount++;
 
-    // Get all island IDs and broadcast their current states
-    const std::vector<uint32_t>& islandIDs = m_gameState->getAllIslandIDs();
+    // Broadcast state for ALL islands (including dynamically created split islands)
+    const auto& allIslands = islandSystem->getIslands();
     uint32_t serverTimestamp =
         static_cast<uint32_t>(currentTime * 1000.0f);  // Convert to milliseconds
 
-    // Debug: Print broadcast info every 30 broadcasts (3 seconds at 10Hz)
-    if (broadcastCount % 30 == 1)
+    for (const auto& [islandID, island] : allIslands)
     {
-        // Removed verbose debug output
-    }
-
-    for (uint32_t islandID : islandIDs)
-    {
-        const FloatingIsland* island = islandSystem->getIsland(islandID);
-        if (!island)
-            continue;
-
         // Create EntityStateUpdate for this island
         EntityStateUpdate update;
         update.sequenceNumber = static_cast<uint32_t>(
             m_totalTicks);  // Use tick count as sequence (truncated to 32-bit for network)
         update.entityID = islandID;
         update.entityType = 1;  // 1 = Island (as defined in NetworkMessages.h)
-        update.position = island->physicsCenter;
-        update.velocity = island->velocity;
-        update.acceleration = island->acceleration;
+        update.position = island.physicsCenter;
+        update.velocity = island.velocity;
+        update.acceleration = island.acceleration;
         update.serverTimestamp = serverTimestamp;
         update.flags = 0;  // No special flags for islands
-
-        // Removed verbose debug output for individual island broadcasts
 
         // Broadcast to all connected clients
         server->broadcastEntityState(update);
