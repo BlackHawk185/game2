@@ -1,6 +1,5 @@
 // PhysicsSystem.cpp - Basic collision detection system
 #include "PhysicsSystem.h"
-#include "FluidSystem.h"
 
 #include <iostream>
 #include <cmath>
@@ -409,13 +408,8 @@ void PhysicsSystem::updateEntities(float deltaTime)
         // Apply gravity
         velocity->velocity.y -= 9.81f * deltaTime;  // Gravity acceleration
         
-        // Get entity radius (default to 0.5f, or use FluidParticleComponent if available)
+        // Get entity radius (default to 0.5f for player sphere)
         float entityRadius = 0.5f;
-        auto* fluidComp = g_ecs.getComponent<FluidParticleComponent>(entity);
-        if (fluidComp)
-        {
-            entityRadius = fluidComp->radius;
-        }
         
         // **AXIS-SEPARATED COLLISION**: Test X, Y, Z movement independently to prevent Y-blocking
         Vec3 currentPos = transform->position;

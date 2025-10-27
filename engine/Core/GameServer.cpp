@@ -334,8 +334,8 @@ void GameServer::sendWorldStateToClient(ENetPeer* peer)
         worldState.islandPositions[i] = islandCenter;
     }
 
-    // Set player spawn position from GameState (where it's configured in createDefaultWorld)
-    worldState.playerSpawnPosition = m_gameState->getPrimaryPlayer()->getPosition();
+    // Set player spawn position (default spawn point)
+    worldState.playerSpawnPosition = Vec3(0.0f, 64.0f, 0.0f);
 
     std::cout << "📡 Sending spawn position to client: (" 
               << worldState.playerSpawnPosition.x << ", " 

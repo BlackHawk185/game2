@@ -3,7 +3,7 @@
 #pragma once
 
 #include "../Math/Vec3.h"
-#include "../Input/Camera.h"
+#include "../Input/PlayerController.h"
 #include "../Culling/FrustumCuller.h"
 #include "../World/VoxelRaycaster.h"
 #include "../World/ElementRecipes.h"  // NEW: Element-based crafting system
@@ -98,8 +98,14 @@ public:
     /**
      * Get the current camera for external use
      */
-    Camera& getCamera() { return m_camera; }
-    const Camera& getCamera() const { return m_camera; }
+    Camera& getCamera() { return m_playerController.getCamera(); }
+    const Camera& getCamera() const { return m_playerController.getCamera(); }
+    
+    /**
+     * Get the player controller for external access
+     */
+    PlayerController& getPlayerController() { return m_playerController; }
+    const PlayerController& getPlayerController() const { return m_playerController; }
     
 private:
     // Graphics window/context
@@ -114,8 +120,8 @@ private:
     std::unique_ptr<NetworkManager> m_networkManager;
     bool m_isRemoteClient = false;
     
-    // Rendering systems
-    Camera m_camera;
+    // Player control system (unified input, physics, and camera)
+    PlayerController m_playerController;
     FrustumCuller m_frustumCuller;
     std::unique_ptr<BlockHighlightRenderer> m_blockHighlighter;
     std::unique_ptr<HUD> m_hud;
@@ -128,28 +134,6 @@ private:
     
     // FPS tracking
     float m_lastFrameDeltaTime = 0.016f; // Start at ~60 FPS
-    
-    // Player physics state
-    Vec3 m_playerVelocity{0.0f, 0.0f, 0.0f};        // Player's own velocity (input, gravity, jumps)
-    Vec3 m_physicsPosition{0.0f, 0.0f, 0.0f};       // Actual hitbox position (can jitter)
-    bool m_isGrounded = false;
-    bool m_jumpPressed = false;
-    bool m_noclipMode = false;          // Debug: disable physics
-    bool m_disableCameraSmoothing = false;  // Debug: disable camera LERP to see raw physics
-    bool m_isPiloting = false;          // Is player currently piloting a vehicle?
-    uint32_t m_pilotedIslandID = 0;     // Which island is being piloted
-    float m_moveSpeed = 24.0f;          // Walk speed (adjusted 1.5x for larger world scale)
-    float m_jumpStrength = 8.0f;       // Jump velocity (adjusted 1.5x for larger world scale)
-    float m_gravity = 20.0f;            // Gravity acceleration
-    float m_airControl = 0.2f;          // How much control in air (reduced from 0.4)
-    float m_groundFriction = 0.85f;     // Ground friction multiplier
-    float m_airFriction = 0.94f;        // Air resistance (reduced from 0.98 for more drag)
-    float m_cameraSmoothing = 0.15f;    // Camera interpolation speed (lower = smoother)
-    
-    // Capsule collision dimensions (player is 3 blocks tall, ~1.1 blocks wide)
-    float m_capsuleRadius = 0.55f;      // Horizontal radius (requires 2-block gap, won't fit through 1)
-    float m_capsuleHeight = 3.0f;       // Total height including caps
-    float m_capsuleCylinderHeight = 1.9f; // Height of cylindrical portion (3.0 - 2*0.55)
     
     // Input state
     struct InputState {
@@ -186,7 +170,6 @@ private:
      * Process keyboard and mouse input
      */
     void processKeyboard(float deltaTime);
-    void processMouse(float deltaTime);
     void processBlockInteraction(float deltaTime);
     
     /**
@@ -198,11 +181,6 @@ private:
      * Render shadow depth pass for cascaded shadow mapping
      */
     void renderShadowPass();
-    
-    /**
-     * Handle camera movement and collision detection
-     */
-    void handleCameraMovement(float deltaTime);
     
     /**
      * Handle received world state from server

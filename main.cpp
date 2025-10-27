@@ -26,15 +26,12 @@ void printHelp()
 
 #include "engine/Core/GameClient.h"
 #include "engine/Core/GameServer.h"
-#include "engine/Threading/JobSystem.h"
 #include "engine/Time/TimeEffects.h"
 #include "engine/Time/TimeManager.h"
 #include "engine/Profiling/DebugDiagnostics.h"
 #include "engine/Profiling/Profiler.h"
-#include "engine/Physics/FluidSystem.h"
 
 // Global systems (external declarations - defined in engine library)
-extern JobSystem g_jobSystem;
 extern TimeManager* g_timeManager;
 extern TimeEffects* g_timeEffects;
 
@@ -102,20 +99,6 @@ int main(int argc, char* argv[])
     }
 
     // Removed verbose debug output
-
-    // Initialize global systems
-    if (!g_jobSystem.initialize())
-    {
-        std::cerr << "Failed to initialize job system!" << std::endl;
-        return 1;
-    }
-
-    // Initialize fluid system
-    if (!g_fluidSystem.initialize())
-    {
-        std::cerr << "Failed to initialize fluid system!" << std::endl;
-        return 1;
-    }
 
     // Disable profiler for cleaner console output
     g_profiler.setEnabled(false);
@@ -285,8 +268,6 @@ int main(int argc, char* argv[])
     delete g_timeManager;
     g_timeEffects = nullptr;
     g_timeManager = nullptr;
-
-    g_jobSystem.shutdown();
 
     // Removed verbose debug output
     return 0;

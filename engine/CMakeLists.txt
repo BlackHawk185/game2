@@ -17,9 +17,6 @@ add_library(engine STATIC
     World/ConnectivityTest.cpp
     World/ElementRecipes.cpp
     
-    # Game objects
-    Player.cpp
-    
     # Rendering systems
     Rendering/Renderer.cpp
     Rendering/MDIRenderer.cpp  # Multi-Draw Indirect renderer for massive batching
@@ -35,6 +32,8 @@ add_library(engine STATIC
     
     # Input systems
     Input/Camera.cpp
+    Input/PlayerController.cpp
+    Input/ChatSystem.cpp
     
     # UI systems
     UI/HUD.cpp
@@ -49,10 +48,6 @@ add_library(engine STATIC
     
     # Physics systems
     Physics/PhysicsSystem.cpp
-    Physics/FluidSystem.cpp
-    
-    # Threading systems
-    Threading/JobSystem.cpp
     
     # Culling systems
     Culling/FrustumCuller.cpp

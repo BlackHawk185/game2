@@ -13,12 +13,8 @@
 #include <vector>
 #include <glad/gl.h>  // For OpenGL light map texture functions
 
-#include "Threading/JobSystem.h"
 #include "../Profiling/Profiler.h"
 #include "IslandChunkSystem.h"  // For inter-island raycast queries
-
-// External job system reference
-extern JobSystem g_jobSystem;
 
 VoxelChunk::VoxelChunk()
 {

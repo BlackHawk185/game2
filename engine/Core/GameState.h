@@ -5,7 +5,6 @@
 #include "../Math/Vec3.h"
 #include "../World/IslandChunkSystem.h"
 #include "../Physics/PhysicsSystem.h"  // Re-enabled with fixed BodyID handling
-#include "../Player.h"
 #include <memory>
 #include <vector>
 
@@ -53,12 +52,6 @@ public:
     // ================================
     // PLAYER MANAGEMENT
     // ================================
-    
-    /**
-     * Get the primary player (for single-player or local client)
-     */
-    Player* getPrimaryPlayer() { return m_primaryPlayer.get(); }
-    const Player* getPrimaryPlayer() const { return m_primaryPlayer.get(); }
     
     /**
      * Set player position (typically called from input system)
@@ -118,9 +111,6 @@ private:
     // Core systems
     IslandChunkSystem m_islandSystem;
     std::unique_ptr<PhysicsSystem> m_physicsSystem;  // Re-enabled with fixed BodyID handling
-    
-    // Player management
-    std::unique_ptr<Player> m_primaryPlayer;
     
     // World state
     std::vector<uint32_t> m_islandIDs;  // Track all created islands

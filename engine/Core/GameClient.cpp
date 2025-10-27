@@ -28,7 +28,6 @@
 #include "../Rendering/ShadowMap.h"
 #include "../Rendering/CascadedShadowMap.h"
 #include "../Rendering/GlobalLightingManager.h"
-#include "../Physics/FluidSystem.h"
 #include "../Physics/PhysicsSystem.h"  // For ground detection
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -134,16 +133,9 @@ bool GameClient::connectToGameState(GameState* gameState)
         g_physics.setIslandSystem(gameState->getIslandSystem());
     }
 
-    // Set up camera position based on game state using centralized spawn function
-    if (m_gameState->getPrimaryPlayer())
-    {
-        Vec3 playerPos = m_gameState->getPrimaryPlayer()->getPosition();
-        spawnPlayerAt(playerPos);  // Use centralized function
-    }
-    else
-    {
-        std::cout << "⚠️  WARNING: No primary player found! Camera position NOT initialized!" << std::endl;
-    }
+    // Set up camera position at spawn point
+    Vec3 playerSpawnPos = Vec3(0.0f, 64.0f, 0.0f);  // Default spawn position
+    m_playerController.setPosition(playerSpawnPos);
 
     // Removed verbose debug output
     return true;
@@ -328,9 +320,30 @@ void GameClient::processInput(float deltaTime)
     }
 
     processKeyboard(deltaTime);
-    processMouse(deltaTime);
+    
+    // Update player controller (handles movement, physics, and camera)
+    if (m_gameState)
+    {
+        // Tell PlayerController if UI is blocking input
+        bool uiBlocking = (m_periodicTableUI && m_periodicTableUI->isOpen());
+        m_playerController.setUIBlocking(uiBlocking);
+        
+        // Process mouse input
+        m_playerController.processMouse(m_window->getHandle());
+        
+        // Update player controller (physics and camera)
+        m_playerController.update(m_window->getHandle(), deltaTime, m_gameState->getIslandSystem());
+        
+        // Send movement to server if remote client
+        if (m_isRemoteClient && m_networkManager)
+        {
+            Vec3 pos = m_playerController.getPosition();
+            Vec3 vel = m_playerController.getVelocity();
+            m_networkManager->sendPlayerMovement(pos, vel, deltaTime);
+        }
+    }
 
-    // Only process block interaction if we have a local game state
+    // Process block interaction
     if (m_gameState)
     {
         processBlockInteraction(deltaTime);
@@ -355,7 +368,7 @@ void GameClient::render()
         float fov = 45.0f;
         
         // Update frustum culling
-        m_frustumCuller.updateFromCamera(m_camera, aspect, fov);
+        m_frustumCuller.updateFromCamera(m_playerController.getCamera(), aspect, fov);
     }
 
     // Render world (only if we have local game state)
@@ -482,9 +495,6 @@ bool GameClient::initializeGraphics()
 
 void GameClient::processKeyboard(float deltaTime)
 {
-    // Handle camera movement and collision detection
-    handleCameraMovement(deltaTime);
-
     // Time effects (temporary, will be refactored)
     if (g_timeEffects)
     {
@@ -572,32 +582,13 @@ void GameClient::processKeyboard(float deltaTime)
         numberKeysPressed[9] = isZeroPressed;
     }
 
-    // Fluid particle spawning controls
-    static bool wasWaterKeyPressed = false;
-    bool isWaterKeyPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_F) == GLFW_PRESS;
-    
-    if (isWaterKeyPressed && !wasWaterKeyPressed)
-    {
-        // Spawn fluid particle in front of camera
-        Vec3 spawnPosition = m_camera.position + m_camera.front * 3.0f;
-        Vec3 spawnVelocity = m_camera.front * 5.0f;  // Launch forward
-        
-        EntityID particleEntity = g_fluidSystem.spawnFluidParticle(spawnPosition, spawnVelocity);
-        if (particleEntity != INVALID_ENTITY)
-        {
-            std::cout << "ðŸ’§ Spawned fluid particle " << particleEntity << " at (" 
-                      << spawnPosition.x << ", " << spawnPosition.y << ", " << spawnPosition.z << ")" << std::endl;
-        }
-    }
-    wasWaterKeyPressed = isWaterKeyPressed;
-
     // Debug collision info (press C to debug collision system)
     static bool wasDebugKeyPressed = false;
     bool isDebugKeyPressed = glfwGetKey(m_window->getHandle(), GLFW_KEY_C) == GLFW_PRESS;
     
     if (isDebugKeyPressed && !wasDebugKeyPressed)
     {
-        g_physics.debugCollisionInfo(m_camera.position, 0.5f);
+        g_physics.debugCollisionInfo(m_playerController.getCamera().position, 0.5f);
     }
     wasDebugKeyPressed = isDebugKeyPressed;
     
@@ -617,8 +608,8 @@ void GameClient::processKeyboard(float deltaTime)
     
     if (isNoclipKeyPressed && !wasNoclipKeyPressed)
     {
-        m_noclipMode = !m_noclipMode;
-        std::cout << (m_noclipMode ? "🕊️ Noclip enabled (flying)" : "🚶 Physics enabled (walking)") << std::endl;
+        m_playerController.setNoclipMode(!m_playerController.isNoclipMode());
+        std::cout << (m_playerController.isNoclipMode() ? "🕊️ Noclip enabled (flying)" : "🚶 Physics enabled (walking)") << std::endl;
     }
     wasNoclipKeyPressed = isNoclipKeyPressed;
 
@@ -628,8 +619,8 @@ void GameClient::processKeyboard(float deltaTime)
     
     if (isSmoothingKeyPressed && !wasSmoothingKeyPressed)
     {
-        m_disableCameraSmoothing = !m_disableCameraSmoothing;
-        std::cout << (m_disableCameraSmoothing ? "📹 Camera smoothing disabled (raw physics)" : "📹 Camera smoothing enabled (smooth)") << std::endl;
+        m_playerController.setCameraSmoothing(!m_playerController.isCameraSmoothingEnabled());
+        std::cout << (m_playerController.isCameraSmoothingEnabled() ? "📹 Camera smoothing enabled (smooth)" : "📹 Camera smoothing disabled (raw physics)") << std::endl;
     }
     wasSmoothingKeyPressed = isSmoothingKeyPressed;
 
@@ -639,8 +630,8 @@ void GameClient::processKeyboard(float deltaTime)
     
     if (isEKeyPressed && !wasEKeyPressed)
     {
-        m_isPiloting = !m_isPiloting;
-        if (m_isPiloting)
+        m_playerController.setPiloting(!m_playerController.isPiloting(), m_playerController.getPilotedIslandID());
+        if (m_playerController.isPiloting())
         {
             std::cout << "🚀 Piloting ENABLED - WASD rotates, arrows for thrust" << std::endl;
         }
@@ -658,54 +649,6 @@ void GameClient::processKeyboard(float deltaTime)
     }
 }
 
-void GameClient::processMouse(float deltaTime)
-{
-    static double lastX = m_windowWidth / 2.0;
-    static double lastY = m_windowHeight / 2.0;
-    static bool firstMouse = true;
-    
-    // Don't process mouse movement if periodic table is open
-    if (m_periodicTableUI && m_periodicTableUI->isOpen()) {
-        // Reset firstMouse so we don't get snap when closing UI
-        firstMouse = true;
-        return;
-    }
-
-    double xpos, ypos;
-    glfwGetCursorPos(m_window->getHandle(), &xpos, &ypos);
-
-    if (firstMouse)
-    {
-        lastX = xpos;
-        lastY = ypos;
-        firstMouse = false;
-    }
-
-    float xoffset = (float) (xpos - lastX);
-    float yoffset = (float) (lastY - ypos);  // Reversed since y-coordinates go from bottom to top
-    lastX = xpos;
-    lastY = ypos;
-
-    float sensitivity = 0.1f;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
-
-    m_camera.yaw += xoffset;
-    m_camera.pitch += yoffset;
-
-    // Constrain pitch
-    if (m_camera.pitch > 89.0f)
-        m_camera.pitch = 89.0f;
-    if (m_camera.pitch < -89.0f)
-        m_camera.pitch = -89.0f;
-
-    // Update camera vectors after changing yaw/pitch - this was missing!
-    m_camera.updateCameraVectors();
-    // We need to manually call this since we're directly modifying yaw/pitch
-    // TODO: Refactor to use Camera's processInput() method instead of duplicating logic
-    // m_camera.updateCameraVectors();
-}
-
 void GameClient::processBlockInteraction(float deltaTime)
 {
     if (!m_gameState)
@@ -718,7 +661,7 @@ void GameClient::processBlockInteraction(float deltaTime)
     if (m_inputState.raycastTimer > 0.05f)
     {  // 20 FPS raycasting for more responsive block selection
         m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-            m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
+            m_playerController.getCamera().position, m_playerController.getCamera().front, 50.0f, m_gameState->getIslandSystem());
         m_inputState.raycastTimer = 0.0f;
     }
 
@@ -748,7 +691,7 @@ void GameClient::processBlockInteraction(float deltaTime)
 
             // **FIXED**: Force immediate raycast to update block selection after breaking
             m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-                m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
+                m_playerController.getCamera().position, m_playerController.getCamera().front, 50.0f, m_gameState->getIslandSystem());
             m_inputState.raycastTimer = 0.0f;
         }
     }
@@ -810,7 +753,7 @@ void GameClient::processBlockInteraction(float deltaTime)
 
                 // **FIXED**: Force immediate raycast to update block selection after placing
                 m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-                    m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
+                    m_playerController.getCamera().position, m_playerController.getCamera().front, 50.0f, m_gameState->getIslandSystem());
                 m_inputState.raycastTimer = 0.0f;
             }
         }
@@ -860,8 +803,8 @@ void GameClient::renderWorld()
         
         // Get camera matrices
         float aspect = (float)m_windowWidth / (float)m_windowHeight;
-        glm::mat4 projectionMatrix = m_camera.getProjectionMatrix(aspect);
-        glm::mat4 viewMatrix = m_camera.getViewMatrix();
+        glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
+        glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
         
         // Render everything with single draw call!
         g_mdiRenderer->renderAll(viewMatrix, projectionMatrix);
@@ -886,8 +829,8 @@ void GameClient::renderWorld()
             
             // Use Camera's projection matrix (same FOV as voxel rendering)
             float aspect = (float) m_windowWidth / (float) m_windowHeight;
-            glm::mat4 projectionMatrix = m_camera.getProjectionMatrix(aspect);
-            glm::mat4 viewMatrix = m_camera.getViewMatrix();
+            glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
+            glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
             
             // Render all OBJ-type blocks (grass, trees, lamps, QFG, etc.)
             auto& registry = BlockTypeRegistry::getInstance();
@@ -917,36 +860,12 @@ void GameClient::renderWorld()
                 
                 // Use Camera's projection matrix (same FOV as voxel rendering)
                 float aspect = (float) m_windowWidth / (float) m_windowHeight;
-                glm::mat4 projectionMatrix = m_camera.getProjectionMatrix(aspect);
-                glm::mat4 viewMatrix = m_camera.getViewMatrix();
+                glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
+                glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
                 
                 // Convert glm matrices to float arrays for BlockHighlightRenderer
                 m_blockHighlighter->render(worldBlockPos, glm::value_ptr(viewMatrix), glm::value_ptr(projectionMatrix));
             }
-        }
-    }
-
-    // Render fluid particles
-    {
-        PROFILE_SCOPE("renderFluidParticles");
-        
-        // Get all fluid particles
-        auto* fluidStorage = g_ecs.getStorage<FluidParticleComponent>();
-        if (fluidStorage)
-        {
-            std::vector<EntityID> fluidParticles;
-            fluidParticles.reserve(fluidStorage->entities.size());
-            
-            for (EntityID entity : fluidStorage->entities)
-            {
-                fluidParticles.push_back(entity);
-            }
-            
-            // TODO: Render fluid particles with MDI renderer
-            // if (!fluidParticles.empty())
-            // {
-            //     // Need to implement fluid particle rendering in MDI
-            // }
         }
     }
 
@@ -960,7 +879,7 @@ void GameClient::renderShadowPass()
     
     // Single high-resolution shadow pass
     Vec3 sunDir = Vec3(-0.3f, -1.0f, -0.2f).normalized();
-    glm::vec3 camPos(m_camera.position.x, m_camera.position.y, m_camera.position.z);
+    glm::vec3 camPos(m_playerController.getCamera().position.x, m_playerController.getCamera().position.y, m_playerController.getCamera().position.z);
     glm::vec3 lightDir(sunDir.x, sunDir.y, sunDir.z);
     glm::vec3 lightTarget = camPos;
     glm::vec3 lightPos = camPos - lightDir * 100.0f;
@@ -1000,303 +919,6 @@ void GameClient::renderShadowPass()
     }
 }
 
-void GameClient::handleCameraMovement(float deltaTime)
-{
-    // **NOCLIP MODE** - Free flying for debugging
-    if (m_noclipMode)
-    {
-        // Skip input gathering if periodic table is open
-        Vec3 movement(0, 0, 0);
-        
-        if (!m_periodicTableUI || !m_periodicTableUI->isOpen()) {
-            float flySpeed = 30.0f;
-            
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
-                movement = movement + m_camera.front * flySpeed * deltaTime;
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
-                movement = movement - m_camera.front * flySpeed * deltaTime;
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
-                movement = movement - m_camera.right * flySpeed * deltaTime;
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
-                movement = movement + m_camera.right * flySpeed * deltaTime;
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
-                movement = movement + m_camera.up * flySpeed * deltaTime;
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
-                movement = movement - m_camera.up * flySpeed * deltaTime;
-        }
-        
-        m_camera.position = m_camera.position + movement;
-        
-        if (m_gameState && m_gameState->getPrimaryPlayer())
-            m_gameState->setPrimaryPlayerPosition(m_camera.position);
-        
-        if (m_isRemoteClient && m_networkManager && movement.length() > 0.001f)
-            m_networkManager->sendPlayerMovement(m_camera.position, movement / deltaTime, deltaTime);
-        
-        return;
-    }
-    
-    // **PHYSICS-BASED PLAYER MOVEMENT**
-    
-    // 1. Gather input direction (horizontal only - no vertical input)
-    Vec3 inputDirection(0, 0, 0);
-    
-    // Skip input gathering if periodic table is open, but still run physics
-    if (!m_periodicTableUI || !m_periodicTableUI->isOpen()) {
-        // If piloting, A/D rotate the vehicle instead of strafing
-        if (m_isPiloting && m_isGrounded && m_pilotedIslandID != 0)
-        {
-            // Rotation controls when piloting
-            float turnSpeed = 1.0f; // radians per second
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
-            {
-                // Turn left (counter-clockwise, increase yaw)
-                auto* island = m_gameState->getIslandSystem()->getIsland(m_pilotedIslandID);
-                if (island) island->angularVelocity.y += turnSpeed * deltaTime;
-            }
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
-            {
-                // Turn right (clockwise, decrease yaw)
-                auto* island = m_gameState->getIslandSystem()->getIsland(m_pilotedIslandID);
-                if (island) island->angularVelocity.y -= turnSpeed * deltaTime;
-            }
-            
-            // Forward/backward thrust
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
-            {
-                inputDirection = inputDirection + m_camera.front;
-            }
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
-            {
-                inputDirection = inputDirection - m_camera.front;
-            }
-        }
-        else
-        {
-            // Normal movement controls
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_W) == GLFW_PRESS)
-            {
-                inputDirection = inputDirection + m_camera.front;
-            }
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_S) == GLFW_PRESS)
-            {
-                inputDirection = inputDirection - m_camera.front;
-            }
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_A) == GLFW_PRESS)
-            {
-                inputDirection = inputDirection - m_camera.right;
-            }
-            if (glfwGetKey(m_window->getHandle(), GLFW_KEY_D) == GLFW_PRESS)
-            {
-                inputDirection = inputDirection + m_camera.right;
-            }
-        }
-    }
-    
-    // Flatten input to horizontal plane (ignore Y component)
-    inputDirection.y = 0;
-    if (inputDirection.length() > 0.001f)
-    {
-        inputDirection = inputDirection.normalized();
-    }
-    
-    // Check for jump input (skip if UI open)
-    bool jumpThisFrame = false;
-    if (!m_periodicTableUI || !m_periodicTableUI->isOpen()) {
-        jumpThisFrame = glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS;
-    }
-    
-    // ==========================================
-    // PHASE 1: DETECT CURRENT GROUND STATE (before moving)
-    // ==========================================
-    
-    // Check ground BEFORE moving to know which island we're on
-    const float raycastMargin = 0.1f;
-    GroundInfo groundInfo = g_physics.detectGroundCapsule(m_physicsPosition, m_capsuleRadius, 
-                                                          m_capsuleHeight, raycastMargin);
-    m_isGrounded = groundInfo.isGrounded;
-    
-    // ==========================================
-    // PHASE 2: APPLY PHYSICS (player movement + island velocity)
-    // ==========================================
-    
-    // Apply gravity to player's own velocity
-    m_playerVelocity.y -= m_gravity * deltaTime;
-    
-    // Ground physics and jumping (based on CURRENT ground state)
-    if (m_isGrounded)
-    {
-        // Stop falling when on ground
-        if (m_playerVelocity.y < 0)
-        {
-            m_playerVelocity.y = 0;
-        }
-        
-        // Handle jump
-        if (jumpThisFrame && !m_jumpPressed)
-        {
-            m_playerVelocity.y = m_jumpStrength;
-        }
-        
-        // Apply ground friction to horizontal velocity
-        m_playerVelocity.x *= m_groundFriction;
-        m_playerVelocity.z *= m_groundFriction;
-    }
-    else
-    {
-        // Apply air resistance
-        m_playerVelocity.x *= m_airFriction;
-        m_playerVelocity.z *= m_airFriction;
-    }
-    
-    m_jumpPressed = jumpThisFrame;
-    
-    // Apply input acceleration
-    float controlStrength = m_isGrounded ? 1.0f : m_airControl;
-    Vec3 targetHorizontalVelocity = inputDirection * m_moveSpeed;
-    Vec3 currentHorizontalVelocity = Vec3(m_playerVelocity.x, 0, m_playerVelocity.z);
-    
-    // Smoothly accelerate toward target velocity
-    Vec3 velocityDelta = (targetHorizontalVelocity - currentHorizontalVelocity) * controlStrength * 10.0f * deltaTime;
-    m_playerVelocity.x += velocityDelta.x;
-    m_playerVelocity.z += velocityDelta.z;
-    
-    // Calculate intended movement (player velocity only - we'll handle island velocity differently)
-    Vec3 intendedMovement = m_playerVelocity * deltaTime;
-    
-    // ==========================================
-    // PHASE 3: COLLISION DETECTION (relative to moving islands)
-    // ==========================================
-    
-    // When checking collision, we need to account for island movement
-    // The key insight: if an island is moving towards us, we need to check collision
-    // as if WE moved relative to the island's reference frame
-    
-    Vec3 intendedPosition = m_physicsPosition + intendedMovement;
-    
-    // Check collision with intended position
-    Vec3 collisionNormal;
-    const FloatingIsland* collidingIsland = nullptr;
-    if (g_physics.checkCapsuleCollision(intendedPosition, m_capsuleRadius, m_capsuleHeight, collisionNormal, &collidingIsland))
-    {
-        // We would collide! Now we need to move in the island's reference frame
-        // If the island is moving, subtract its velocity from our movement to get relative movement
-        Vec3 relativeMovement = intendedMovement;
-        
-        if (collidingIsland)
-        {
-            // Move relative to the island - this prevents clipping through moving walls
-            relativeMovement = relativeMovement - (collidingIsland->velocity * deltaTime);
-        }
-        
-        // Try axis-separated movement in the island's reference frame
-        Vec3 testPos;
-        
-        // Try X
-        testPos = m_physicsPosition + Vec3(relativeMovement.x, 0, 0);
-        if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
-        {
-            m_physicsPosition = testPos;
-        }
-        else
-        {
-            m_playerVelocity.x = 0;
-        }
-        
-        // Try Y
-        testPos = m_physicsPosition + Vec3(0, relativeMovement.y, 0);
-        if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
-        {
-            m_physicsPosition = testPos;
-        }
-        else
-        {
-            m_playerVelocity.y = 0;
-        }
-        
-        // Try Z
-        testPos = m_physicsPosition + Vec3(0, 0, relativeMovement.z);
-        if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
-        {
-            m_physicsPosition = testPos;
-        }
-        else
-        {
-            m_playerVelocity.z = 0;
-        }
-        
-        // Now apply the island's movement to follow it
-        if (collidingIsland)
-        {
-            m_physicsPosition = m_physicsPosition + (collidingIsland->velocity * deltaTime);
-        }
-    }
-    else
-    {
-        // No collision - move freely, but also apply island movement if we're grounded
-        m_physicsPosition = intendedPosition;
-        
-        // If we're on an island, move with it
-        if (m_isGrounded && groundInfo.standingOnIslandID != 0)
-        {
-            m_physicsPosition = m_physicsPosition + (groundInfo.groundVelocity * deltaTime);
-        }
-    }
-    
-    // ==========================================
-    // PHASE 4: UPDATE PILOTING STATE
-    // ==========================================
-    
-    // Track which island we're standing on for piloting
-    if (m_isGrounded)
-    {
-        m_pilotedIslandID = groundInfo.standingOnIslandID;
-    }
-    else
-    {
-        // Not grounded - clear piloted island
-        if (!m_isPiloting) // Only clear if not actively piloting
-        {
-            m_pilotedIslandID = 0;
-        }
-    }
-    
-    // ==========================================
-    // PHASE 5: CAMERA SMOOTHING
-    // ==========================================
-    
-    // Player is 3 blocks tall, eye level is at ~90% of height (2.7 blocks from feet)
-    // Physics center is at 1.5 blocks from feet, so eye is 1.2 blocks above physics center
-    const float eyeHeightOffset = 1.2f;
-    Vec3 eyePosition = m_physicsPosition + Vec3(0.0f, eyeHeightOffset, 0.0f);
-    
-    if (m_disableCameraSmoothing)
-    {
-        // Debug mode: Snap camera directly to eye position to see raw physics behavior
-        m_camera.position = eyePosition;
-    }
-    else
-    {
-        // Normal mode: Smooth camera interpolation to hide jitter
-        Vec3 positionDelta = eyePosition - m_camera.position;
-        float smoothingFactor = 1.0f - std::pow(m_cameraSmoothing, deltaTime * 60.0f);  // Frame-rate independent
-        m_camera.position = m_camera.position + positionDelta * smoothingFactor;
-    }
-
-    // Update player position in game state if local (use smoothed camera position)
-    if (m_gameState && m_gameState->getPrimaryPlayer())
-    {
-        m_gameState->setPrimaryPlayerPosition(m_camera.position);
-    }
-
-    // Send movement to server if we're a remote client (send physics position for accuracy)
-    // TODO: Send inputs instead of position for better server validation
-    if (m_isRemoteClient && m_networkManager)
-    {
-        m_networkManager->sendPlayerMovement(m_physicsPosition, m_playerVelocity, deltaTime);
-    }
-}
-
 void GameClient::renderWaitingScreen()
 {
     // Simple text rendering for waiting screen
@@ -1316,7 +938,7 @@ void GameClient::renderUI()
     if (m_hud)
     {
         // Update HUD state
-        m_hud->setPlayerPosition(m_camera.position.x, m_camera.position.y, m_camera.position.z);
+        m_hud->setPlayerPosition(m_playerController.getCamera().position.x, m_playerController.getCamera().position.y, m_playerController.getCamera().position.z);
         m_hud->setPlayerHealth(100.0f, 100.0f); // TODO: Wire up actual health system
         
         // Calculate FPS from delta time
@@ -1407,10 +1029,10 @@ void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)
         return;
     }
 
-    // Spawn player at server-provided location using centralized function
+    // Spawn player at server-provided location
     Vec3 spawnPos = worldState.playerSpawnPosition;
     spawnPos.y += 2.0f;  // Position camera slightly above spawn point
-    spawnPlayerAt(spawnPos);
+    m_playerController.setPosition(spawnPos);
 }
 
 void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& position,
@@ -1578,7 +1200,7 @@ void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update)
     // **FIXED**: Always force immediate raycast update when server sends voxel changes
     // This ensures block selection is immediately accurate after server updates
     m_inputState.cachedTargetBlock = VoxelRaycaster::raycast(
-        m_camera.position, m_camera.front, 50.0f, m_gameState->getIslandSystem());
+        m_playerController.getCamera().position, m_playerController.getCamera().front, 50.0f, m_gameState->getIslandSystem());
     m_inputState.raycastTimer = 0.0f;
 }
 
@@ -1652,14 +1274,8 @@ void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update)
 // CRITICAL: Centralized Player Spawn Function
 // ================================
 // This is the ONLY function that should set player position
-// Ensures m_camera.position and m_physicsPosition stay in sync
-void GameClient::spawnPlayerAt(const Vec3& worldPosition)
-{
-    m_camera.position = worldPosition;
-    m_physicsPosition = worldPosition;
-    m_playerVelocity = Vec3(0.0f, 0.0f, 0.0f);  // Reset velocity on spawn
-    
-    std::cout << "🎯 Player spawned at: (" << worldPosition.x << ", " << worldPosition.y << ", " << worldPosition.z << ")" << std::endl;
-}
+// Ensures m_playerController.getCamera().position and m_physicsPosition stay in sync
+// spawnPlayerAt() removed - use PlayerController::setPosition()
 
 // Window resize callback handled via Engine::Core::Window::setResizeCallback
+

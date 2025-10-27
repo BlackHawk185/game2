@@ -5,13 +5,8 @@
 #include <cstdlib>
 #include <ctime>
 
-#include "../Threading/JobSystem.h"
 #include "../World/VoxelChunk.h"
 #include "../Rendering/GlobalLightingManager.h"
-#include "../Physics/FluidSystem.h"
-
-// External job system (we'll refactor this later)
-extern JobSystem g_jobSystem;
 
 GameState::GameState()
 {
@@ -43,9 +38,6 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
     }
     */
 
-    // Create primary player
-    m_primaryPlayer = std::make_unique<Player>();
-
     // Configure lighting system for maximum performance
     g_globalLighting.setUpdateFrequency(20.0f);   // Increased from 10 FPS to 20 FPS for smoother lighting
     g_globalLighting.setOcclusionEnabled(false);  // Disable occlusion for maximum performance
@@ -75,9 +67,6 @@ void GameState::shutdown()
     // Clear island data
     m_islandIDs.clear();
 
-    // Shutdown systems
-    m_primaryPlayer.reset();
-
     // Physics system will be shut down automatically when destroyed
 
     m_initialized = false;
@@ -94,9 +83,6 @@ void GameState::updateSimulation(float deltaTime)
     // Update physics first
     updatePhysics(deltaTime);
 
-    // Update fluid system
-    g_fluidSystem.update(deltaTime);
-
     // Update player
     updatePlayer(deltaTime);
 
@@ -109,21 +95,17 @@ void GameState::updateSimulation(float deltaTime)
 
 void GameState::setPrimaryPlayerPosition(const Vec3& position)
 {
-    if (m_primaryPlayer)
-    {
-        m_primaryPlayer->setPosition(position);
-    }
+    // Player position is now managed by PlayerController in GameClient
+    // This method is deprecated but kept for compatibility
+    (void)position;
 }
 
 void GameState::applyPlayerMovement(const Vec3& movement, float deltaTime)
 {
-    if (m_primaryPlayer)
-    {
-        // For now, just update position directly
-        // Later this will go through proper physics movement
-        Vec3 currentPos = m_primaryPlayer->getPosition();
-        m_primaryPlayer->setPosition(currentPos + movement * deltaTime);
-    }
+    // Player movement is now managed by PlayerController in GameClient
+    // This method is deprecated but kept for compatibility
+    (void)movement;
+    (void)deltaTime;
 }
 
 bool GameState::setVoxel(uint32_t islandID, const Vec3& localPos, uint8_t voxelType)
@@ -243,11 +225,11 @@ void GameState::createDefaultWorld()
         }
     }
     
+    
     // Set player spawn position (will be read by GameClient when it connects)
     Vec3 islandCenter = m_islandSystem.getIslandCenter(island1ID);
     // Spawn high above island center to ensure dramatic falling entry and avoid spawning inside geometry
-    Vec3 playerSpawnPos = Vec3(0.0f, 64.0f, 0.0f);  // 500 units straight up from origin
-    m_primaryPlayer->setPosition(playerSpawnPos);
+    Vec3 playerSpawnPos = Vec3(0.0f, 64.0f, 0.0f);  // 64 units straight up from origin
 
     std::cout << "🎯 Player spawn position: (" << playerSpawnPos.x << ", " << playerSpawnPos.y << ", " << playerSpawnPos.z << ")" << std::endl;
     std::cout << "🏝️  Main island center: (" << islandCenter.x << ", " << islandCenter.y << ", " << islandCenter.z << ")" << std::endl;
@@ -261,8 +243,6 @@ void GameState::updatePhysics(float deltaTime)
 
 void GameState::updatePlayer(float deltaTime)
 {
-    if (m_primaryPlayer)
-    {
-        m_primaryPlayer->update(deltaTime);
-    }
+    // Player update is now managed by PlayerController in GameClient
+    (void)deltaTime;
 }
