@@ -1107,13 +1107,23 @@ void GameClient::handleCameraMovement(float deltaTime)
     }
     
     // ==========================================
-    // PHASE 1: APPLY PHYSICS (player movement only, no island velocity yet)
+    // PHASE 1: DETECT CURRENT GROUND STATE (before moving)
+    // ==========================================
+    
+    // Check ground BEFORE moving to know which island we're on
+    const float raycastMargin = 0.1f;
+    GroundInfo groundInfo = g_physics.detectGroundCapsule(m_physicsPosition, m_capsuleRadius, 
+                                                          m_capsuleHeight, raycastMargin);
+    m_isGrounded = groundInfo.isGrounded;
+    
+    // ==========================================
+    // PHASE 2: APPLY PHYSICS (player movement + island velocity)
     // ==========================================
     
     // Apply gravity to player's own velocity
     m_playerVelocity.y -= m_gravity * deltaTime;
     
-    // Ground physics and jumping (based on LAST frame's ground state)
+    // Ground physics and jumping (based on CURRENT ground state)
     if (m_isGrounded)
     {
         // Stop falling when on ground
@@ -1151,24 +1161,42 @@ void GameClient::handleCameraMovement(float deltaTime)
     m_playerVelocity.x += velocityDelta.x;
     m_playerVelocity.z += velocityDelta.z;
     
+    // Calculate intended movement (player velocity only - we'll handle island velocity differently)
+    Vec3 intendedMovement = m_playerVelocity * deltaTime;
+    
     // ==========================================
-    // PHASE 2: VOXEL GRID COLLISION - DEBUG VERSION
+    // PHASE 3: COLLISION DETECTION (relative to moving islands)
     // ==========================================
     
-    Vec3 intendedPosition = m_physicsPosition + m_playerVelocity * deltaTime;
+    // When checking collision, we need to account for island movement
+    // The key insight: if an island is moving towards us, we need to check collision
+    // as if WE moved relative to the island's reference frame
     
-    // TEMPORARY: Just use the old capsule collision system that we know works
+    Vec3 intendedPosition = m_physicsPosition + intendedMovement;
+    
+    // Check collision with intended position
     Vec3 collisionNormal;
-    if (g_physics.checkCapsuleCollision(intendedPosition, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+    const FloatingIsland* collidingIsland = nullptr;
+    if (g_physics.checkCapsuleCollision(intendedPosition, m_capsuleRadius, m_capsuleHeight, collisionNormal, &collidingIsland))
     {
-        // Would collide at destination - try axis-separated movement
-        Vec3 movement = intendedPosition - m_physicsPosition;
+        // We would collide! Now we need to move in the island's reference frame
+        // If the island is moving, subtract its velocity from our movement to get relative movement
+        Vec3 relativeMovement = intendedMovement;
+        
+        if (collidingIsland)
+        {
+            // Move relative to the island - this prevents clipping through moving walls
+            relativeMovement = relativeMovement - (collidingIsland->velocity * deltaTime);
+        }
+        
+        // Try axis-separated movement in the island's reference frame
+        Vec3 testPos;
         
         // Try X
-        Vec3 testX = m_physicsPosition + Vec3(movement.x, 0, 0);
-        if (!g_physics.checkCapsuleCollision(testX, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+        testPos = m_physicsPosition + Vec3(relativeMovement.x, 0, 0);
+        if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
-            m_physicsPosition = testX;
+            m_physicsPosition = testPos;
         }
         else
         {
@@ -1176,10 +1204,10 @@ void GameClient::handleCameraMovement(float deltaTime)
         }
         
         // Try Y
-        Vec3 testY = m_physicsPosition + Vec3(0, movement.y, 0);
-        if (!g_physics.checkCapsuleCollision(testY, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+        testPos = m_physicsPosition + Vec3(0, relativeMovement.y, 0);
+        if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
-            m_physicsPosition = testY;
+            m_physicsPosition = testPos;
         }
         else
         {
@@ -1187,41 +1215,42 @@ void GameClient::handleCameraMovement(float deltaTime)
         }
         
         // Try Z
-        Vec3 testZ = m_physicsPosition + Vec3(0, 0, movement.z);
-        if (!g_physics.checkCapsuleCollision(testZ, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+        testPos = m_physicsPosition + Vec3(0, 0, relativeMovement.z);
+        if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
-            m_physicsPosition = testZ;
+            m_physicsPosition = testPos;
         }
         else
         {
             m_playerVelocity.z = 0;
         }
+        
+        // Now apply the island's movement to follow it
+        if (collidingIsland)
+        {
+            m_physicsPosition = m_physicsPosition + (collidingIsland->velocity * deltaTime);
+        }
     }
     else
     {
-        // No collision - move freely
+        // No collision - move freely, but also apply island movement if we're grounded
         m_physicsPosition = intendedPosition;
+        
+        // If we're on an island, move with it
+        if (m_isGrounded && groundInfo.standingOnIslandID != 0)
+        {
+            m_physicsPosition = m_physicsPosition + (groundInfo.groundVelocity * deltaTime);
+        }
     }
     
     // ==========================================
-    // PHASE 3: DETECT GROUND & INHERIT VELOCITY FOR NEXT FRAME
+    // PHASE 4: UPDATE PILOTING STATE
     // ==========================================
     
-    // Now that we've moved, check if we're on ground using capsule ground detection
-    const float raycastMargin = 0.1f;
-    GroundInfo groundInfo = g_physics.detectGroundCapsule(m_physicsPosition, m_capsuleRadius, 
-                                                          m_capsuleHeight, raycastMargin);
-    m_isGrounded = groundInfo.isGrounded;
-    
-    // If we just landed on an island, inherit its velocity for NEXT frame
+    // Track which island we're standing on for piloting
     if (m_isGrounded)
     {
-        // Track which island we're standing on for piloting
         m_pilotedIslandID = groundInfo.standingOnIslandID;
-        
-        // Add island's movement to our position THIS frame (move with the platform)
-        Vec3 islandMovement = groundInfo.groundVelocity * deltaTime;
-        m_physicsPosition = m_physicsPosition + islandMovement;
     }
     else
     {
@@ -1233,7 +1262,7 @@ void GameClient::handleCameraMovement(float deltaTime)
     }
     
     // ==========================================
-    // PHASE 4: CAMERA SMOOTHING
+    // PHASE 5: CAMERA SMOOTHING
     // ==========================================
     
     // Player is 3 blocks tall, eye level is at ~90% of height (2.7 blocks from feet)
