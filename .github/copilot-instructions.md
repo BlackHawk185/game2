@@ -8,7 +8,6 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Use SoA (Structure of Arrays) for all entity/component storage and performance-critical systems.**
 - When designing systems that manage many objects (players, islands, voxels, etc.), prefer SoA for better cache efficiency and SIMD/vectorization potential.
 - Example: Instead of `std::vector<Player>`, use separate arrays for each property: `std::vector<float> positionsX, positionsY, positionsZ; std::vector<int> health;` etc.
-- Add comments and explanations to help the user understand SoA patterns as they are implemented.
 
 ## Key Reminders
 
