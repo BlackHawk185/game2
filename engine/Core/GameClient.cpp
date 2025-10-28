@@ -9,6 +9,7 @@
 
 #include <iostream>
 #include <memory>
+#include <tuple>
 
 #include "GameState.h"
 #include "../Profiling/Profiler.h"
@@ -634,7 +635,7 @@ void GameClient::processKeyboard(float deltaTime)
         m_playerController.setPiloting(!m_playerController.isPiloting(), m_playerController.getPilotedIslandID());
         if (m_playerController.isPiloting())
         {
-            std::cout << "🚀 Piloting ENABLED - WASD rotates, arrows for thrust" << std::endl;
+            std::cout << "🚀 Piloting ENABLED - Arrows: forward/back/rotate, Space/Shift: up/down" << std::endl;
         }
         else
         {
@@ -642,6 +643,43 @@ void GameClient::processKeyboard(float deltaTime)
         }
     }
     wasEKeyPressed = isEKeyPressed;
+
+    // Apply piloting controls (arrow keys for movement and rotation)
+    // Send inputs to server instead of directly modifying island
+    if (m_playerController.isPiloting() && m_playerController.getPilotedIslandID() != 0)
+    {
+        uint32_t pilotedIslandID = m_playerController.getPilotedIslandID();
+        
+        // Gather input values
+        float thrustY = 0.0f;
+        float rotationYaw = 0.0f;
+        
+        // Vertical thrust (space/shift)
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_SPACE) == GLFW_PRESS)
+        {
+            thrustY += 1.0f;
+        }
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS)
+        {
+            thrustY -= 1.0f;
+        }
+        
+        // Rotation (yaw only - left/right arrows)
+        if (glfwGetKey(m_window->getHandle(), GLFW_KEY_LEFT) == GLFW_PRESS)
+        {
+            rotationYaw = 1.0f;  // Rotate left
+        }
+        else if (glfwGetKey(m_window->getHandle(), GLFW_KEY_RIGHT) == GLFW_PRESS)
+        {
+            rotationYaw = -1.0f; // Rotate right
+        }
+        
+        // Send piloting input to server (if connected)
+        if (m_networkManager && m_networkManager->getClient() && m_networkManager->getClient()->isConnected())
+        {
+            m_networkManager->getClient()->sendPilotingInput(pilotedIslandID, thrustY, rotationYaw);
+        }
+    }
 
     // Exit
     if (glfwGetKey(m_window->getHandle(), GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -825,8 +863,8 @@ void GameClient::renderWorld()
         // Render decorative grass instances per chunk
         if (g_modelRenderer)
         {
-            std::vector<std::pair<VoxelChunk*, Vec3>> snapshot;
-            m_gameState->getIslandSystem()->getAllChunksWithWorldPos(snapshot);
+            std::vector<std::tuple<VoxelChunk*, Vec3, glm::mat4>> snapshot;
+            m_gameState->getIslandSystem()->getAllChunksWithTransform(snapshot);
             
             // Use Camera's projection matrix (same FOV as voxel rendering)
             float aspect = (float) m_windowWidth / (float) m_windowHeight;
@@ -839,9 +877,9 @@ void GameClient::renderWorld()
             {
                 if (blockType.renderType == BlockRenderType::OBJ)
                 {
-                    for (auto& p : snapshot)
+                    for (auto& [chunk, chunkLocalPos, islandTransform] : snapshot)
                     {
-                        g_modelRenderer->renderModelChunk(blockType.id, p.first, p.second, viewMatrix, projectionMatrix);
+                        g_modelRenderer->renderModelChunk(blockType.id, chunk, chunkLocalPos, islandTransform, viewMatrix, projectionMatrix);
                     }
                 }
             }
@@ -852,20 +890,28 @@ void GameClient::renderWorld()
         {
             PROFILE_SCOPE("renderBlockHighlight");
             
-            // Convert island-relative position to world position for rendering
+            // Get the island to access its rotation
             auto& islands = m_gameState->getIslandSystem()->getIslands();
             auto it = islands.find(m_inputState.cachedTargetBlock.islandID);
             if (it != islands.end())
             {
-                Vec3 worldBlockPos = m_inputState.cachedTargetBlock.localBlockPos + it->second.physicsCenter;
+                const FloatingIsland& island = it->second;
+                
+                // The block position is in island-local space, so we render it directly
+                // but we need to pass the island's rotation matrix to orient the wireframe
+                Vec3 localBlockPos = m_inputState.cachedTargetBlock.localBlockPos;
+                
+                // Get island's rotation-only matrix (no translation)
+                glm::mat4 islandTransform = island.getTransformMatrix();
                 
                 // Use Camera's projection matrix (same FOV as voxel rendering)
                 float aspect = (float) m_windowWidth / (float) m_windowHeight;
                 glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
                 glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
                 
-                // Convert glm matrices to float arrays for BlockHighlightRenderer
-                m_blockHighlighter->render(worldBlockPos, glm::value_ptr(viewMatrix), glm::value_ptr(projectionMatrix));
+                // Render with island rotation applied
+                m_blockHighlighter->render(localBlockPos, glm::value_ptr(islandTransform), 
+                    glm::value_ptr(viewMatrix), glm::value_ptr(projectionMatrix));
             }
         }
     }
@@ -1143,15 +1189,20 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
         // Queue chunk registration for render thread (thread-safe)
         if (g_mdiRenderer && island)
         {
-            Vec3 worldOffset = island->physicsCenter + Vec3(
+            // Compute chunk local position
+            Vec3 chunkLocalPos(
                 chunkCoord.x * VoxelChunk::SIZE,
                 chunkCoord.y * VoxelChunk::SIZE,
                 chunkCoord.z * VoxelChunk::SIZE
             );
             
+            // Compute full transform: island transform * chunk local offset
+            glm::mat4 chunkTransform = island->getTransformMatrix() * 
+                glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
+            
             // Use queued registration to avoid OpenGL cross-thread issues
             // The processPendingUpdates() will check if already registered
-            g_mdiRenderer->queueChunkRegistration(chunk, worldOffset);
+            g_mdiRenderer->queueChunkRegistration(chunk, chunkTransform);
         }
     }
     else
@@ -1178,18 +1229,24 @@ void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update)
         auto* islandSystem = m_gameState->getIslandSystem();
         Vec3 chunkCoord = FloatingIsland::islandPosToChunkCoord(update.localPos);
         auto* chunk = islandSystem->getChunkFromIsland(update.islandID, chunkCoord);
-        if (chunk)
+        auto* island = islandSystem->getIsland(update.islandID);
+        if (chunk && island)
         {
             if (chunk->getMDIIndex() < 0)
             {
                 // New chunk - register it
-                Vec3 islandCenter = islandSystem->getIslandCenter(update.islandID);
-                Vec3 worldOffset = islandCenter + Vec3(
+                // Compute chunk local position
+                Vec3 chunkLocalPos(
                     chunkCoord.x * VoxelChunk::SIZE,
                     chunkCoord.y * VoxelChunk::SIZE,
                     chunkCoord.z * VoxelChunk::SIZE
                 );
-                g_mdiRenderer->queueChunkRegistration(chunk, worldOffset);
+                
+                // Compute full transform: island transform * chunk local offset
+                glm::mat4 chunkTransform = island->getTransformMatrix() * 
+                    glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
+                
+                g_mdiRenderer->queueChunkRegistration(chunk, chunkTransform);
             }
             else
             {
@@ -1241,6 +1298,10 @@ void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update)
                     // Set velocity from server for physics simulation
                     island->velocity = update.velocity;
                     island->acceleration = update.acceleration;
+                    
+                    // Set rotation from server (server-authoritative)
+                    island->rotation = update.rotation;
+                    island->angularVelocity = update.angularVelocity;
 
                     // Apply position correction based on error magnitude
                     if (errorMagnitude > 2.0f)

@@ -151,6 +151,20 @@ void IntegratedServer::processClientMessage(ENetPeer* client, ENetPacket* packet
             break;
         }
 
+        case NetworkMessageType::PILOTING_INPUT:
+        {
+            if (packet->dataLength >= sizeof(PilotingInputMessage))
+            {
+                PilotingInputMessage input = *(PilotingInputMessage*) packet->data;
+
+                if (onPilotingInput)
+                {
+                    onPilotingInput(client, input);
+                }
+            }
+            break;
+        }
+
         default:
             std::cout << "Unknown message type from client: " << (int) messageType << std::endl;
             break;

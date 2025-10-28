@@ -80,21 +80,9 @@ uint32_t IslandChunkSystem::createIsland(const Vec3& physicsCenter, uint32_t for
     island.needsPhysicsUpdate = true;
     island.acceleration = Vec3(0.0f, 0.0f, 0.0f);
     
-    // Set initial velocity
-    if (forceIslandID == 0)
-    {
-        // Server-created: random drift
-        std::srand(static_cast<unsigned int>(std::time(nullptr)) + islandID * 137);
-        float randomX = (std::rand() % 201 - 100) / 100.0f;
-        float randomY = (std::rand() % 201 - 100) / 100.0f;
-        float randomZ = (std::rand() % 201 - 100) / 100.0f;
-        island.velocity = Vec3(randomX * 0.4f, randomY * 0.4f, randomZ * 0.4f);
-    }
-    else
-    {
-        // Client-created: will be updated by network
-        island.velocity = Vec3(0.0f, 0.0f, 0.0f);
-    }
+    // Set initial velocity - no random drift, islands start stationary
+    // Velocity will be controlled by piloting or network updates
+    island.velocity = Vec3(0.0f, 0.0f, 0.0f);
     
     return islandID;
 }
@@ -421,12 +409,18 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
             // Register with MDI renderer for batched rendering (1 draw call for all chunks!)
             if (g_mdiRenderer)
             {
-                Vec3 worldOffset = island->physicsCenter + Vec3(
+                // Compute chunk local position (relative to island center)
+                Vec3 chunkLocalPos(
                     chunkCoord.x * VoxelChunk::SIZE,
                     chunkCoord.y * VoxelChunk::SIZE,
                     chunkCoord.z * VoxelChunk::SIZE
                 );
-                g_mdiRenderer->queueChunkRegistration(chunk.get(), worldOffset);
+                
+                // Compute full transform: island transform * chunk local offset
+                glm::mat4 chunkTransform = island->getTransformMatrix() * 
+                    glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
+                
+                g_mdiRenderer->queueChunkRegistration(chunk.get(), chunkTransform);
             }
         }
     }
@@ -579,18 +573,21 @@ void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks)
     }
 }
 
-void IslandChunkSystem::getAllChunksWithWorldPos(std::vector<std::pair<VoxelChunk*, Vec3>>& out) const
+void IslandChunkSystem::getAllChunksWithTransform(std::vector<std::tuple<VoxelChunk*, Vec3, glm::mat4>>& out) const
 {
     out.clear();
     std::lock_guard<std::mutex> lock(m_islandsMutex);
     for (const auto& [id, island] : m_islands)
     {
+        // Get island's transform matrix (includes rotation)
+        glm::mat4 islandTransform = island.getTransformMatrix();
+        
         for (const auto& [chunkCoord, chunk] : island.chunks)
         {
             if (chunk)
             {
-                Vec3 worldPos = island.physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
-                out.emplace_back(chunk.get(), worldPos);
+                Vec3 chunkLocalPos = FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                out.emplace_back(chunk.get(), chunkLocalPos, islandTransform);
             }
         }
     }
@@ -616,10 +613,16 @@ void IslandChunkSystem::updateIslandPhysics(float deltaTime)
     std::lock_guard<std::mutex> lock(m_islandsMutex);
     for (auto& [id, island] : m_islands)
     {
-        // Only apply random drift, no gravity, bobbing, or wind
+        // Apply velocity to position
         island.physicsCenter.x += island.velocity.x * deltaTime;
         island.physicsCenter.y += island.velocity.y * deltaTime;
         island.physicsCenter.z += island.velocity.z * deltaTime;
+        
+        // Apply angular velocity to rotation
+        island.rotation.x += island.angularVelocity.x * deltaTime;
+        island.rotation.y += island.angularVelocity.y * deltaTime;
+        island.rotation.z += island.angularVelocity.z * deltaTime;
+        
         island.needsPhysicsUpdate = true;
     }
 }
@@ -642,20 +645,27 @@ void IslandChunkSystem::syncPhysicsToChunks()
     {
         if (island.needsPhysicsUpdate)
         {
+            // Get island's full transform matrix (position + rotation)
+            glm::mat4 islandTransform = island.getTransformMatrix();
+            
             // Update MDI transforms for all chunks in this island
             for (auto& [chunkCoord, chunk] : island.chunks)
             {
                 if (chunk && chunk->getMDIIndex() >= 0)
                 {
-                    // Calculate new world position for this chunk
-                    Vec3 worldOffset = island.physicsCenter + Vec3(
+                    // Compute chunk local position
+                    Vec3 chunkLocalPos(
                         chunkCoord.x * VoxelChunk::SIZE,
                         chunkCoord.y * VoxelChunk::SIZE,
                         chunkCoord.z * VoxelChunk::SIZE
                     );
                     
+                    // Compute full transform: island transform * chunk local offset
+                    glm::mat4 chunkTransform = islandTransform * 
+                        glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
+                    
                     // Update the transform in the MDI renderer
-                    g_mdiRenderer->updateChunkTransform(chunk->getMDIIndex(), worldOffset);
+                    g_mdiRenderer->updateChunkTransform(chunk->getMDIIndex(), chunkTransform);
                     chunksUpdated++;
                 }
             }

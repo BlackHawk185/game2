@@ -8,6 +8,8 @@
 #include <mutex>
 #include <string>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include "../Math/Vec3.h"
 #include "VoxelChunk.h"
 #include "BlockType.h"
@@ -50,6 +52,57 @@ struct FloatingIsland
             chunkCoord.y * VoxelChunk::SIZE,
             chunkCoord.z * VoxelChunk::SIZE
         );
+    }
+    
+    // Get the complete transformation matrix for this island (position + rotation)
+    // This is the single source of truth for how island-space transforms to world-space
+    glm::mat4 getTransformMatrix() const {
+        glm::mat4 transform = glm::mat4(1.0f);
+        
+        // Apply translation (position)
+        transform = glm::translate(transform, glm::vec3(physicsCenter.x, physicsCenter.y, physicsCenter.z));
+        
+        // Apply rotation (Euler angles: yaw, pitch, roll)
+        // Order matters: Y (yaw) -> X (pitch) -> Z (roll) for typical ship-like rotation
+        transform = glm::rotate(transform, rotation.y, glm::vec3(0.0f, 1.0f, 0.0f)); // Yaw
+        transform = glm::rotate(transform, rotation.x, glm::vec3(1.0f, 0.0f, 0.0f)); // Pitch
+        transform = glm::rotate(transform, rotation.z, glm::vec3(0.0f, 0.0f, 1.0f)); // Roll
+        
+        return transform;
+    }
+    
+    // Get the inverse transform matrix (world-space → island-local space)
+    // Used for raycasting and collision detection against rotated islands
+    glm::mat4 getInverseTransformMatrix() const {
+        return glm::inverse(getTransformMatrix());
+    }
+    
+    // Transform a world-space position to island-local space
+    Vec3 worldToLocal(const Vec3& worldPos) const {
+        glm::vec4 worldPoint(worldPos.x, worldPos.y, worldPos.z, 1.0f);
+        glm::vec4 localPoint = getInverseTransformMatrix() * worldPoint;
+        return Vec3(localPoint.x, localPoint.y, localPoint.z);
+    }
+    
+    // Transform a world-space direction (no translation) to island-local space
+    Vec3 worldDirToLocal(const Vec3& worldDir) const {
+        glm::vec4 worldDirection(worldDir.x, worldDir.y, worldDir.z, 0.0f); // w=0 for direction
+        glm::vec4 localDirection = getInverseTransformMatrix() * worldDirection;
+        return Vec3(localDirection.x, localDirection.y, localDirection.z);
+    }
+    
+    // Transform an island-local position to world space
+    Vec3 localToWorld(const Vec3& localPos) const {
+        glm::vec4 localPoint(localPos.x, localPos.y, localPos.z, 1.0f);
+        glm::vec4 worldPoint = getTransformMatrix() * localPoint;
+        return Vec3(worldPoint.x, worldPoint.y, worldPoint.z);
+    }
+    
+    // Transform an island-local direction to world space
+    Vec3 localDirToWorld(const Vec3& localDir) const {
+        glm::vec4 localDirection(localDir.x, localDir.y, localDir.z, 0.0f); // w=0 for direction
+        glm::vec4 worldDirection = getTransformMatrix() * localDirection;
+        return Vec3(worldDirection.x, worldDirection.y, worldDirection.z);
     }
 };
 
@@ -118,7 +171,7 @@ class IslandChunkSystem
     // Rendering interface
     void getAllChunks(std::vector<VoxelChunk*>& outChunks);
     // Thread-safe snapshot of all chunks with computed world positions
-    void getAllChunksWithWorldPos(std::vector<std::pair<VoxelChunk*, Vec3>>& out) const;
+    void getAllChunksWithTransform(std::vector<std::tuple<VoxelChunk*, Vec3, glm::mat4>>& out) const;
     void getVisibleChunks(const Vec3& viewPosition, std::vector<VoxelChunk*>& outChunks);
     void renderAllIslands();  // Render all islands with proper positioning
 

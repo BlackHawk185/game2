@@ -504,7 +504,7 @@ bool ModelInstanceRenderer::ensureChunkInstancesUploaded(uint8_t blockID, VoxelC
     return true;
 }
 
-void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj) {
+void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& chunkLocalPos, const glm::mat4& islandTransform, const glm::mat4& view, const glm::mat4& proj) {
     // Check if model is loaded
     auto modelIt = m_models.find(blockID);
     if (modelIt == m_models.end() || !modelIt->second.valid || !ensureShaders()) return;
@@ -537,10 +537,13 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
     int loc_ShadowMap0 = glGetUniformLocation(shader, "uShadowMaps[0]");
     int loc_Texture = glGetUniformLocation(shader, "uGrassTexture");
 
-    // Matrices
+    // Matrices - apply island transform (rotation + translation), then chunk offset
     glUniformMatrix4fv(loc_View, 1, GL_FALSE, &view[0][0]);
     glUniformMatrix4fv(loc_Proj, 1, GL_FALSE, &proj[0][0]);
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
+    
+    // Model matrix: island transform * chunk local offset
+    glm::mat4 chunkOffset = glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
+    glm::mat4 model = islandTransform * chunkOffset;
     glUniformMatrix4fv(loc_Model, 1, GL_FALSE, &model[0][0]);
     glUniform1f(loc_Time, m_time);
 

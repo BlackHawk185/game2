@@ -49,6 +49,7 @@ public:
     std::function<void(ENetPeer*)> onClientDisconnected;
     std::function<void(ENetPeer*, const PlayerMovementRequest&)> onPlayerMovementRequest;
     std::function<void(ENetPeer*, const VoxelChangeRequest&)> onVoxelChangeRequest;
+    std::function<void(ENetPeer*, const PilotingInputMessage&)> onPilotingInput;
     
 private:
     void handleClientEvent(const ENetEvent& event);

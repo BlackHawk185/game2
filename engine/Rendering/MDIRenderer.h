@@ -84,15 +84,15 @@ public:
      * Register a chunk for MDI rendering
      * Uploads mesh data to shared buffers
      * @param chunk - Chunk to register
-     * @param worldOffset - World position offset for transform
+     * @param transform - Full transformation matrix (island transform * chunk local offset)
      * @return Chunk index in MDI system, or -1 on failure
      */
-    int registerChunk(VoxelChunk* chunk, const Vec3& worldOffset);
+    int registerChunk(VoxelChunk* chunk, const glm::mat4& transform);
     
     /**
-     * Update chunk transform (when island moves)
+     * Update chunk transform (when island moves/rotates)
      */
-    void updateChunkTransform(int chunkIndex, const Vec3& worldOffset);
+    void updateChunkTransform(int chunkIndex, const glm::mat4& transform);
     
     /**
      * Update chunk mesh data (when voxels change)
@@ -103,7 +103,7 @@ public:
      * Queue chunk registration for next render frame (thread-safe)
      * Use this from game logic thread to avoid OpenGL cross-thread violations
      */
-    void queueChunkRegistration(VoxelChunk* chunk, const Vec3& worldOffset);
+    void queueChunkRegistration(VoxelChunk* chunk, const glm::mat4& transform);
     
     /**
      * Queue chunk mesh update for next render frame (thread-safe)
@@ -193,7 +193,7 @@ private:
     
     struct PendingRegistration {
         VoxelChunk* chunk;
-        Vec3 worldOffset;
+        glm::mat4 transform;
         int* outMDIIndex;  // Optional: where to store the result
     };
     

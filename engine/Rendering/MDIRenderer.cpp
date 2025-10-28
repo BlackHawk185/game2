@@ -229,7 +229,7 @@ void MDIRenderer::shutdown()
     m_initialized = false;
 }
 
-int MDIRenderer::registerChunk(VoxelChunk* chunk, const Vec3& worldOffset)
+int MDIRenderer::registerChunk(VoxelChunk* chunk, const glm::mat4& transform)
 {
     if (!m_initialized || !chunk)
         return -1;
@@ -304,7 +304,7 @@ int MDIRenderer::registerChunk(VoxelChunk* chunk, const Vec3& worldOffset)
     data.indexOffset = indexOffset;
     data.vertexCount = static_cast<uint32_t>(mesh.vertices.size());
     data.indexCount = static_cast<uint32_t>(mesh.indices.size());
-    data.modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
+    data.modelMatrix = transform;
     data.dirty = false;
     
     // Create indirect command
@@ -335,10 +335,10 @@ int MDIRenderer::registerChunk(VoxelChunk* chunk, const Vec3& worldOffset)
 // DEFERRED UPDATE QUEUE (THREAD-SAFE)
 // ================================
 
-void MDIRenderer::queueChunkRegistration(VoxelChunk* chunk, const Vec3& worldOffset)
+void MDIRenderer::queueChunkRegistration(VoxelChunk* chunk, const glm::mat4& transform)
 {
     std::lock_guard<std::mutex> lock(m_pendingMutex);
-    m_pendingRegistrations.push_back({chunk, worldOffset, nullptr});
+    m_pendingRegistrations.push_back({chunk, transform, nullptr});
 }
 
 void MDIRenderer::queueChunkMeshUpdate(int chunkIndex, VoxelChunk* chunk)
@@ -364,7 +364,7 @@ void MDIRenderer::processPendingUpdates()
     // Now execute on render thread
     for (const auto& pending : registrations)
     {
-        int mdiIndex = registerChunk(pending.chunk, pending.worldOffset);
+        int mdiIndex = registerChunk(pending.chunk, pending.transform);
         if (mdiIndex >= 0 && pending.chunk)
         {
             pending.chunk->setMDIIndex(mdiIndex);
@@ -377,13 +377,13 @@ void MDIRenderer::processPendingUpdates()
     }
 }
 
-void MDIRenderer::updateChunkTransform(int chunkIndex, const Vec3& worldOffset)
+void MDIRenderer::updateChunkTransform(int chunkIndex, const glm::mat4& transform)
 {
     if (chunkIndex < 0 || chunkIndex >= static_cast<int>(m_chunkData.size()))
         return;
     
     ChunkDrawData& data = m_chunkData[chunkIndex];
-    data.modelMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(worldOffset.x, worldOffset.y, worldOffset.z));
+    data.modelMatrix = transform;
     m_transforms[chunkIndex] = data.modelMatrix;
     data.dirty = true;
 }

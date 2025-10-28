@@ -348,6 +348,24 @@ void NetworkClient::sendVoxelChangeRequest(uint32_t islandID, const Vec3& localP
     sendToServer(&request, sizeof(request));
 }
 
+void NetworkClient::sendPilotingInput(uint32_t islandID, float thrustY, float rotationYaw)
+{
+    if (!serverConnection)
+        return;
+
+    PilotingInputMessage msg;
+    msg.sequenceNumber = nextSequenceNumber++;
+    msg.islandID = islandID;
+    msg.thrustY = thrustY;
+    msg.rotationPitch = 0.0f;
+    msg.rotationYaw = rotationYaw;
+    msg.rotationRoll = 0.0f;
+
+    // Use unsequenced for low-latency input
+    ENetPacket* packet = enet_packet_create(&msg, sizeof(PilotingInputMessage), ENET_PACKET_FLAG_UNSEQUENCED);
+    enet_peer_send(serverConnection, 0, packet);
+}
+
 void NetworkClient::sendToServer(const void* data, size_t size)
 {
     if (!serverConnection)

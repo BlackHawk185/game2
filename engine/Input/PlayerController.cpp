@@ -130,6 +130,31 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
     (void)islandSystem; // Reserved for future island-specific physics interactions
     
     // ==========================================
+    // PHASE 0: UPDATE STEP-UP ANIMATION
+    // ==========================================
+    
+    if (m_isStepping)
+    {
+        m_stepProgress += deltaTime / m_stepDuration;
+        
+        if (m_stepProgress >= 1.0f)
+        {
+            // Step complete
+            m_isStepping = false;
+            m_stepProgress = 0.0f;
+        }
+        else
+        {
+            // Interpolate height during step
+            float t = m_stepProgress;
+            // Use smoothstep for smooth animation: 3t^2 - 2t^3
+            float smoothT = t * t * (3.0f - 2.0f * t);
+            float currentStepHeight = m_stepStartHeight + (m_stepTargetHeight - m_stepStartHeight) * smoothT;
+            m_physicsPosition.y = currentStepHeight;
+        }
+    }
+    
+    // ==========================================
     // PHASE 1: GATHER INPUT
     // ==========================================
     
@@ -140,6 +165,13 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
     if (!m_uiBlocking)
     {
         jumpThisFrame = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+    }
+    
+    // If jumping, cancel any active step animation
+    if (jumpThisFrame && m_isStepping)
+    {
+        m_isStepping = false;
+        m_stepProgress = 0.0f;
     }
     
     // ==========================================
@@ -155,8 +187,11 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
     // PHASE 3: APPLY PHYSICS
     // ==========================================
     
-    // Apply gravity
-    m_playerVelocity.y -= m_gravity * deltaTime;
+    // Apply gravity (not during stepping)
+    if (!m_isStepping)
+    {
+        m_playerVelocity.y -= m_gravity * deltaTime;
+    }
     
     // Ground physics and jumping
     if (m_isGrounded)
@@ -209,9 +244,10 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
     
     m_jumpPressed = jumpThisFrame;
     
-    // Apply input acceleration
+    // Apply input acceleration (with slowdown during stepping)
     float controlStrength = m_isGrounded ? 1.0f : m_airControl;
-    Vec3 targetHorizontalVelocity = inputDirection * m_moveSpeed;
+    float speedMultiplier = m_isStepping ? m_stepSlowdown : 1.0f;
+    Vec3 targetHorizontalVelocity = inputDirection * m_moveSpeed * speedMultiplier;
     Vec3 currentHorizontalVelocity = Vec3(m_playerVelocity.x, 0, m_playerVelocity.z);
     
     Vec3 velocityDelta = (targetHorizontalVelocity - currentHorizontalVelocity) * controlStrength * 10.0f * deltaTime;
@@ -260,82 +296,80 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
             m_playerVelocity.y = 0;
         }
         
-        // Try X (with step-up if blocked)
+        // Try X with step-up
         testPos = m_physicsPosition + Vec3(relativeMovement.x, 0, 0);
         if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
             m_physicsPosition = testPos;
         }
-        else if (m_isGrounded) // Only step up when grounded
+        else
         {
-            // Try stepping up - raise by max step height and try horizontal movement again
-            Vec3 steppedPos = m_physicsPosition + Vec3(relativeMovement.x, m_maxStepHeight, 0);
-            if (!g_physics.checkCapsuleCollision(steppedPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+            // Collision detected - try step-up
+            bool stepped = false;
+            if (m_isGrounded && !m_isStepping) // Only step up when on ground and not already stepping
             {
-                // Check if there's ground beneath the stepped position (within step height range)
-                GroundInfo stepGroundInfo = g_physics.detectGroundCapsule(steppedPos, m_capsuleRadius, m_capsuleHeight, m_maxStepHeight + 0.5f);
-                if (stepGroundInfo.isGrounded && stepGroundInfo.distanceToGround <= (m_maxStepHeight + 0.1f))
+                // Try stepping up in increments to find the minimum step height
+                for (float stepHeight = 0.1f; stepHeight <= m_maxStepHeight; stepHeight += 0.1f)
                 {
-                    // Valid step-up! Place player on top of the step
-                    std::cout << "STEP-UP: distance=" << stepGroundInfo.distanceToGround << std::endl;
-                    m_physicsPosition = steppedPos;
-                    m_physicsPosition.y -= stepGroundInfo.distanceToGround; // Settle onto the step surface
-                }
-                else
-                {
-                    // No ground beneath - block movement
-                    std::cout << "STEP-UP FAILED: grounded=" << stepGroundInfo.isGrounded << " distance=" << stepGroundInfo.distanceToGround << std::endl;
-                    m_playerVelocity.x = 0;
+                    Vec3 stepUpPos = m_physicsPosition + Vec3(relativeMovement.x, stepHeight, 0);
+                    if (!g_physics.checkCapsuleCollision(stepUpPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+                    {
+                        // Initialize step-up animation
+                        m_isStepping = true;
+                        m_stepProgress = 0.0f;
+                        m_stepStartHeight = m_physicsPosition.y;
+                        m_stepTargetHeight = m_physicsPosition.y + stepHeight;
+                        
+                        // Apply horizontal movement immediately
+                        m_physicsPosition.x += relativeMovement.x;
+                        stepped = true;
+                        break;
+                    }
                 }
             }
-            else
+            
+            if (!stepped)
             {
-                // Can't step up - blocked
-                std::cout << "STEP-UP BLOCKED: collision at stepped position" << std::endl;
                 m_playerVelocity.x = 0;
             }
         }
-        else
-        {
-            std::cout << "NOT GROUNDED - no step-up attempt" << std::endl;
-            m_playerVelocity.x = 0;
-        }
         
-        // Try Z (with step-up if blocked)
+        // Try Z with step-up
         testPos = m_physicsPosition + Vec3(0, 0, relativeMovement.z);
         if (!g_physics.checkCapsuleCollision(testPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
         {
             m_physicsPosition = testPos;
         }
-        else if (m_isGrounded) // Only step up when grounded
-        {
-            // Try stepping up - raise by max step height and try horizontal movement again
-            Vec3 steppedPos = m_physicsPosition + Vec3(0, m_maxStepHeight, relativeMovement.z);
-            if (!g_physics.checkCapsuleCollision(steppedPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
-            {
-                // Check if there's ground beneath the stepped position (within step height range)
-                GroundInfo stepGroundInfo = g_physics.detectGroundCapsule(steppedPos, m_capsuleRadius, m_capsuleHeight, m_maxStepHeight + 0.5f);
-                if (stepGroundInfo.isGrounded && stepGroundInfo.distanceToGround <= (m_maxStepHeight + 0.1f))
-                {
-                    // Valid step-up! Place player on top of the step
-                    m_physicsPosition = steppedPos;
-                    m_physicsPosition.y -= stepGroundInfo.distanceToGround; // Settle onto the step surface
-                }
-                else
-                {
-                    // No ground beneath - block movement
-                    m_playerVelocity.z = 0;
-                }
-            }
-            else
-            {
-                // Can't step up - blocked
-                m_playerVelocity.z = 0;
-            }
-        }
         else
         {
-            m_playerVelocity.z = 0;
+            // Collision detected - try step-up
+            bool stepped = false;
+            if (m_isGrounded && !m_isStepping) // Only step up when on ground and not already stepping
+            {
+                // Try stepping up in increments to find the minimum step height
+                for (float stepHeight = 0.1f; stepHeight <= m_maxStepHeight; stepHeight += 0.1f)
+                {
+                    Vec3 stepUpPos = m_physicsPosition + Vec3(0, stepHeight, relativeMovement.z);
+                    if (!g_physics.checkCapsuleCollision(stepUpPos, m_capsuleRadius, m_capsuleHeight, collisionNormal, nullptr))
+                    {
+                        // Initialize step-up animation
+                        m_isStepping = true;
+                        m_stepProgress = 0.0f;
+                        m_stepStartHeight = m_physicsPosition.y;
+                        m_stepTargetHeight = m_physicsPosition.y + stepHeight;
+                        
+                        // Apply horizontal movement immediately
+                        m_physicsPosition.z += relativeMovement.z;
+                        stepped = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!stepped)
+            {
+                m_playerVelocity.z = 0;
+            }
         }
         
         // Apply island movement
@@ -349,10 +383,39 @@ void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, Island
         // No collision - move freely
         m_physicsPosition = intendedPosition;
         
-        // If grounded, move with the island
+        // If grounded, move with the island (raycast-based riding)
         if (m_isGrounded && groundInfo.standingOnIslandID != 0)
         {
-            m_physicsPosition = m_physicsPosition + (groundInfo.groundVelocity * deltaTime);
+            FloatingIsland* island = islandSystem->getIsland(groundInfo.standingOnIslandID);
+            if (island)
+            {
+                // Apply linear velocity
+                m_physicsPosition = m_physicsPosition + (groundInfo.groundVelocity * deltaTime);
+                
+                // Apply angular velocity (rotation around island center)
+                if (island->angularVelocity.lengthSquared() > 0.0001f)
+                {
+                    // Get player's offset from island center
+                    Vec3 offset = m_physicsPosition - island->physicsCenter;
+                    
+                    // Rotate offset around Y axis
+                    float angleChange = island->angularVelocity.y * deltaTime;
+                    float cosAngle = std::cos(angleChange);
+                    float sinAngle = std::sin(angleChange);
+                    
+                    Vec3 rotatedOffset;
+                    rotatedOffset.x = offset.x * cosAngle + offset.z * sinAngle;
+                    rotatedOffset.y = offset.y;
+                    rotatedOffset.z = -offset.x * sinAngle + offset.z * cosAngle;
+                    
+                    // Update position
+                    m_physicsPosition = island->physicsCenter + rotatedOffset;
+                    
+                    // Rotate camera yaw to match island rotation (negative because camera is inverted)
+                    m_camera.yaw -= angleChange * (180.0f / 3.14159265f);
+                    m_camera.updateCameraVectors();
+                }
+            }
         }
     }
     
@@ -429,18 +492,10 @@ Vec3 PlayerController::getInputDirection(GLFWwindow* window) const
 
 void PlayerController::updateCameraPosition(float deltaTime)
 {
+    (void)deltaTime; // Unused - no smoothing applied
+    
     Vec3 eyePosition = m_physicsPosition + Vec3(0.0f, m_eyeHeightOffset, 0.0f);
     
-    if (m_disableCameraSmoothing || m_noclipMode)
-    {
-        // Snap camera directly to target position
-        m_camera.position = eyePosition;
-    }
-    else
-    {
-        // Smooth camera interpolation to hide jitter
-        Vec3 positionDelta = eyePosition - m_camera.position;
-        float smoothingFactor = 1.0f - std::pow(m_cameraSmoothing, deltaTime * 60.0f);
-        m_camera.position = m_camera.position + positionDelta * smoothingFactor;
-    }
+    // Snap camera directly to target position (no smoothing)
+    m_camera.position = eyePosition;
 }

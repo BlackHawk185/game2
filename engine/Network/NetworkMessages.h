@@ -22,7 +22,8 @@ enum NetworkMessageType : uint8_t {
     COMPRESSED_CHUNK_DATA = 7,         // NEW: Individual chunk with coordinates
     VOXEL_CHANGE_REQUEST = 8,          // Updated numbering
     VOXEL_CHANGE_UPDATE = 9,
-    ENTITY_STATE_UPDATE = 10
+    ENTITY_STATE_UPDATE = 10,
+    PILOTING_INPUT = 11
 };
 
 // Simple hello world message
@@ -117,8 +118,21 @@ struct PACKED EntityStateUpdate {
     Vec3 position;               // Current position
     Vec3 velocity;               // Current velocity
     Vec3 acceleration;           // For smooth prediction/interpolation
+    Vec3 rotation;               // Current rotation (Euler angles in radians)
+    Vec3 angularVelocity;        // Rotation speed (radians per second)
     uint32_t serverTimestamp;    // Server time for lag compensation
     uint8_t flags;               // Bit flags (isGrounded, needsCorrection, etc.)
+};
+
+// Piloting input from client to server
+struct PACKED PilotingInputMessage {
+    uint8_t type = PILOTING_INPUT;
+    uint32_t sequenceNumber;
+    uint32_t islandID;          // Which island the player is piloting
+    float thrustY;              // Vertical thrust input (-1.0 to 1.0)
+    float rotationPitch;        // Pitch rotation input (-1.0 to 1.0)
+    float rotationYaw;          // Yaw rotation input (-1.0 to 1.0)
+    float rotationRoll;         // Roll rotation input (-1.0 to 1.0)
 };
 
 // Restore packing

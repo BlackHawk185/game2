@@ -51,9 +51,6 @@ public:
 
     // Generic model loading (NEW)
     bool loadModel(uint8_t blockID, const std::string& glbPath);
-    
-    // Legacy grass-specific loader (for backwards compatibility)
-    bool loadGrassModel(const std::string& path) { return loadModel(13, path); }  // 13 = BlockID::DECOR_GRASS
 
     // Update per-frame (for time-based animations)
     void update(float deltaTime);
@@ -65,12 +62,7 @@ public:
     void setLightDir(const glm::vec3& lightDir);
 
     // Generic model chunk rendering (NEW)
-    void renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj);
-    
-    // Legacy grass-specific render (for backwards compatibility)
-    void renderGrassChunk(VoxelChunk* chunk, const Vec3& worldOffset, const glm::mat4& view, const glm::mat4& proj) {
-        renderModelChunk(13, chunk, worldOffset, view, proj);  // 13 = BlockID::DECOR_GRASS
-    }
+    void renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& chunkLocalPos, const glm::mat4& islandTransform, const glm::mat4& view, const glm::mat4& proj);
     
     void beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP);
     void endDepthPassCascade(int screenWidth, int screenHeight);

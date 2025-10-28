@@ -68,6 +68,9 @@ bool GameServer::initialize(float targetTickRate, bool enableNetworking, uint16_
 
             server->onVoxelChangeRequest = [this](ENetPeer* peer, const VoxelChangeRequest& request)
             { this->handleVoxelChangeRequest(peer, request); };
+
+            server->onPilotingInput = [this](ENetPeer* peer, const PilotingInputMessage& input)
+            { this->handlePilotingInput(peer, input); };
         }
 
         // Removed verbose debug output
@@ -495,6 +498,61 @@ void GameServer::handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeReque
     }
 }
 
+void GameServer::handlePilotingInput(ENetPeer* peer, const PilotingInputMessage& input)
+{
+    (void)peer; // Peer info not needed currently
+
+    if (!m_gameState)
+    {
+        std::cerr << "Cannot handle piloting input: no game state!" << std::endl;
+        return;
+    }
+
+    auto* islandSystem = m_gameState->getIslandSystem();
+    if (!islandSystem)
+    {
+        std::cerr << "Cannot handle piloting input: no island system!" << std::endl;
+        return;
+    }
+
+    FloatingIsland* island = islandSystem->getIsland(input.islandID);
+    if (!island)
+    {
+        std::cerr << "Cannot handle piloting input: island " << input.islandID << " not found!" << std::endl;
+        return;
+    }
+
+    // Apply piloting forces (server-authoritative)
+    const float thrustStrength = 5.0f;       // Thrust acceleration
+    const float rotationSpeed = 1.0f;        // Rotation speed (radians per second)
+    const float deltaTime = 1.0f / 60.0f;    // Assume 60 FPS for now
+
+    // Apply rotation input
+    island->angularVelocity.y = input.rotationYaw * rotationSpeed;
+
+    // Apply thrust input
+    Vec3 thrustAcceleration(0, input.thrustY * thrustStrength, 0);
+
+    // Apply thrust to island velocity
+    island->velocity = island->velocity + thrustAcceleration * deltaTime;
+
+    // Apply damping to prevent runaway velocity
+    const float dampingFactor = 0.98f;
+    island->velocity.x *= dampingFactor;
+    island->velocity.y *= dampingFactor;
+    island->velocity.z *= dampingFactor;
+
+    // Apply angular damping when no rotation input
+    if (input.rotationYaw == 0.0f)
+    {
+        island->angularVelocity.y *= 0.9f;
+    }
+
+    island->needsPhysicsUpdate = true;
+
+    // Server will broadcast updated island state in next broadcastIslandStates() call
+}
+
 void GameServer::broadcastIslandStates()
 {
     if (!m_gameState || !m_networkManager)
@@ -542,6 +600,8 @@ void GameServer::broadcastIslandStates()
         update.position = island.physicsCenter;
         update.velocity = island.velocity;
         update.acceleration = island.acceleration;
+        update.rotation = island.rotation;               // Send rotation state
+        update.angularVelocity = island.angularVelocity; // Send angular velocity
         update.serverTimestamp = serverTimestamp;
         update.flags = 0;  // No special flags for islands
 

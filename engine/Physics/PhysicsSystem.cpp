@@ -295,7 +295,8 @@ bool PhysicsSystem::checkCapsuleCollision(const Vec3& capsuleCenter, float radiu
         if (!island)
             continue;
         
-        Vec3 localPos = capsuleCenter - island->physicsCenter;
+        // Transform world-space capsule to island-local space (accounts for rotation!)
+        Vec3 localPos = island->worldToLocal(capsuleCenter);
         
         // Calculate chunk bounds - capsule can span multiple chunks vertically
         float checkRadius = radius + VoxelChunk::SIZE;
@@ -319,14 +320,19 @@ bool PhysicsSystem::checkCapsuleCollision(const Vec3& capsuleCenter, float radiu
                     if (chunkIt == island->chunks.end() || !chunkIt->second)
                         continue;
                     
-                    Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
-                    Vec3 chunkLocalPos = capsuleCenter - chunkWorldPos;
+                    // Calculate chunk position in island-local space
+                    Vec3 chunkLocalOffset = FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                    Vec3 capsuleInChunkLocal = localPos - chunkLocalOffset;
                     
-                    Vec3 collisionNormal;
-                    if (checkChunkCapsuleCollision(chunkIt->second.get(), chunkLocalPos, chunkWorldPos,
-                                                   collisionNormal, radius, height))
+                    Vec3 collisionNormalLocal;
+                    // NOTE: We're passing world positions for backward compatibility
+                    // but collision detection now happens in island-local space
+                    Vec3 chunkWorldPos = island->physicsCenter + chunkLocalOffset;
+                    if (checkChunkCapsuleCollision(chunkIt->second.get(), capsuleInChunkLocal, chunkWorldPos,
+                                                   collisionNormalLocal, radius, height))
                     {
-                        outNormal = collisionNormal;
+                        // Transform collision normal from island-local to world space
+                        outNormal = island->localDirToWorld(collisionNormalLocal);
                         if (outIsland)
                             *outIsland = island;
                         return true;
@@ -365,7 +371,9 @@ GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float r
         if (!island)
             continue;
         
-        Vec3 localRayOrigin = rayOrigin - island->physicsCenter;
+        // Transform world-space ray to island-local space (accounts for rotation!)
+        Vec3 localRayOrigin = island->worldToLocal(rayOrigin);
+        Vec3 localRayDirection = island->worldDirToLocal(rayDirection);
         
         // Calculate which chunks to check
         float checkRadius = radius + VoxelChunk::SIZE;
@@ -387,8 +395,9 @@ GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float r
                     if (chunkIt == island->chunks.end() || !chunkIt->second)
                         continue;
                     
-                    Vec3 chunkWorldPos = island->physicsCenter + FloatingIsland::chunkCoordToWorldPos(chunkCoord);
-                    Vec3 chunkLocalRayOrigin = rayOrigin - chunkWorldPos;
+                    // Calculate chunk position in island-local space
+                    Vec3 chunkLocalOffset = FloatingIsland::chunkCoordToWorldPos(chunkCoord);
+                    Vec3 rayInChunkLocal = localRayOrigin - chunkLocalOffset;
                     
                     // Check collision faces in this chunk
                     const CollisionMesh& collisionMesh = chunkIt->second->getCollisionMesh();
@@ -405,18 +414,18 @@ GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float r
                         if (face.normal.y < 0.7f)
                             continue;
                         
-                        // Ray-plane intersection
-                        float denom = rayDirection.dot(face.normal);
+                        // Ray-plane intersection (using local ray direction)
+                        float denom = localRayDirection.dot(face.normal);
                         if (abs(denom) < 0.0001f)
                             continue;
                         
-                        Vec3 planeToRay = face.position - chunkLocalRayOrigin;
+                        Vec3 planeToRay = face.position - rayInChunkLocal;
                         float t = planeToRay.dot(face.normal) / denom;
                         
                         if (t < 0 || t > rayLength)
                             continue;
                         
-                        Vec3 hitPoint = chunkLocalRayOrigin + rayDirection * t;
+                        Vec3 hitPoint = rayInChunkLocal + localRayDirection * t;
                         Vec3 localPoint = hitPoint - face.position;
                         
                         // Check if hit point is within face bounds (1x1 square)
@@ -427,7 +436,10 @@ GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float r
                             info.standingOnIslandID = island->islandID;
                             info.groundNormal = face.normal;
                             info.groundVelocity = island->velocity;
-                            info.groundContactPoint = hitPoint + chunkWorldPos;
+                            
+                            // Transform hit point from chunk-local to world space
+                            Vec3 hitPointIslandLocal = hitPoint + chunkLocalOffset;
+                            info.groundContactPoint = island->localToWorld(hitPointIslandLocal);
                             info.distanceToGround = t;
                             
                             return info;  // Return first hit

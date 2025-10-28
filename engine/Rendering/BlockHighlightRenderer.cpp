@@ -153,13 +153,20 @@ bool BlockHighlightRenderer::compileShader()
     return true;
 }
 
-void BlockHighlightRenderer::render(const Vec3& blockPos, const float* viewMatrix, const float* projectionMatrix)
+void BlockHighlightRenderer::render(const Vec3& blockPos, const float* islandTransform, const float* viewMatrix, const float* projectionMatrix)
 {
     if (!m_initialized) return;
     
-    // Create model matrix (translate to block position, centered on block)
-    glm::mat4 model = glm::translate(glm::mat4(1.0f), 
+    // Island transform includes both position and rotation
+    glm::mat4 islandMatrix = glm::make_mat4(islandTransform);
+    
+    // Create local offset to block center (in island-local space)
+    glm::mat4 blockOffset = glm::translate(glm::mat4(1.0f), 
         glm::vec3(blockPos.x + 0.5f, blockPos.y + 0.5f, blockPos.z + 0.5f));
+    
+    // Final model matrix: island transform * block offset
+    // This transforms from block-local -> island-local -> world space
+    glm::mat4 model = islandMatrix * blockOffset;
     
     // Convert float arrays to glm matrices
     glm::mat4 view = glm::make_mat4(viewMatrix);

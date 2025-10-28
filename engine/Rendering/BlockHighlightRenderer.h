@@ -13,8 +13,8 @@ public:
     // Initialize GPU resources
     bool initialize();
     
-    // Render wireframe cube at block position (world coordinates)
-    void render(const Vec3& blockPos, const float* viewMatrix, const float* projectionMatrix);
+    // Render wireframe cube with island transform matrix (handles position + rotation!)
+    void render(const Vec3& blockPos, const float* islandTransform, const float* viewMatrix, const float* projectionMatrix);
     
     // Cleanup GPU resources
     void shutdown();

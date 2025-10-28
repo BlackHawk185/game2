@@ -114,6 +114,11 @@ private:
     void handleVoxelChangeRequest(ENetPeer* peer, const VoxelChangeRequest& request);
     
     /**
+     * Handle piloting input from clients (server-authoritative)
+     */
+    void handlePilotingInput(ENetPeer* peer, const PilotingInputMessage& input);
+    
+    /**
      * Broadcast island state updates to all connected clients
      */
     void broadcastIslandStates();

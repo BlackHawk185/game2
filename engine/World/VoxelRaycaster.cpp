@@ -109,36 +109,38 @@ RayHit VoxelRaycaster::performDDA(const Vec3& rayStart, const Vec3& rayDirection
         
         // Ray hits island AABB - perform DDA in island-local space
         {
-            Vec3 localStart = rayStart - island.physicsCenter;
+            // Transform world-space ray to island-local space (accounts for rotation!)
+            Vec3 localStart = island.worldToLocal(rayStart);
+            Vec3 localDir = island.worldDirToLocal(dir);
             
             // DDA voxel traversal (Amanatides & Woo algorithm)
             int x = static_cast<int>(std::floor(localStart.x));
             int y = static_cast<int>(std::floor(localStart.y));
             int z = static_cast<int>(std::floor(localStart.z));
             
-            int stepX = dir.x > 0 ? 1 : -1;
-            int stepY = dir.y > 0 ? 1 : -1;
-            int stepZ = dir.z > 0 ? 1 : -1;
+            int stepX = localDir.x > 0 ? 1 : -1;
+            int stepY = localDir.y > 0 ? 1 : -1;
+            int stepZ = localDir.z > 0 ? 1 : -1;
             
-            float tDeltaX = (dir.x != 0) ? std::abs(1.0f / dir.x) : 1e30f;
-            float tDeltaY = (dir.y != 0) ? std::abs(1.0f / dir.y) : 1e30f;
-            float tDeltaZ = (dir.z != 0) ? std::abs(1.0f / dir.z) : 1e30f;
+            float tDeltaX = (localDir.x != 0) ? std::abs(1.0f / localDir.x) : 1e30f;
+            float tDeltaY = (localDir.y != 0) ? std::abs(1.0f / localDir.y) : 1e30f;
+            float tDeltaZ = (localDir.z != 0) ? std::abs(1.0f / localDir.z) : 1e30f;
             
             float tMaxX, tMaxY, tMaxZ;
             
-            if (dir.x > 0) {
+            if (localDir.x > 0) {
                 tMaxX = (std::floor(localStart.x) + 1.0f - localStart.x) * tDeltaX;
             } else {
                 tMaxX = (localStart.x - std::floor(localStart.x)) * tDeltaX;
             }
             
-            if (dir.y > 0) {
+            if (localDir.y > 0) {
                 tMaxY = (std::floor(localStart.y) + 1.0f - localStart.y) * tDeltaY;
             } else {
                 tMaxY = (localStart.y - std::floor(localStart.y)) * tDeltaY;
             }
             
-            if (dir.z > 0) {
+            if (localDir.z > 0) {
                 tMaxZ = (std::floor(localStart.z) + 1.0f - localStart.z) * tDeltaZ;
             } else {
                 tMaxZ = (localStart.z - std::floor(localStart.z)) * tDeltaZ;
