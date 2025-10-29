@@ -24,7 +24,6 @@ add_library(engine STATIC
     Rendering/ShaderManager.cpp
     Rendering/SimpleShader.cpp
     Rendering/GlobalLightingManager.cpp
-    Rendering/ShadowMap.cpp
     Rendering/CascadedShadowMap.cpp
     Rendering/ModelInstanceRenderer.cpp
     Rendering/BlockHighlightRenderer.cpp
@@ -37,7 +36,6 @@ add_library(engine STATIC
     
     # UI systems
     UI/HUD.cpp
-    UI/Inventory.cpp
     UI/PeriodicTableUI.cpp
     
     # Math systems

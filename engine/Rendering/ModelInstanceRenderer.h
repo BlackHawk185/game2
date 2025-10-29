@@ -32,6 +32,7 @@ struct ChunkInstanceBuffer {
     GLuint instanceVBO = 0; // mat3x4 or per-instance vec4 data, kept minimal here
     GLsizei count = 0;
     bool isUploaded = false; // Track if data is already uploaded to GPU
+    glm::mat4 modelMatrix;   // Island transform * chunk offset (for shadow pass)
 };
 
 // Hash function for std::pair<VoxelChunk*, uint8_t> (for instance buffer map)
@@ -55,17 +56,19 @@ public:
     // Update per-frame (for time-based animations)
     void update(float deltaTime);
 
-    // Cascade and lighting data
-    void setCascadeCount(int count);
-    void setCascadeMatrix(int index, const glm::mat4& lightVP);
-    void setCascadeSplits(const float* splits, int count);
-    void setLightDir(const glm::vec3& lightDir);
+    // Lighting data (shared with MDIRenderer)
+    void setLightingData(const glm::mat4& lightVP, const glm::vec3& lightDir);
+
+    // Shadow pass methods (matches MDIRenderer API)
+    void beginDepthPass(const glm::mat4& lightVP);
+    void renderDepth();
+    void endDepthPass(int screenWidth, int screenHeight);
+    
+    // Prepare instance data for shadow pass (call before beginDepthPass)
+    void prepareInstancesForShadow(uint8_t blockID, VoxelChunk* chunk, const Vec3& chunkLocalPos, const glm::mat4& islandTransform);
 
     // Generic model chunk rendering (NEW)
     void renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& chunkLocalPos, const glm::mat4& islandTransform, const glm::mat4& view, const glm::mat4& proj);
-    
-    void beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP);
-    void endDepthPassCascade(int screenWidth, int screenHeight);
 
 private:
     bool ensureChunkInstancesUploaded(uint8_t blockID, VoxelChunk* chunk);
@@ -74,22 +77,16 @@ private:
     GLuint compileShaderForBlock(uint8_t blockID);  // NEW: Per-model shader compilation
 
     // Internal GL helpers
-    GLuint m_program = 0;       // DEPRECATED: forward shader (grass-specific with wind) - use m_shaders instead
-
-    // NEW: Per-model shaders
+    // Per-model shaders (wind vs static)
     std::unordered_map<uint8_t, GLuint> m_shaders;
     
-    // Uniform locations (forward)
-    int uProj = -1, uView = -1, uModel = -1;
-    int uCascadeCount = -1, uLightVP = -1, uCascadeSplits = -1, uShadowMaps = -1;
-    int uShadowTexel = -1, uLightDir = -1, uTime = -1;
-    int uShadowMaps0 = -1, uShadowMaps1 = -1, uShadowMaps2 = -1; // Individual shadow map samplers
-    int uGrassTexture = -1; // Grass texture sampler
+    // Depth pass shader (for shadow map rendering)
+    GLuint m_depthProgram = 0;
+    int m_depth_uLightVP = -1;
+    int m_depth_uModel = -1;
 
-    // Shadow/cascade
-    int m_cascadeCount = 0;
-    glm::mat4 m_lightVPs[4];
-    float m_cascadeSplits[4] = {0,0,0,0};
+    // Shadow/lighting (shared with MDIRenderer)
+    glm::mat4 m_lightVP;
     glm::vec3 m_lightDir{ -0.3f, -1.0f, -0.2f };
 
     // Time for animations

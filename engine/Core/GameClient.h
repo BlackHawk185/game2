@@ -16,7 +16,6 @@
 class GameState;
 class BlockHighlightRenderer;
 class HUD;
-class Inventory;  // DEPRECATED: Old block-based inventory
 class PeriodicTableUI;
 struct GLFWwindow;
 struct VoxelChangeUpdate;
@@ -125,8 +124,7 @@ private:
     FrustumCuller m_frustumCuller;
     std::unique_ptr<BlockHighlightRenderer> m_blockHighlighter;
     std::unique_ptr<HUD> m_hud;
-    std::unique_ptr<Inventory> m_inventory;  // DEPRECATED: Old block-based inventory
-    std::unique_ptr<PeriodicTableUI> m_periodicTableUI;  // NEW: Periodic table for hotbar binding
+    std::unique_ptr<PeriodicTableUI> m_periodicTableUI;
     
     // NEW: Day/night cycle system for dynamic lighting
     DayNightCycle m_dayNightCycle;

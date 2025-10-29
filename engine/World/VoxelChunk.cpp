@@ -21,7 +21,9 @@ VoxelChunk::VoxelChunk()
     // Initialize voxel data to empty (0 = air)
     std::fill(voxels.begin(), voxels.end(), 0);
     meshDirty = true;
-    collisionMesh.needsUpdate = true;
+    
+    // Initialize collision mesh with empty shared_ptr
+    collisionMesh = std::make_shared<CollisionMesh>();
     
     // Initialize VBO handles
     mesh.VAO = 0;
@@ -57,7 +59,6 @@ void VoxelChunk::setVoxel(int x, int y, int z, uint8_t type)
     voxels[x + y * SIZE + z * SIZE * SIZE] = type;
     meshDirty = true;
     lightingDirty = true;  // NEW: Mark lighting as needing update when voxels change
-    collisionMesh.needsUpdate = true;
 }
 
 void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
@@ -83,7 +84,6 @@ void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
                 }
             }
             meshDirty = true;
-            collisionMesh.needsUpdate = true;
             return;
         }
         
@@ -91,7 +91,6 @@ void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
     }
     std::copy(data, data + size, voxels.begin());
     meshDirty = true;
-    collisionMesh.needsUpdate = true;
 }
 
 void VoxelChunk::addCollisionQuad(float x, float y, float z, int face)
@@ -289,7 +288,6 @@ void VoxelChunk::generateMesh(bool generateLighting)
     (void)lightingStart; // Reserved for future timing metrics
     
     mesh.needsUpdate = true;
-    collisionMesh.needsUpdate = false; // Collision mesh is now up-to-date
     meshDirty = false;
     
     // NEW: Mark lighting as needing recalculation since geometry changed
@@ -324,8 +322,8 @@ void VoxelChunk::generateMesh(bool generateLighting)
 
 void VoxelChunk::buildCollisionMeshFromVertices()
 {
-    // Build collision faces from collisionMeshVertices (called during generateMesh)
-    collisionMesh.faces.clear();
+    // Build collision mesh in a local variable, then atomically swap it in
+    auto newMesh = std::make_shared<CollisionMesh>();
 
     // Build collision faces from collisionMeshVertices
     // Each quad (4 vertices) becomes one collision face
@@ -347,8 +345,11 @@ void VoxelChunk::buildCollisionMeshFromVertices()
         Vec3 edge2 = v2 - v0;
         Vec3 normal = edge1.cross(edge2).normalized();
 
-        collisionMesh.faces.push_back({faceCenter, normal});
+        newMesh->faces.push_back({faceCenter, normal});
     }
+    
+    // Atomically update the collision mesh - safe for concurrent reads
+    setCollisionMesh(newMesh);
 }
 
 void VoxelChunk::buildCollisionMesh()
@@ -356,17 +357,21 @@ void VoxelChunk::buildCollisionMesh()
     // Legacy method - now just calls the new implementation
     std::lock_guard<std::mutex> lock(meshMutex);
     buildCollisionMeshFromVertices();
-    collisionMesh.needsUpdate = false;
 }
 
 bool VoxelChunk::checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection,
                                    float maxDistance, Vec3& hitPoint, Vec3& hitNormal) const
 {
+    // Get current collision mesh (thread-safe atomic load)
+    auto mesh = getCollisionMesh();
+    if (!mesh)
+        return false;
+    
     // Simple ray-triangle intersection with collision faces
     float closestDistance = maxDistance;
     bool hit = false;
 
-    for (const auto& face : collisionMesh.faces)
+    for (const auto& face : mesh->faces)
     {
         // Ray-plane intersection
         float denom = rayDirection.dot(face.normal);

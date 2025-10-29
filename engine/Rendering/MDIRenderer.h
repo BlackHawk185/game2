@@ -142,13 +142,12 @@ public:
     /**
      * Render cascaded shadow depth pass for all chunks
      */
-    void beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP);
-    void endDepthPassCascade(int screenWidth, int screenHeight);
-    void renderDepthCascade(int cascadeIndex);
+    void beginDepthPass(const glm::mat4& lightVP);
+    void endDepthPass(int screenWidth, int screenHeight);
+    void renderDepth();
     
     // Set lighting/shadow parameters (call before renderAll)
-    void setLightingData(int cascadeCount, const glm::mat4* lightVPs, 
-                        const float* cascadeSplits, const glm::vec3& lightDir);
+    void setLightingData(const glm::mat4& lightVP, const glm::vec3& lightDir);
     
     // ================================
     // STATISTICS
@@ -224,11 +223,8 @@ private:
     Statistics m_stats;
     
     // Lighting/shadow data
-    int m_cascadeCount = 0;
-    glm::mat4 m_lightVPs[4];
-    float m_cascadeSplits[4] = {0};
+    glm::mat4 m_lightVP;
     glm::vec3 m_lightDir = glm::vec3(-0.3f, -1.0f, -0.2f);
-    int m_activeCascade = -1;  // Currently rendering cascade index
     
     // Block textures (shared across all chunks)
     unsigned int m_dirtTextureID = 0;

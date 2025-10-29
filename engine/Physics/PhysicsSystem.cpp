@@ -142,7 +142,8 @@ void PhysicsSystem::debugCollisionInfo(const Vec3& playerPos, float playerRadius
             const VoxelChunk* chunk = chunkPair.second.get();
             if (!chunk) continue;
 
-            int faces = chunk->getCollisionMesh().faces.size();
+            auto mesh = chunk->getCollisionMesh();
+            int faces = mesh ? mesh->faces.size() : 0;
             totalFaces += faces;
             std::cout << "    Chunk at (" << chunkPair.first.x << ", " << chunkPair.first.y << ", " << chunkPair.first.z << "): " << faces << " collision faces" << std::endl;
         }
@@ -168,7 +169,9 @@ int PhysicsSystem::getTotalCollisionFaces() const
             const VoxelChunk* chunk = chunkPair.second.get();
             if (chunk)
             {
-                total += chunk->getCollisionMesh().faces.size();
+                auto mesh = chunk->getCollisionMesh();
+                if (mesh)
+                    total += mesh->faces.size();
             }
         }
     }
@@ -185,12 +188,10 @@ bool PhysicsSystem::checkChunkCapsuleCollision(const VoxelChunk* chunk, const Ve
                                                const Vec3& /*chunkWorldPos*/, Vec3& outNormal,
                                                float radius, float height)
 {
-    const CollisionMesh& collisionMesh = chunk->getCollisionMesh();
-    
-    if (collisionMesh.needsUpdate)
-    {
-        const_cast<VoxelChunk*>(chunk)->buildCollisionMesh();
-    }
+    // Get collision mesh (thread-safe atomic load)
+    auto collisionMesh = chunk->getCollisionMesh();
+    if (!collisionMesh)
+        return false;
     
     // Capsule breakdown:
     // - Total height: height
@@ -202,7 +203,7 @@ bool PhysicsSystem::checkChunkCapsuleCollision(const VoxelChunk* chunk, const Ve
     Vec3 topSphereCenter = capsuleCenter + Vec3(0, cylinderHalfHeight, 0);
     Vec3 bottomSphereCenter = capsuleCenter - Vec3(0, cylinderHalfHeight, 0);
     
-    for (const auto& face : collisionMesh.faces)
+    for (const auto& face : collisionMesh->faces)
     {
         Vec3 faceToCenter = capsuleCenter - face.position;
         float distanceToPlane = faceToCenter.dot(face.normal);
@@ -399,16 +400,13 @@ GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float r
                     Vec3 chunkLocalOffset = FloatingIsland::chunkCoordToWorldPos(chunkCoord);
                     Vec3 rayInChunkLocal = localRayOrigin - chunkLocalOffset;
                     
-                    // Check collision faces in this chunk
-                    const CollisionMesh& collisionMesh = chunkIt->second->getCollisionMesh();
-                    
-                    if (collisionMesh.needsUpdate)
-                    {
-                        const_cast<VoxelChunk*>(chunkIt->second.get())->buildCollisionMesh();
-                    }
+                    // Get collision mesh (thread-safe atomic load)
+                    auto collisionMesh = chunkIt->second->getCollisionMesh();
+                    if (!collisionMesh)
+                        continue;
                     
                     // Check each face for ground intersection
-                    for (const auto& face : collisionMesh.faces)
+                    for (const auto& face : collisionMesh->faces)
                     {
                         // Only check upward-facing surfaces (ground)
                         if (face.normal.y < 0.7f)

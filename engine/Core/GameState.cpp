@@ -131,8 +131,8 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (multiple floating islands)..." << std::endl;
 
     // **ISLAND CONFIGURATION** - Reduced for physics debugging
-    float mainRadius = 50.0f;     // Main island size (reduced from 500.0f for faster iteration)
-    float smallRadius = 50.0f;     // Smaller island size (reduced from 120.0f)
+    float mainRadius = 150.0f;     // Main island size (reduced from 500.0f for faster iteration)
+    float smallRadius = 10.0f;     // Smaller island size (reduced from 120.0f)
     float spacing = 250.0f;        // Distance between island centers (reduced from 300.0f)
     
     // Create multiple islands with varied positions
@@ -218,8 +218,9 @@ void GameState::createDefaultWorld()
             if (!island->chunks.empty())
             {
                 const auto& firstChunk = island->chunks.begin()->second;
+                auto mesh = firstChunk->getCollisionMesh();
                 std::cout << "[SERVER] Generated island " << islandID << " with collision mesh ("
-                          << firstChunk->getCollisionMesh().faces.size() << " faces in first chunk)"
+                          << (mesh ? mesh->faces.size() : 0) << " faces in first chunk)"
                           << std::endl;
             }
         }

@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <mutex>
 #include <string>
+#include <memory>
+#include <atomic>
 
 // Forward declaration for OpenGL types
 using GLuint = uint32_t;
@@ -77,7 +79,15 @@ struct CollisionFace
 struct CollisionMesh
 {
     std::vector<CollisionFace> faces;
-    bool needsUpdate = true;
+    
+    CollisionMesh() = default;
+    CollisionMesh(const CollisionMesh& other) : faces(other.faces) {}
+    CollisionMesh& operator=(const CollisionMesh& other) {
+        if (this != &other) {
+            faces = other.faces;
+        }
+        return *this;
+    }
 };
 
 class VoxelChunk
@@ -124,10 +134,15 @@ class VoxelChunk
     int calculateLOD(const Vec3& cameraPos) const;
     bool shouldRender(const Vec3& cameraPos, float maxDistance = 1024.0f) const;
 
-    // Collision detection methods
-    const CollisionMesh& getCollisionMesh() const
+    // Collision detection methods - thread-safe atomic access
+    std::shared_ptr<const CollisionMesh> getCollisionMesh() const
     {
-        return collisionMesh;
+        return std::atomic_load(&collisionMesh);
+    }
+    
+    void setCollisionMesh(std::shared_ptr<CollisionMesh> newMesh)
+    {
+        std::atomic_store(&collisionMesh, newMesh);
     }
     
     // Mesh access for VBO rendering
@@ -173,7 +188,7 @@ class VoxelChunk
     std::array<uint8_t, VOLUME> voxels;
     VoxelMesh mesh;
     mutable std::mutex meshMutex;
-    CollisionMesh collisionMesh;
+    std::shared_ptr<CollisionMesh> collisionMesh;  // Thread-safe atomic access via getCollisionMesh/setCollisionMesh
     ChunkLightMaps lightMaps;  // NEW: Per-face light mapping data
     bool meshDirty = true;
     bool lightingDirty = true;  // NEW: Lighting needs recalculation

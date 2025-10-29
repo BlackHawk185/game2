@@ -1,8 +1,7 @@
 // HUD.cpp - Heads-Up Display implementation
 #include "HUD.h"
-#include "Inventory.h"  // DEPRECATED: Old inventory system
 #include "../World/BlockType.h"
-#include "../World/ElementRecipes.h"  // NEW: Element-based crafting
+#include "../World/ElementRecipes.h"
 #include <imgui.h>
 #include <sstream>
 #include <iomanip>
@@ -183,92 +182,6 @@ void HUD::setTargetBlock(const std::string& blockName, const std::string& formul
 void HUD::clearTargetBlock() {
     m_targetBlock = "";
     m_targetFormula = "";
-}
-
-void HUD::renderHotbar(const Inventory* inventory) {
-    if (!inventory) {
-        return;
-    }
-    
-    ImGuiIO& io = ImGui::GetIO();
-    
-    // Hotbar dimensions
-    const float slotSize = 50.0f;
-    const float slotPadding = 4.0f;
-    const float totalWidth = (slotSize + slotPadding) * Inventory::HOTBAR_SIZE - slotPadding;
-    const float startX = (io.DisplaySize.x - totalWidth) * 0.5f;
-    const float startY = io.DisplaySize.y - 80.0f;  // 80px from bottom
-    
-    ImDrawList* drawList = ImGui::GetForegroundDrawList();
-    
-    // Draw hotbar slots
-    for (int i = 0; i < Inventory::HOTBAR_SIZE; ++i) {
-        float x = startX + i * (slotSize + slotPadding);
-        float y = startY;
-        
-        // Slot background (darker if selected)
-        bool isSelected = (i == inventory->getSelectedSlot());
-        ImU32 bgColor = isSelected 
-            ? IM_COL32(80, 80, 80, 220)   // Selected: lighter gray
-            : IM_COL32(40, 40, 40, 180);  // Normal: darker gray
-        
-        drawList->AddRectFilled(
-            ImVec2(x, y),
-            ImVec2(x + slotSize, y + slotSize),
-            bgColor,
-            4.0f  // Corner rounding
-        );
-        
-        // Slot border (yellow if selected, white otherwise)
-        ImU32 borderColor = isSelected 
-            ? IM_COL32(255, 220, 0, 255)   // Selected: yellow
-            : IM_COL32(150, 150, 150, 200);  // Normal: light gray
-        
-        drawList->AddRect(
-            ImVec2(x, y),
-            ImVec2(x + slotSize, y + slotSize),
-            borderColor,
-            4.0f,   // Corner rounding
-            0,
-            isSelected ? 3.0f : 2.0f  // Thicker border if selected
-        );
-        
-        // Slot number (1-9)
-        char numberStr[2];
-        numberStr[0] = '1' + i;
-        numberStr[1] = '\0';
-        
-        ImVec2 numberSize = ImGui::CalcTextSize(numberStr);
-        drawList->AddText(
-            ImVec2(x + 4.0f, y + 2.0f),
-            IM_COL32(200, 200, 200, 255),
-            numberStr
-        );
-        
-        // Block name (get from registry)
-        uint8_t blockID = inventory->getHotbarSlot(i);
-        if (blockID != BlockID::AIR) {
-            const char* blockName = BlockTypeRegistry::getInstance().getBlockName(blockID).c_str();
-            
-            // Draw block name centered in slot
-            ImVec2 textSize = ImGui::CalcTextSize(blockName);
-            float textX = x + (slotSize - textSize.x) * 0.5f;
-            float textY = y + (slotSize - textSize.y) * 0.5f;
-            
-            // Text shadow for readability
-            drawList->AddText(
-                ImVec2(textX + 1, textY + 1),
-                IM_COL32(0, 0, 0, 200),
-                blockName
-            );
-            
-            drawList->AddText(
-                ImVec2(textX, textY),
-                IM_COL32(255, 255, 255, 255),
-                blockName
-            );
-        }
-    }
 }
 
 void HUD::renderElementQueue(const ElementQueue& queue, const BlockRecipe* lockedRecipe,

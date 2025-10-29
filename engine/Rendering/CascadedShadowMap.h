@@ -3,25 +3,23 @@
 #include <glm/glm.hpp>
 using GLuint = unsigned int;
 
-class CascadedShadowMap {
+class ShadowMap {
 public:
-    bool initialize(int cascades = 1, int size = 16384);
+    bool initialize(int size = 16384);
     void shutdown();
 
-    int getCascadeCount() const { return m_cascadeCount; }
-    int getSize(int index) const { return (index>=0 && index<m_cascadeCount) ? m_size[index] : 0; }
-    bool resizeCascade(int index, int newSize);
+    int getSize() const { return m_size; }
+    bool resize(int newSize);
 
-    void beginCascade(int index);
-    void endCascade(int screenWidth, int screenHeight);
+    void begin();
+    void end(int screenWidth, int screenHeight);
 
-    GLuint getDepthTexture(int index) const { return m_depthTex[index]; }
+    GLuint getDepthTexture() const { return m_depthTex; }
 
 private:
-    int m_cascadeCount = 0;
-    int m_size[4] = {0,0,0,0};
-    GLuint m_fbo[4] = {0,0,0,0};
-    GLuint m_depthTex[4] = {0,0,0,0};
+    int m_size = 0;
+    GLuint m_fbo = 0;
+    GLuint m_depthTex = 0;
 };
 
-extern CascadedShadowMap g_csm;
+extern ShadowMap g_shadowMap;

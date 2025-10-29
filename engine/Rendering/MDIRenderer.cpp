@@ -12,7 +12,7 @@
 
 // Global instances
 std::unique_ptr<MDIRenderer> g_mdiRenderer = nullptr;
-extern CascadedShadowMap g_csm;
+extern ShadowMap g_shadowMap;
 
 MDIRenderer::MDIRenderer()
 {
@@ -147,13 +147,13 @@ bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t initialBufferChunks)
     }
     
     // Initialize single shadow map (16K for 16 pixels per block at 1024 unit range)
-    if (!g_csm.initialize(1, 16384))
+    if (!g_shadowMap.initialize(16384))
     {
         std::cout << "❌ Failed to initialize shadow map!" << std::endl;
         shutdown();
         return false;
     }
-    std::cout << "✅ Shadow map initialized (1 cascade: 16384x16384, 1GB)" << std::endl;
+    std::cout << "✅ Shadow map initialized (16384x16384, 1GB)" << std::endl;
     
     // Load block textures (shared by all chunks)
     extern TextureManager* g_textureManager;
@@ -499,14 +499,9 @@ void MDIRenderer::unregisterChunk(int chunkIndex)
     m_freeSlots.push_back(chunkIndex);
 }
 
-void MDIRenderer::setLightingData(int cascadeCount, const glm::mat4* lightVPs,
-                                  const float* cascadeSplits, const glm::vec3& lightDir)
+void MDIRenderer::setLightingData(const glm::mat4& lightVP, const glm::vec3& lightDir)
 {
-    m_cascadeCount = cascadeCount;
-    for (int i = 0; i < cascadeCount && i < 4; ++i) {
-        m_lightVPs[i] = lightVPs[i];
-        m_cascadeSplits[i] = cascadeSplits[i];
-    }
+    m_lightVP = lightVP;
     m_lightDir = lightDir;
 }
 
@@ -530,13 +525,10 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     m_shader->setMatrix4("uProjection", projectionMatrix);
     m_shader->setInt("uChunkIndex", ShaderMode::USE_MDI_SSBO);  // Use SSBO with gl_BaseInstance
     
-    // Set cascaded shadow map lighting data
-    m_shader->setInt("uCascadeCount", m_cascadeCount);
-    for (int i = 0; i < m_cascadeCount && i < 4; ++i) {
-        m_shader->setMatrix4(("uLightVP[" + std::to_string(i) + "]").c_str(), m_lightVPs[i]);
-        float texel = 1.0f / float(g_csm.getSize(i) > 0 ? g_csm.getSize(i) : 8192);
-        m_shader->setFloat(("uShadowTexel[" + std::to_string(i) + "]").c_str(), texel);
-    }
+    // Set shadow map lighting data
+    m_shader->setMatrix4("uLightVP", m_lightVP);
+    float texel = 1.0f / float(g_shadowMap.getSize() > 0 ? g_shadowMap.getSize() : 8192);
+    m_shader->setFloat("uShadowTexel", texel);
     m_shader->setVector3("uLightDir", Vec3(m_lightDir.x, m_lightDir.y, m_lightDir.z));
     
     // Set material type for voxels
@@ -561,8 +553,8 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     
     // Bind single shadow map
     glActiveTexture(GL_TEXTURE7);
-    glBindTexture(GL_TEXTURE_2D, g_csm.getDepthTexture(0));
-    m_shader->setInt("uShadowMaps[0]", 7);
+    glBindTexture(GL_TEXTURE_2D, g_shadowMap.getDepthTexture());
+    m_shader->setInt("uShadowMap", 7);
     
     // Bind VAO
     glBindVertexArray(m_vao);
@@ -824,10 +816,9 @@ bool MDIRenderer::initDepthShader()
     return true;
 }
 
-void MDIRenderer::beginDepthPassCascade(int cascadeIndex, const glm::mat4& lightVP)
+void MDIRenderer::beginDepthPass(const glm::mat4& lightVP)
 {
-    m_activeCascade = cascadeIndex;
-    g_csm.beginCascade(cascadeIndex);
+    g_shadowMap.begin();
     
     glUseProgram(m_depthProgram);
     if (m_depth_uLightVP != -1) {
@@ -835,13 +826,12 @@ void MDIRenderer::beginDepthPassCascade(int cascadeIndex, const glm::mat4& light
     }
 }
 
-void MDIRenderer::renderDepthCascade(int cascadeIndex)
+void MDIRenderer::renderDepth()
 {
-    (void)cascadeIndex; // Mark as intentionally unused
     if (!m_initialized || m_stats.activeChunks == 0)
         return;
     
-    PROFILE_SCOPE("MDIRenderer::renderDepthCascade");
+    PROFILE_SCOPE("MDIRenderer::renderDepth");
     
     // Update buffers if needed
     updateIndirectBuffer();
@@ -862,8 +852,7 @@ void MDIRenderer::renderDepthCascade(int cascadeIndex)
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 }
 
-void MDIRenderer::endDepthPassCascade(int screenWidth, int screenHeight)
+void MDIRenderer::endDepthPass(int screenWidth, int screenHeight)
 {
-    g_csm.endCascade(screenWidth, screenHeight);
-    m_activeCascade = -1;
+    g_shadowMap.end(screenWidth, screenHeight);
 }

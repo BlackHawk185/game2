@@ -20,13 +20,11 @@
 #include "../Rendering/Renderer.h"
 #include "../Rendering/BlockHighlightRenderer.h"
 #include "../UI/HUD.h"
-#include "../UI/Inventory.h"  // DEPRECATED: Old block-based inventory
 #include "../UI/PeriodicTableUI.h"  // NEW: Periodic table UI for hotbar binding
 #include "../Core/Window.h"
 #include "../Rendering/MDIRenderer.h"
 #include "../Rendering/ModelInstanceRenderer.h"
 #include "../Rendering/TextureManager.h"
-#include "../Rendering/ShadowMap.h"
 #include "../Rendering/CascadedShadowMap.h"
 #include "../Rendering/GlobalLightingManager.h"
 #include "../Physics/PhysicsSystem.h"  // For ground detection
@@ -35,8 +33,9 @@
 #include "../Time/TimeEffects.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data
 
-// External systems that we'll refactor later
+// External systems
 extern TimeEffects* g_timeEffects;
+extern ShadowMap g_shadowMap;
 
 GameClient::GameClient()
 {
@@ -472,9 +471,6 @@ bool GameClient::initializeGraphics()
     
     // Initialize HUD overlay
     m_hud = std::make_unique<HUD>();
-    
-    // Initialize Inventory (hotbar) - DEPRECATED
-    m_inventory = std::make_unique<Inventory>();
     
     // Initialize Periodic Table UI
     m_periodicTableUI = std::make_unique<PeriodicTableUI>();
@@ -940,29 +936,62 @@ void GameClient::renderShadowPass()
     
     // Snap to texel grid to prevent shadow shimmering
     glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
-    int smWidth = g_csm.getSize(0);
+    int smWidth = g_shadowMap.getSize();
     float texelSize = (2.0f * orthoSize) / float(smWidth);
     glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
     glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
     glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
     glm::mat4 lightVP = lightProj * snapMat * lightView;
     
-    // Render shadow depth pass
-    if (g_mdiRenderer && m_windowWidth > 0 && m_windowHeight > 0)
+    // Prepare GLB instances for shadow pass (upload buffers + store model matrices)
+    if (g_modelRenderer)
     {
-        g_mdiRenderer->beginDepthPassCascade(0, lightVP);
-        g_mdiRenderer->renderDepthCascade(0);
-        g_mdiRenderer->endDepthPassCascade(m_windowWidth, m_windowHeight);
+        std::vector<std::tuple<VoxelChunk*, Vec3, glm::mat4>> snapshot;
+        m_gameState->getIslandSystem()->getAllChunksWithTransform(snapshot);
+        
+        auto& registry = BlockTypeRegistry::getInstance();
+        for (const auto& blockType : registry.getAllBlockTypes())
+        {
+            if (blockType.renderType == BlockRenderType::OBJ)
+            {
+                for (auto& [chunk, chunkLocalPos, islandTransform] : snapshot)
+                {
+                    g_modelRenderer->prepareInstancesForShadow(blockType.id, chunk, chunkLocalPos, islandTransform);
+                }
+            }
+        }
     }
     
-    // Set lighting data for forward pass
+    // Render shadow depth pass (unified for both voxels and GLB models)
+    if (m_windowWidth > 0 && m_windowHeight > 0)
+    {
+        // MDI begins shadow pass (binds FBO, clears depth)
+        if (g_mdiRenderer) {
+            g_mdiRenderer->beginDepthPass(lightVP);
+            g_mdiRenderer->renderDepth();
+        }
+        
+        // GLB models render into same shadow map
+        if (g_modelRenderer) {
+            g_modelRenderer->beginDepthPass(lightVP);  // Sets shader uniforms only
+            g_modelRenderer->renderDepth();
+        }
+        
+        // MDI ends shadow pass (unbinds FBO, restores viewport)
+        if (g_mdiRenderer) {
+            g_mdiRenderer->endDepthPass(m_windowWidth, m_windowHeight);
+        }
+    }
+    
+    // Set lighting data for forward pass (both renderers)
+    glm::vec3 lightDirVec(lightDir.x, lightDir.y, lightDir.z);
     if (g_mdiRenderer)
     {
-        // Currently using single cascade, but API supports multiple
-        int cascadeCount = 1;
-        glm::mat4 lightVPs[4] = { lightVP, glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f) };
-        float cascadeSplits[4] = { 300.0f, 0.0f, 0.0f, 0.0f };  // Far plane for cascade 0
-        g_mdiRenderer->setLightingData(cascadeCount, lightVPs, cascadeSplits, glm::vec3(lightDir.x, lightDir.y, lightDir.z));
+        g_mdiRenderer->setLightingData(lightVP, lightDirVec);
+    }
+    if (g_modelRenderer)
+    {
+        g_modelRenderer->setLightingData(lightVP, lightDirVec);
     }
 }
 

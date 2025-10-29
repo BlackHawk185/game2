@@ -15,13 +15,12 @@ layout (std430, binding = 0) readonly buffer ChunkTransforms {
 
 uniform mat4 uView;
 uniform mat4 uProjection;
-uniform mat4 uLightVP[4];
-uniform int uCascadeCount;
+uniform mat4 uLightVP;
 
 out vec2 TexCoord;
 out vec3 Normal;
 out vec3 WorldPos;
-out vec4 LightSpacePos[4];
+out vec4 LightSpacePos;
 out float ViewZ;
 out float BlockType;
 
@@ -44,11 +43,9 @@ void main()
     TexCoord = aTexCoord;
     BlockType = aBlockType;
     
-    // Shadow space positions for cascaded shadow maps
-    for (int i = 0; i < uCascadeCount; i++) {
-        LightSpacePos[i] = uLightVP[i] * worldPos;
-    }
+    // Shadow space position
+    LightSpacePos = uLightVP * worldPos;
     
-    // View-space depth for cascade selection
+    // View-space depth
     ViewZ = -(uView * worldPos).z;
 }

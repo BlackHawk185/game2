@@ -6,7 +6,6 @@
 #include "../World/ElementRecipes.h"  // Need full definition for Element
 
 // Forward declarations
-class Inventory;  // DEPRECATED
 struct ElementQueue;
 struct BlockRecipe;
 
@@ -18,9 +17,8 @@ public:
     
     // Render the HUD (call every frame)
     void render(float deltaTime);
-    void renderHotbar(const Inventory* inventory);  // DEPRECATED: Old block-based hotbar
     
-    // NEW: Element-based crafting UI with customizable hotbar
+    // Element-based crafting UI with customizable hotbar
     void renderElementQueue(const ElementQueue& queue, const BlockRecipe* lockedRecipe,
                            const std::array<Element, 9>& hotbarElements);
     

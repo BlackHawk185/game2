@@ -35,14 +35,13 @@ uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
 uniform int uChunkIndex;  // Which chunk this vertex belongs to (-1=use uModel, -2=use MDI/gl_BaseInstance)
-uniform mat4 uLightVP[4]; // Cascaded light view-projections
-uniform int uCascadeCount;
-uniform float uShadowTexel[4];
+uniform mat4 uLightVP; // Light view-projection
+uniform float uShadowTexel;
 
 out vec2 TexCoord;
 out vec3 Normal;
 out vec3 WorldPos;
-out vec4 LightSpacePos[4];
+out vec4 LightSpacePos;
 out float ViewZ;
 out float BlockType;
 
@@ -66,10 +65,8 @@ void main()
     Normal = aNormal;
     WorldPos = world.xyz;
     BlockType = aBlockType;
-    for (int i=0;i<uCascadeCount;i++) {
-        LightSpacePos[i] = uLightVP[i] * world;
-    }
-    // View-space depth for cascade selection (positive distance)
+    LightSpacePos = uLightVP * world;
+    // View-space depth (positive distance)
     ViewZ = -(uView * world).z;
 }
 )";
@@ -81,7 +78,7 @@ static const char* FRAGMENT_SHADER_SOURCE = R"(
 in vec2 TexCoord;
 in vec3 Normal;
 in vec3 WorldPos;
-in vec4 LightSpacePos[4];
+in vec4 LightSpacePos;
 in float ViewZ;
 in float BlockType;
 
@@ -89,10 +86,8 @@ uniform sampler2D uTexture;      // Default/dirt texture
 uniform sampler2D uStoneTexture; // Stone texture
 uniform sampler2D uGrassTexture; // Grass texture
 uniform sampler2D uSandTexture;  // Sand texture
-uniform sampler2D uShadowMaps[4];
-uniform int uCascadeCount;
-uniform float uCascadeSplits[4];
-uniform float uShadowTexel[4];
+uniform sampler2D uShadowMap;
+uniform float uShadowTexel;
 uniform vec3 uLightDir;
 
 // Material uniforms for different object types
@@ -110,9 +105,9 @@ const vec2 POISSON[12] = vec2[12](
     vec2(-0.15, -0.15), vec2(-0.15, 0.15), vec2(0.15, -0.15), vec2(0.15, 0.15)
 );
 
-float sampleCascadePCF(int idx, float bias)
+float sampleShadowPCF(float bias)
 {
-    vec3 proj = LightSpacePos[idx].xyz / LightSpacePos[idx].w;
+    vec3 proj = LightSpacePos.xyz / LightSpacePos.w;
     proj = proj * 0.5 + 0.5;
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
         return 1.0;
@@ -120,7 +115,7 @@ float sampleCascadePCF(int idx, float bias)
     float radius = 0.2;  // 5x5 grid covers a wide area
     
     // Sample center first
-    float center = texture(uShadowMaps[idx], proj.xy).r;
+    float center = texture(uShadowMap, proj.xy).r;
     float baseShadow = current <= center ? 1.0 : 0.0;
     
     // Early exit if fully lit - prevents shadow bleeding
@@ -136,7 +131,7 @@ float sampleCascadePCF(int idx, float bias)
     for (int x = 0; x < grid; ++x) {
         for (int y = 0; y < grid; ++y) {
             vec2 offset = vec2(float(x) - 2.0, float(y) - 2.0) * step;
-            float d = texture(uShadowMaps[idx], proj.xy + offset).r;
+            float d = texture(uShadowMap, proj.xy + offset).r;
             sum += current <= d ? 1.0 : 0.0;
             count++;
         }
@@ -211,37 +206,14 @@ void main()
         
         if (texColor.a < 0.1) { discard; }
 
-        // Transform to [0,1] shadow map coords
-        // Select cascade based on view-space depth
-        int ci = 0;
-        for (int i=0;i<uCascadeCount-1;i++) {
-            if (ViewZ > uCascadeSplits[i]) ci = i+1; else break;
-        }
-        // Compute blended factor across boundary (10% of cascade span)
-        int prev = max(ci-1, 0);
-        float start = (ci==0)? 0.0 : uCascadeSplits[ci-1];
-        float endV = uCascadeSplits[ci];
-        float span = max(endV - start, 1e-3);
-    float band = 0.2 * span; // Increased to 20% for wider overlap
-        float tBlend = 0.0;
-        if (ViewZ > endV - band && ci < uCascadeCount-1) {
-            tBlend = clamp((ViewZ - (endV - band)) / band, 0.0, 1.0);
-        }
-
-        float shadow = 1.0;
         // Slope-scale bias based on N.L to mitigate acne
         vec3 N = normalize(Normal);
         vec3 L = normalize(-uLightDir);
         float ndotl = max(dot(N, L), 0.0);
         float bias = max(0.0015, 0.0035 * (1.0 - ndotl));
         
-        float s0 = sampleCascadePCF(ci, bias);
-        if (tBlend > 0.0 && ci < uCascadeCount-1) {
-            float s1 = sampleCascadePCF(ci+1, bias);
-            shadow = mix(s0, s1, tBlend);
-        } else {
-            shadow = s0;
-        }
+        float shadow = sampleShadowPCF(bias);
+        
         // Simple lambert + small ambient floor for readability
         float lambert = ndotl;
         float ambient = 0.04;
