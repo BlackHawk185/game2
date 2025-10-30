@@ -27,16 +27,21 @@ out vec3 Normal;
 out vec2 TexCoord;
 // ...existing code...
 out float MaterialId;
+out float ViewDistance;  // Distance from camera for fog
 
 void main()
 {
-    FragPos = vec3(uModel * vec4(aPos, 1.0));
+    vec4 worldPos = uModel * vec4(aPos, 1.0);
+    FragPos = vec3(worldPos);
     Normal = mat3(transpose(inverse(uModel))) * aNormal;
     TexCoord = aTexCoord.xy;
     // ...existing code...
     MaterialId = aTexCoord.z;
     
-    gl_Position = uProjection * uView * vec4(FragPos, 1.0);
+    vec4 viewPos = uView * worldPos;
+    ViewDistance = length(viewPos.xyz);  // Distance in view space
+    
+    gl_Position = uProjection * viewPos;
 }
 )";
 
@@ -50,9 +55,14 @@ in vec3 Normal;
 in vec2 TexCoord;
 // ...existing code...
 in float MaterialId;
+in float ViewDistance;
 
 uniform sampler2D uTexture;
 // ...existing code...
+uniform vec3 uFogColor;
+uniform float uFogDensity;
+uniform float uFogStart;
+uniform float uFogEnd;
 
 void main()
 {
@@ -67,6 +77,10 @@ void main()
     
     // Combine texture, lightmap, and simple lighting
     vec3 finalColor = textureColor.rgb * diff;
+    
+    // Apply atmospheric fog
+    float fogFactor = clamp((uFogEnd - ViewDistance) / (uFogEnd - uFogStart), 0.0, 1.0);
+    finalColor = mix(uFogColor, finalColor, fogFactor);
     
     FragColor = vec4(finalColor, textureColor.a);
 }
@@ -310,6 +324,22 @@ void VoxelRenderer::setProjectionMatrix(const float* projectionMatrix) {
     glUniformMatrix4fv(m_uniformProjection, 1, GL_FALSE, projectionMatrix);
 }
 
+void VoxelRenderer::setFogColor(float r, float g, float b) {
+    glUseProgram(m_shaderProgram);
+    glUniform3f(m_uniformFogColor, r, g, b);
+}
+
+void VoxelRenderer::setFogDistance(float start, float end) {
+    glUseProgram(m_shaderProgram);
+    glUniform1f(m_uniformFogStart, start);
+    glUniform1f(m_uniformFogEnd, end);
+}
+
+void VoxelRenderer::setFogDensity(float density) {
+    glUseProgram(m_shaderProgram);
+    glUniform1f(m_uniformFogDensity, density);
+}
+
 bool VoxelRenderer::loadShaders() {
     m_shaderProgram = createShaderProgram(vertexShaderSource, fragmentShaderSource);
     if (m_shaderProgram == 0) {
@@ -321,7 +351,18 @@ bool VoxelRenderer::loadShaders() {
     m_uniformProjection = glGetUniformLocation(m_shaderProgram, "uProjection");
     m_uniformModel = glGetUniformLocation(m_shaderProgram, "uModel");
     m_uniformTexture = glGetUniformLocation(m_shaderProgram, "uTexture");
+    m_uniformFogColor = glGetUniformLocation(m_shaderProgram, "uFogColor");
+    m_uniformFogDensity = glGetUniformLocation(m_shaderProgram, "uFogDensity");
+    m_uniformFogStart = glGetUniformLocation(m_shaderProgram, "uFogStart");
+    m_uniformFogEnd = glGetUniformLocation(m_shaderProgram, "uFogEnd");
     // ...existing code...
+    
+    // Set default fog parameters
+    glUseProgram(m_shaderProgram);
+    glUniform3f(m_uniformFogColor, 0.6f, 0.7f, 0.9f);  // Light blue
+    glUniform1f(m_uniformFogDensity, 0.015f);
+    glUniform1f(m_uniformFogStart, 50.0f);
+    glUniform1f(m_uniformFogEnd, 300.0f);
     
     std::cout << "VoxelRenderer: Loaded shaders successfully" << std::endl;
     return true;

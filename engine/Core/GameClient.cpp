@@ -19,6 +19,8 @@
 #include "../Network/NetworkMessages.h"
 #include "../Rendering/Renderer.h"
 #include "../Rendering/BlockHighlightRenderer.h"
+#include "../Rendering/SkyRenderer.h"
+#include "../Rendering/BloomRenderer.h"
 #include "../UI/HUD.h"
 #include "../UI/PeriodicTableUI.h"  // NEW: Periodic table UI for hotbar binding
 #include "../Core/Window.h"
@@ -31,6 +33,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "../Time/TimeEffects.h"
+#include "../Time/DayNightController.h"
 #include "../World/VoxelChunk.h"  // For accessing voxel data
 
 // External systems
@@ -42,8 +45,9 @@ GameClient::GameClient()
     // Constructor
     m_networkManager = std::make_unique<NetworkManager>();  // Re-enabled with ENet
 
-    // Set global day/night cycle pointer
-    g_dayNightCycle = &m_dayNightCycle;
+    // Initialize day/night controller
+    m_dayNightController = std::make_unique<DayNightController>();
+    g_dayNightController = m_dayNightController.get();
     
     // Initialize default hotbar elements (keys 1-9)
     m_hotbarElements = {
@@ -82,8 +86,8 @@ GameClient::GameClient()
 
 GameClient::~GameClient()
 {
-    // Clear global day/night cycle pointer
-    g_dayNightCycle = nullptr;
+    // Clear global day/night controller pointer
+    g_dayNightController = nullptr;
     
     shutdown();
 }
@@ -215,21 +219,11 @@ bool GameClient::update(float deltaTime)
         }
     }
 
-    // NEW: Update day/night cycle for dynamic lighting
+    // Update day/night cycle for dynamic sun/lighting
+    if (m_dayNightController)
     {
-        PROFILE_SCOPE("DayNightCycle::update");
-        m_dayNightCycle.update(deltaTime);
-        
-        // Check if sun direction changed significantly
-        Vec3 newSunDirection = m_dayNightCycle.getSunDirection();
-        float directionChange = (newSunDirection - m_lastSunDirection).length();
-        
-        if (directionChange > 0.01f) { // Sun moved enough to matter
-            // Update global lighting manager with new sun direction
-            extern GlobalLightingManager g_globalLighting;
-            g_globalLighting.setSunDirection(newSunDirection);
-            m_lastSunDirection = newSunDirection;
-        }
+        PROFILE_SCOPE("DayNightController::update");
+        m_dayNightController->update(deltaTime);
     }
 
     // Update model instancing time (wind animation)
@@ -354,11 +348,8 @@ void GameClient::render()
 {
     PROFILE_SCOPE("GameClient::render");
     
-    // Clear screen
-    {
-        PROFILE_SCOPE("Renderer::clear");
-        Renderer::clear();
-    }
+    // Clear depth buffer only (sky will replace clear color)
+    glClear(GL_DEPTH_BUFFER_BIT);
 
     // Set up 3D projection
     {
@@ -369,6 +360,18 @@ void GameClient::render()
         
         // Update frustum culling
         m_frustumCuller.updateFromCamera(m_playerController.getCamera(), aspect, fov);
+    }
+    
+    // Get camera matrices for rendering
+    float aspect = (float)m_windowWidth / (float)m_windowHeight;
+    glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
+    glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
+    
+    // Render sky FIRST (replaces the solid blue clear color)
+    if (m_skyRenderer && m_dayNightController)
+    {
+        PROFILE_SCOPE("SkyRenderer::render");
+        m_skyRenderer->render(glm::value_ptr(viewMatrix), glm::value_ptr(projectionMatrix), *m_dayNightController);
     }
 
     // Render world (only if we have local game state)
@@ -474,6 +477,23 @@ bool GameClient::initializeGraphics()
     
     // Initialize Periodic Table UI
     m_periodicTableUI = std::make_unique<PeriodicTableUI>();
+    
+    // Initialize atmospheric rendering systems
+    m_skyRenderer = std::make_unique<SkyRenderer>();
+    if (!m_skyRenderer->initialize()) {
+        std::cerr << "Warning: Failed to initialize SkyRenderer" << std::endl;
+        m_skyRenderer.reset();
+    } else {
+        std::cout << "✅ SkyRenderer initialized" << std::endl;
+    }
+    
+    m_bloomRenderer = std::make_unique<BloomRenderer>();
+    if (!m_bloomRenderer->initialize(m_windowWidth, m_windowHeight)) {
+        std::cerr << "Warning: Failed to initialize BloomRenderer" << std::endl;
+        m_bloomRenderer.reset();
+    } else {
+        std::cout << "✅ BloomRenderer initialized" << std::endl;
+    }
 
     // Initialize ImGui
     IMGUI_CHECKVERSION();
@@ -815,13 +835,19 @@ void GameClient::renderWorld()
         g_mdiRenderer->processPendingUpdates();
     }
     
-    // Sync island physics to chunk transforms (client-side only)
+    // Sync island physics to chunk transforms (UNIFIED: updates both MDI and GLB)
+    // This is the ONLY place where chunk transforms are calculated
     {
         PROFILE_SCOPE("Island physics update");
         m_gameState->getIslandSystem()->syncPhysicsToChunks();
     }
 
-    // Shadow depth pass (cascaded)
+    // Get camera matrices once
+    float aspect = (float)m_windowWidth / (float)m_windowHeight;
+    glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
+    glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
+
+    // Shadow depth pass (uses transforms already set by syncPhysicsToChunks)
     {
         renderShadowPass();
     }
@@ -835,11 +861,6 @@ void GameClient::renderWorld()
             std::cerr << "❌ MDI renderer not initialized! Cannot render world." << std::endl;
             return;
         }
-        
-        // Get camera matrices
-        float aspect = (float)m_windowWidth / (float)m_windowHeight;
-        glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
-        glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
         
         // Render everything with single draw call!
         g_mdiRenderer->renderAll(viewMatrix, projectionMatrix);
@@ -856,26 +877,27 @@ void GameClient::renderWorld()
                       << stats.lastFrameTimeMs << "ms" << std::endl;
             lastPrint = now;
         }
-        // Render decorative grass instances per chunk
+        
+        // Render GLB model instances per chunk (transforms already set by syncPhysicsToChunks)
         if (g_modelRenderer)
         {
-            std::vector<std::tuple<VoxelChunk*, Vec3, glm::mat4>> snapshot;
-            m_gameState->getIslandSystem()->getAllChunksWithTransform(snapshot);
-            
-            // Use Camera's projection matrix (same FOV as voxel rendering)
-            float aspect = (float) m_windowWidth / (float) m_windowHeight;
-            glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
-            glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
-            
-            // Render all OBJ-type blocks (grass, trees, lamps, QFG, etc.)
             auto& registry = BlockTypeRegistry::getInstance();
+            auto& islands = m_gameState->getIslandSystem()->getIslands();
+            
             for (const auto& blockType : registry.getAllBlockTypes())
             {
                 if (blockType.renderType == BlockRenderType::OBJ)
                 {
-                    for (auto& [chunk, chunkLocalPos, islandTransform] : snapshot)
+                    // Iterate through all chunks in all islands
+                    for (const auto& [islandID, island] : islands)
                     {
-                        g_modelRenderer->renderModelChunk(blockType.id, chunk, chunkLocalPos, islandTransform, viewMatrix, projectionMatrix);
+                        for (const auto& [chunkCoord, chunk] : island.chunks)
+                        {
+                            if (chunk)
+                            {
+                                g_modelRenderer->renderModelChunk(blockType.id, chunk.get(), viewMatrix, projectionMatrix);
+                            }
+                        }
                     }
                 }
             }
@@ -886,42 +908,27 @@ void GameClient::renderWorld()
         {
             PROFILE_SCOPE("renderBlockHighlight");
             
-            // Get the island to access its rotation
             auto& islands = m_gameState->getIslandSystem()->getIslands();
             auto it = islands.find(m_inputState.cachedTargetBlock.islandID);
             if (it != islands.end())
             {
                 const FloatingIsland& island = it->second;
-                
-                // The block position is in island-local space, so we render it directly
-                // but we need to pass the island's rotation matrix to orient the wireframe
                 Vec3 localBlockPos = m_inputState.cachedTargetBlock.localBlockPos;
-                
-                // Get island's rotation-only matrix (no translation)
                 glm::mat4 islandTransform = island.getTransformMatrix();
                 
-                // Use Camera's projection matrix (same FOV as voxel rendering)
-                float aspect = (float) m_windowWidth / (float) m_windowHeight;
-                glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
-                glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
-                
-                // Render with island rotation applied
                 m_blockHighlighter->render(localBlockPos, glm::value_ptr(islandTransform), 
                     glm::value_ptr(viewMatrix), glm::value_ptr(projectionMatrix));
             }
         }
     }
-
-    // Render block highlighter (disabled in core profile; reimplement with modern pipeline if needed)
-    (void)0;
 }
 
 void GameClient::renderShadowPass()
 {
     PROFILE_SCOPE("GameClient::renderShadowPass");
     
-    // Single high-resolution shadow pass
-    Vec3 sunDir = Vec3(-0.3f, -1.0f, -0.2f).normalized();
+    // Use dynamic sun direction from DayNightController for shadows
+    Vec3 sunDir = m_dayNightController ? m_dayNightController->getSunDirection() : Vec3(-0.3f, -1.0f, -0.2f).normalized();
     glm::vec3 camPos(m_playerController.getCamera().position.x, m_playerController.getCamera().position.y, m_playerController.getCamera().position.z);
     glm::vec3 lightDir(sunDir.x, sunDir.y, sunDir.z);
     glm::vec3 lightTarget = camPos;
@@ -943,26 +950,8 @@ void GameClient::renderShadowPass()
     glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
     glm::mat4 lightVP = lightProj * snapMat * lightView;
     
-    // Prepare GLB instances for shadow pass (upload buffers + store model matrices)
-    if (g_modelRenderer)
-    {
-        std::vector<std::tuple<VoxelChunk*, Vec3, glm::mat4>> snapshot;
-        m_gameState->getIslandSystem()->getAllChunksWithTransform(snapshot);
-        
-        auto& registry = BlockTypeRegistry::getInstance();
-        for (const auto& blockType : registry.getAllBlockTypes())
-        {
-            if (blockType.renderType == BlockRenderType::OBJ)
-            {
-                for (auto& [chunk, chunkLocalPos, islandTransform] : snapshot)
-                {
-                    g_modelRenderer->prepareInstancesForShadow(blockType.id, chunk, chunkLocalPos, islandTransform);
-                }
-            }
-        }
-    }
-    
     // Render shadow depth pass (unified for both voxels and GLB models)
+    // Note: Model matrices are already stored during forward rendering in renderModelChunk()
     if (m_windowWidth > 0 && m_windowHeight > 0)
     {
         // MDI begins shadow pass (binds FBO, clears depth)
@@ -1087,6 +1076,11 @@ void GameClient::onWindowResize(int width, int height)
     m_windowWidth = width;
     m_windowHeight = height;
     glViewport(0, 0, width, height);
+    
+    // Resize bloom renderer framebuffers
+    if (m_bloomRenderer) {
+        m_bloomRenderer->resize(width, height);
+    }
 }
 
 void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)
@@ -1215,24 +1209,8 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
         chunk->generateMesh();        // Regenerate the mesh with the new data
         chunk->buildCollisionMesh();  // Build collision faces from vertices
         
-        // Queue chunk registration for render thread (thread-safe)
-        if (g_mdiRenderer && island)
-        {
-            // Compute chunk local position
-            Vec3 chunkLocalPos(
-                chunkCoord.x * VoxelChunk::SIZE,
-                chunkCoord.y * VoxelChunk::SIZE,
-                chunkCoord.z * VoxelChunk::SIZE
-            );
-            
-            // Compute full transform: island transform * chunk local offset
-            glm::mat4 chunkTransform = island->getTransformMatrix() * 
-                glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
-            
-            // Use queued registration to avoid OpenGL cross-thread issues
-            // The processPendingUpdates() will check if already registered
-            g_mdiRenderer->queueChunkRegistration(chunk, chunkTransform);
-        }
+        // Don't register with MDI here - syncPhysicsToChunks() will handle it
+        // with authoritative transforms after EntityStateUpdate sets correct positions
     }
     else
     {
@@ -1263,19 +1241,8 @@ void GameClient::handleVoxelChangeReceived(const VoxelChangeUpdate& update)
         {
             if (chunk->getMDIIndex() < 0)
             {
-                // New chunk - register it
-                // Compute chunk local position
-                Vec3 chunkLocalPos(
-                    chunkCoord.x * VoxelChunk::SIZE,
-                    chunkCoord.y * VoxelChunk::SIZE,
-                    chunkCoord.z * VoxelChunk::SIZE
-                );
-                
-                // Compute full transform: island transform * chunk local offset
-                glm::mat4 chunkTransform = island->getTransformMatrix() * 
-                    glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
-                
-                g_mdiRenderer->queueChunkRegistration(chunk, chunkTransform);
+                // Chunk not yet registered - syncPhysicsToChunks() will handle registration
+                // with correct transform after EntityStateUpdate sets authoritative position
             }
             else
             {
@@ -1304,8 +1271,6 @@ void GameClient::handleEntityStateUpdate(const EntityStateUpdate& update)
     {
         case 1:
         {  // Island
-            // Removed verbose debug output
-
             auto* islandSystem = m_gameState->getIslandSystem();
             if (islandSystem)
             {

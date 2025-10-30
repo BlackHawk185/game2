@@ -15,6 +15,7 @@
 #include "ConnectivityAnalyzer.h"
 #include "../Profiling/Profiler.h"
 #include "../Rendering/MDIRenderer.h"
+#include "../Rendering/ModelInstanceRenderer.h"
 #include <FastNoise/FastNoise.h>
 #include <FastNoise/Generators/Perlin.h>
 #include <FastNoise/Generators/Simplex.h>
@@ -209,6 +210,10 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     int voxelsGenerated = 0;
     int chunksCreated = 0;
     
+    // **SURFACE CACHE** - Track surface positions for decoration pass
+    std::vector<Vec3> surfacePositions;
+    surfacePositions.reserve(static_cast<size_t>(radius * radius * 2)); // Rough estimate
+    
     // **ISLAND HEIGHT CONFIGURATION** - More natural vertical proportions
     // Increased height ratio for less pancake-like islands
     float baseHeightRatio = 0.15f;  // 15% of radius for height (increased from 8%)
@@ -335,32 +340,13 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
                     // Use island-relative coordinates for placement
                     Vec3 islandRelativePos(dx, dy, dz);
                     
-                    // **BLOCK TYPE SELECTION** - 50% dirt, 50% stone using IDs (clean and efficient!)
-                    uint8_t blockID;
-                    
-                    // More random per-voxel distribution using multiple noise sources
-                    float blockNoise1 = (std::sin(dx * 0.31f + seed * 0.7f) + 1.0f) * 0.5f;
-                    float blockNoise2 = (std::cos(dz * 0.37f + seed * 1.3f) + 1.0f) * 0.5f;
-                    float blockNoise3 = (std::sin(dy * 0.23f + seed * 2.1f) + 1.0f) * 0.5f;
-                    
-                    // Combine noise sources for more randomness
-                    float combinedNoise = (blockNoise1 + blockNoise2 + blockNoise3) / 3.0f;
-                    
-                    if (combinedNoise > 0.5f) {
-                        blockID = BlockID::DIRT;
-                    } else {
-                        blockID = BlockID::STONE;
-                    }
+                    // All blocks are dirt
+                    uint8_t blockID = BlockID::DIRT;
                     
                     setBlockIDWithAutoChunk(islandID, islandRelativePos, blockID);
-                    // Place decorative grass above dirt blocks
-                    if (blockID == BlockID::DIRT) {
-                        // Only place if above block is within island bounds (90% coverage)
-                        if ((std::rand() % 100) < 50) { // 90% grass coverage
-                            Vec3 above = islandRelativePos + Vec3(0, 1, 0);
-                            setBlockIDWithAutoChunk(islandID, above, BlockID::DECOR_GRASS);
-                        }
-                    }
+                    
+                    // Cache this as a potential surface position for decoration
+                    surfacePositions.push_back(islandRelativePos);
                     
                     voxelsGenerated++;
                     
@@ -395,6 +381,42 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     auto connectivityEnd = std::chrono::high_resolution_clock::now();
     auto connectivityDuration = std::chrono::duration_cast<std::chrono::milliseconds>(connectivityEnd - connectivityStart).count();
     std::cout << "🔍 Connectivity Cleanup: " << connectivityDuration << "ms" << std::endl;
+    
+    // **DECORATION PASS** - Place grass and trees on surface positions
+    auto decorationStart = std::chrono::high_resolution_clock::now();
+    
+    int grassPlaced = 0;
+    int treesPlaced = 0; // For future tree implementation
+    
+    // Filter surface positions to only include actual surface blocks
+    // (blocks with air above them that survived connectivity cleanup)
+    for (const Vec3& pos : surfacePositions) {
+        // Check if this block still exists (wasn't removed by connectivity cleanup)
+        uint8_t blockID = getVoxelFromIsland(islandID, pos);
+        if (blockID == BlockID::AIR) continue; // Block was removed
+        
+        // Check if the block above is air (this is a surface block)
+        Vec3 above = pos + Vec3(0, 1, 0);
+        uint8_t blockAbove = getVoxelFromIsland(islandID, above);
+        if (blockAbove != BlockID::AIR) continue; // Not a surface block
+        
+        // **GRASS DECORATION** - 25% coverage (reduced from 50% for debugging)
+        if ((std::rand() % 100) < 25) {
+            setBlockIDWithAutoChunk(islandID, above, BlockID::DECOR_GRASS);
+            grassPlaced++;
+        }
+        
+        // **TREE PLACEMENT** - Future implementation
+        // TODO: Add tree generation logic here
+        // if (shouldPlaceTree(pos, seed)) {
+        //     placeTree(islandID, above, seed);
+        //     treesPlaced++;
+        // }
+    }
+    
+    auto decorationEnd = std::chrono::high_resolution_clock::now();
+    auto decorationDuration = std::chrono::duration_cast<std::chrono::milliseconds>(decorationEnd - decorationStart).count();
+    std::cout << "🌿 Decoration Pass: " << decorationDuration << "ms (" << grassPlaced << " grass)" << std::endl;
     
     auto meshGenStart = std::chrono::high_resolution_clock::now();
     
@@ -434,8 +456,10 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     std::cout << "📐 Mesh Generation: " << meshGenDuration << "ms (" << island->chunks.size() << " chunks)" << std::endl;
     std::cout << "✅ Island Generation Complete: " << totalDuration << "ms total" << std::endl;
     std::cout << "   └─ Breakdown: Voxels=" << voxelGenDuration << "ms (" 
-              << (voxelGenDuration * 100 / std::max(1LL, totalDuration)) << "%), Meshes=" 
-              << meshGenDuration << "ms (" << (meshGenDuration * 100 / std::max(1LL, totalDuration)) << "%)" << std::endl;
+              << (voxelGenDuration * 100 / std::max(1LL, totalDuration)) << "%), Decoration=" 
+              << decorationDuration << "ms (" << (decorationDuration * 100 / std::max(1LL, totalDuration)) 
+              << "%), Meshes=" << meshGenDuration << "ms (" 
+              << (meshGenDuration * 100 / std::max(1LL, totalDuration)) << "%)" << std::endl;
 }
 
 uint8_t IslandChunkSystem::getVoxelFromIsland(uint32_t islandID, const Vec3& islandRelativePosition) const
@@ -573,26 +597,6 @@ void IslandChunkSystem::getAllChunks(std::vector<VoxelChunk*>& outChunks)
     }
 }
 
-void IslandChunkSystem::getAllChunksWithTransform(std::vector<std::tuple<VoxelChunk*, Vec3, glm::mat4>>& out) const
-{
-    out.clear();
-    std::lock_guard<std::mutex> lock(m_islandsMutex);
-    for (const auto& [id, island] : m_islands)
-    {
-        // Get island's transform matrix (includes rotation)
-        glm::mat4 islandTransform = island.getTransformMatrix();
-        
-        for (const auto& [chunkCoord, chunk] : island.chunks)
-        {
-            if (chunk)
-            {
-                Vec3 chunkLocalPos = FloatingIsland::chunkCoordToWorldPos(chunkCoord);
-                out.emplace_back(chunk.get(), chunkLocalPos, islandTransform);
-            }
-        }
-    }
-}
-
 void IslandChunkSystem::getVisibleChunks(const Vec3& viewPosition,
                                          std::vector<VoxelChunk*>& outChunks)
 {
@@ -629,53 +633,68 @@ void IslandChunkSystem::updateIslandPhysics(float deltaTime)
 
 void IslandChunkSystem::syncPhysicsToChunks()
 {
-    // Sync physics positions to chunk rendering positions
+    // UNIFIED TRANSFORM UPDATE: Single source of truth for ALL rendering (MDI + GLB)
+    // This function calculates transforms once and updates both MDI chunks and GLB model instances
     std::lock_guard<std::mutex> lock(m_islandsMutex);
     
     if (!g_mdiRenderer)
     {
         std::cerr << "⚠️  syncPhysicsToChunks: MDI renderer not available!" << std::endl;
-        return;  // No renderer to update
+        return;
     }
     
-    static int updateCount = 0;
-    int chunksUpdated = 0;
+    // Get block type registry for GLB model iteration
+    auto& registry = BlockTypeRegistry::getInstance();
     
     for (auto& [id, island] : m_islands)
     {
-        if (island.needsPhysicsUpdate)
+        // Calculate island transform once (includes rotation + translation)
+        glm::mat4 islandTransform = island.getTransformMatrix();
+        
+        // Update transforms for all chunks in this island
+        for (auto& [chunkCoord, chunk] : island.chunks)
         {
-            // Get island's full transform matrix (position + rotation)
-            glm::mat4 islandTransform = island.getTransformMatrix();
+            if (!chunk) continue;
             
-            // Update MDI transforms for all chunks in this island
-            for (auto& [chunkCoord, chunk] : island.chunks)
+            // Compute chunk local position
+            Vec3 chunkLocalPos(
+                chunkCoord.x * VoxelChunk::SIZE,
+                chunkCoord.y * VoxelChunk::SIZE,
+                chunkCoord.z * VoxelChunk::SIZE
+            );
+            
+            // Compute full transform: island transform * chunk local offset
+            // This is the ONLY place this calculation happens - single source of truth
+            glm::mat4 chunkTransform = islandTransform * 
+                glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
+            
+            // === UPDATE MDI RENDERER (voxel chunks) ===
+            if (chunk->getMDIIndex() >= 0)
             {
-                if (chunk && chunk->getMDIIndex() >= 0)
-                {
-                    // Compute chunk local position
-                    Vec3 chunkLocalPos(
-                        chunkCoord.x * VoxelChunk::SIZE,
-                        chunkCoord.y * VoxelChunk::SIZE,
-                        chunkCoord.z * VoxelChunk::SIZE
-                    );
-                    
-                    // Compute full transform: island transform * chunk local offset
-                    glm::mat4 chunkTransform = islandTransform * 
-                        glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
-                    
-                    // Update the transform in the MDI renderer
-                    g_mdiRenderer->updateChunkTransform(chunk->getMDIIndex(), chunkTransform);
-                    chunksUpdated++;
-                }
+                // Existing chunk - update transform
+                g_mdiRenderer->updateChunkTransform(chunk->getMDIIndex(), chunkTransform);
+            }
+            else
+            {
+                // New chunk - register with correct transform
+                g_mdiRenderer->queueChunkRegistration(chunk.get(), chunkTransform);
             }
             
-            island.needsPhysicsUpdate = false;
+            // === UPDATE GLB MODEL RENDERER (for all block types that use models) ===
+            if (g_modelRenderer)
+            {
+                for (const auto& blockType : registry.getAllBlockTypes())
+                {
+                    if (blockType.renderType == BlockRenderType::OBJ)
+                    {
+                        // Update model matrix for this block type in this chunk
+                        // Uses the same chunkTransform we calculated above
+                        g_modelRenderer->updateModelMatrix(blockType.id, chunk.get(), chunkTransform);
+                    }
+                }
+            }
         }
     }
-    
-    // Physics sync happens silently every frame
-    updateCount++;
 }
 
 void IslandChunkSystem::updatePlayerChunks(const Vec3& playerPosition)

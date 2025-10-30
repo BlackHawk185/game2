@@ -8,13 +8,15 @@
 #include "../World/VoxelRaycaster.h"
 #include "../World/ElementRecipes.h"  // NEW: Element-based crafting system
 #include "../Network/NetworkManager.h"  // Re-enabled with ENet integration working
-#include "../Time/DayNightCycle.h"  // NEW: Day/night cycle integration
+#include "../Time/DayNightController.h"  // NEW: Simplified day/night cycle
 #include <memory>
 #include <string>
 
 // Forward declarations
 class GameState;
 class BlockHighlightRenderer;
+class SkyRenderer;
+class BloomRenderer;
 class HUD;
 class PeriodicTableUI;
 struct GLFWwindow;
@@ -22,6 +24,17 @@ struct VoxelChangeUpdate;
 struct WorldStateMessage;
 
 namespace Engine { namespace Core { class Window; } }
+namespace Engine { namespace Rendering { class VoxelRenderer; } }
+
+/**
+ * GameClient handles the presentation layer of the game.
+ * It manages rendering, input, and UI, but does not own the game state.
+ * 
+ * The client can either:
+ * 1. Connect to a local GameServer (integrated mode)
+ * 2. Connect to a remote server (client-only mode)
+ * 3. Work with a shared GameState directly (current transition mode)
+ */
 
 /**
  * GameClient handles the presentation layer of the game.
@@ -126,9 +139,10 @@ private:
     std::unique_ptr<HUD> m_hud;
     std::unique_ptr<PeriodicTableUI> m_periodicTableUI;
     
-    // NEW: Day/night cycle system for dynamic lighting
-    DayNightCycle m_dayNightCycle;
-    Vec3 m_lastSunDirection{0.0f, 0.0f, 0.0f};  // Track sun direction changes
+    // NEW: Day/night cycle and atmospheric rendering
+    std::unique_ptr<DayNightController> m_dayNightController;
+    std::unique_ptr<SkyRenderer> m_skyRenderer;
+    std::unique_ptr<BloomRenderer> m_bloomRenderer;
     
     // FPS tracking
     float m_lastFrameDeltaTime = 0.016f; // Start at ~60 FPS

@@ -109,6 +109,16 @@ struct Vec3
         return x * x + y * y + z * z;
     }
 
+    // Linear interpolation
+    Vec3 lerp(const Vec3& other, float t) const
+    {
+        return Vec3(
+            x + (other.x - x) * t,
+            y + (other.y - y) * t,
+            z + (other.z - z) * t
+        );
+    }
+
     // Component-wise min/max
     static Vec3 min(const Vec3& a, const Vec3& b)
     {

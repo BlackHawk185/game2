@@ -170,8 +170,6 @@ class IslandChunkSystem
 
     // Rendering interface
     void getAllChunks(std::vector<VoxelChunk*>& outChunks);
-    // Thread-safe snapshot of all chunks with computed world positions
-    void getAllChunksWithTransform(std::vector<std::tuple<VoxelChunk*, Vec3, glm::mat4>>& out) const;
     void getVisibleChunks(const Vec3& viewPosition, std::vector<VoxelChunk*>& outChunks);
     void renderAllIslands();  // Render all islands with proper positioning
 

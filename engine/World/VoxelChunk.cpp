@@ -2,7 +2,7 @@
 #include "VoxelChunk.h"
 #include "BlockType.h"
 
-#include "../Time/DayNightCycle.h"  // For dynamic sun direction
+#include "../Time/DayNightController.h"  // For dynamic sun direction
 
 #include <algorithm>
 #include <chrono>
@@ -65,28 +65,8 @@ void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
 {
     if (size != VOLUME)
     {
-        // TEMPORARY FIX: Handle legacy 32x32x32 chunks by extracting the 16x16x16 corner
-        if (size == 32768) // 32*32*32 = 32768
-        {
-            // Extract the first 16x16x16 corner from the 32x32x32 data
-            for (int z = 0; z < SIZE; z++)
-            {
-                for (int y = 0; y < SIZE; y++)
-                {
-                    for (int x = 0; x < SIZE; x++)
-                    {
-                        // Calculate index in 32x32x32 array
-                        int oldIndex = x + y * 32 + z * 32 * 32;
-                        // Calculate index in 16x16x16 array
-                        int newIndex = x + y * SIZE + z * SIZE * SIZE;
-                        voxels[newIndex] = data[oldIndex];
-                    }
-                }
-            }
-            meshDirty = true;
-            return;
-        }
-        
+        std::cerr << "⚠️  VoxelChunk::setRawVoxelData: Size mismatch! Expected " << VOLUME 
+                  << " but got " << size << std::endl;
         return;
     }
     std::copy(data, data + size, voxels.begin());
@@ -264,8 +244,8 @@ void VoxelChunk::generateMesh(bool generateLighting)
                 // Check if this is an OBJ-type block
                 const BlockTypeInfo* blockInfo = registry.getBlockType(blockID);
                 if (blockInfo && blockInfo->renderType == BlockRenderType::OBJ) {
-                    // Position at block corner - GLB models should be authored centered at origin
-                    Vec3 instancePos((float)x, (float)y, (float)z);
+                    // Position at block corner with X/Z centering, Y at ground level
+                    Vec3 instancePos((float)x + 0.5f, (float)y, (float)z + 0.5f);
                     addModelInstance(blockID, instancePos);
                 }
             }
@@ -589,7 +569,7 @@ void VoxelChunk::generatePerFaceLightMaps()
     // Generate separate light maps for each face direction with proper inter-chunk raycasting
     
     const int LIGHTMAP_SIZE = FaceLightMap::LIGHTMAP_SIZE;
-    const Vec3 sunDirection = g_dayNightCycle ? g_dayNightCycle->getSunDirection() : Vec3(0.3f, 0.8f, 0.5f).normalized();  // Use dynamic sun direction, fallback for early init
+    const Vec3 sunDirection = g_dayNightController ? g_dayNightController->getSunDirection() : Vec3(0.3f, 0.8f, 0.5f).normalized();  // Use dynamic sun direction, fallback for early init
     const float sunIntensity = 1.2f;
     const float ambientIntensity = 0.0f;  // DISABLED for lightmap testing - was 0.2f
     

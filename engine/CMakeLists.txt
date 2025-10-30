@@ -27,12 +27,13 @@ add_library(engine STATIC
     Rendering/CascadedShadowMap.cpp
     Rendering/ModelInstanceRenderer.cpp
     Rendering/BlockHighlightRenderer.cpp
+    Rendering/SkyRenderer.cpp
+    Rendering/BloomRenderer.cpp
     Assets/GLBLoader.cpp
     
     # Input systems
     Input/Camera.cpp
     Input/PlayerController.cpp
-    Input/ChatSystem.cpp
     
     # UI systems
     UI/HUD.cpp
@@ -53,7 +54,7 @@ add_library(engine STATIC
     # Time systems
     Time/TimeManager.cpp
     Time/TimeEffects.cpp
-    Time/DayNightCycle.cpp
+    Time/DayNightController.cpp
     
     # Network systems - Re-enabled with proper ENet integration
     Network/NetworkManager.cpp

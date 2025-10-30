@@ -1,6 +1,5 @@
 #pragma once
 
-#include "../World/MeshGenerator.h"
 #include "../Math/Vec3.h"
 #include <vector>
 #include <string>
@@ -125,6 +124,13 @@ public:
     void setProjectionMatrix(const float* projectionMatrix);
     
     /**
+     * Set fog parameters for atmospheric effects
+     */
+    void setFogColor(float r, float g, float b);
+    void setFogDistance(float start, float end);
+    void setFogDensity(float density);
+    
+    /**
      * Get the default dirt texture
      */
     const Texture& getDirtTexture() const { return m_dirtTexture; }
@@ -141,6 +147,10 @@ private:
     GLint m_uniformProjection;
     GLint m_uniformModel;
     GLint m_uniformTexture;
+    GLint m_uniformFogColor;
+    GLint m_uniformFogDensity;
+    GLint m_uniformFogStart;
+    GLint m_uniformFogEnd;
     // ...existing code...
     
     // Default textures

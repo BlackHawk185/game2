@@ -131,7 +131,7 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (multiple floating islands)..." << std::endl;
 
     // **ISLAND CONFIGURATION** - Reduced for physics debugging
-    float mainRadius = 150.0f;     // Main island size (reduced from 500.0f for faster iteration)
+    float mainRadius = 300.0f;     // Main island size (reduced from 500.0f for faster iteration)
     float smallRadius = 10.0f;     // Smaller island size (reduced from 120.0f)
     float spacing = 250.0f;        // Distance between island centers (reduced from 300.0f)
     

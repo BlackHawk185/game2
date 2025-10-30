@@ -16,7 +16,6 @@ using GLsizei = int;
 
 // Minimal vertex/mesh structure for GLB
 struct ModelPrimitiveGPU {
-    GLuint vao = 0;
     GLuint vbo = 0;      // interleaved position, normal, uv
     GLuint ebo = 0;
     GLsizei indexCount = 0;
@@ -33,6 +32,7 @@ struct ChunkInstanceBuffer {
     GLsizei count = 0;
     bool isUploaded = false; // Track if data is already uploaded to GPU
     glm::mat4 modelMatrix;   // Island transform * chunk offset (for shadow pass)
+    std::vector<GLuint> vaos; // Per-primitive VAOs that bind this chunk's instance buffer
 };
 
 // Hash function for std::pair<VoxelChunk*, uint8_t> (for instance buffer map)
@@ -58,17 +58,23 @@ public:
 
     // Lighting data (shared with MDIRenderer)
     void setLightingData(const glm::mat4& lightVP, const glm::vec3& lightDir);
+    
+    // Mark all models as needing lighting recalculation (called when sun direction changes)
+    void markLightingDirty() { m_lightingDirty = true; }
+    
+    // Recalculate lighting for all models if dirty
+    void updateLightingIfNeeded();
 
     // Shadow pass methods (matches MDIRenderer API)
     void beginDepthPass(const glm::mat4& lightVP);
     void renderDepth();
     void endDepthPass(int screenWidth, int screenHeight);
-    
-    // Prepare instance data for shadow pass (call before beginDepthPass)
-    void prepareInstancesForShadow(uint8_t blockID, VoxelChunk* chunk, const Vec3& chunkLocalPos, const glm::mat4& islandTransform);
 
-    // Generic model chunk rendering (NEW)
-    void renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& chunkLocalPos, const glm::mat4& islandTransform, const glm::mat4& view, const glm::mat4& proj);
+    // Generic model chunk rendering - uses pre-stored model matrix
+    void renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const glm::mat4& view, const glm::mat4& proj);
+
+    // Update model matrix without rendering (stores pre-calculated chunk transform)
+    void updateModelMatrix(uint8_t blockID, VoxelChunk* chunk, const glm::mat4& chunkTransform);
 
 private:
     bool ensureChunkInstancesUploaded(uint8_t blockID, VoxelChunk* chunk);
@@ -84,6 +90,7 @@ private:
     GLuint m_depthProgram = 0;
     int m_depth_uLightVP = -1;
     int m_depth_uModel = -1;
+    int m_depth_uTime = -1;  // Wind animation in shadow pass
 
     // Shadow/lighting (shared with MDIRenderer)
     glm::mat4 m_lightVP;
@@ -97,6 +104,10 @@ private:
     std::unordered_map<uint8_t, std::string> m_modelPaths;  // Track loaded paths
     std::unordered_map<uint8_t, GLuint> m_albedoTextures;   // Per-model textures
     GLuint m_engineGrassTex = 0;  // Engine grass.png texture (for grass model)
+    
+    // NEW: CPU-side model data for lighting recalculation
+    std::unordered_map<uint8_t, struct GLBModelCPU> m_cpuModels;
+    bool m_lightingDirty = true;  // Track when sun direction changes
 
     // NEW: Instance buffers per (chunk, blockID) pair
     std::unordered_map<std::pair<VoxelChunk*, uint8_t>, ChunkInstanceBuffer, ChunkBlockPairHash> m_chunkInstances;

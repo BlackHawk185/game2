@@ -19,13 +19,23 @@ namespace {
     static const char* kDepthVS = R"GLSL(
 #version 460 core
 layout (location=0) in vec3 aPos;
-layout (location=3) in vec4 aInstance; // xyz=position offset
+layout (location=4) in vec4 aInstance; // xyz=position offset, w=phase
 
 uniform mat4 uModel;       // chunk/world offset
 uniform mat4 uLightVP;
+uniform float uTime;
 
 void main(){
-    vec4 world = uModel * vec4(aPos + aInstance.xyz, 1.0);
+    // Apply same wind animation as forward shader for correct shadow positioning
+    float windStrength = 0.15;
+    float heightFactor = max(0.0, aPos.y * 0.8);
+    vec3 windOffset = vec3(
+        sin(uTime * 1.8 + aInstance.w * 2.0) * windStrength * heightFactor,
+        0.0,
+        cos(uTime * 1.4 + aInstance.w * 1.7) * windStrength * heightFactor * 0.7
+    );
+    
+    vec4 world = uModel * vec4(aPos + windOffset + aInstance.xyz, 1.0);
     gl_Position = uLightVP * world;
 }
 )GLSL";
@@ -44,7 +54,8 @@ void main(){
 layout (location=0) in vec3 aPos;
 layout (location=1) in vec3 aNormal;
 layout (location=2) in vec2 aUV;
-layout (location=3) in vec4 aInstance; // xyz=position offset (voxel center), w=phase
+layout (location=3) in float aLambert;  // Pre-calculated Lambert lighting
+layout (location=4) in vec4 aInstance; // xyz=position offset (voxel center), w=phase
 
 uniform mat4 uView;
 uniform mat4 uProjection;
@@ -57,6 +68,7 @@ out vec3 vNormalWS;
 out vec3 vWorldPos;
 out vec4 vLightSpacePos;
 out float vViewZ;
+out float vLambert;  // Pass through pre-calculated lighting
 
 void main(){
     // Wind sway: affect vertices based on their height within the grass model
@@ -76,6 +88,7 @@ void main(){
     vWorldPos = world.xyz;
     vLightSpacePos = uLightVP * world;
     vViewZ = -(uView * world).z;
+    vLambert = aLambert;  // Pass through
 }
 )GLSL";
     
@@ -85,7 +98,8 @@ void main(){
 layout (location=0) in vec3 aPos;
 layout (location=1) in vec3 aNormal;
 layout (location=2) in vec2 aUV;
-layout (location=3) in vec4 aInstance; // xyz=position offset, w=unused
+layout (location=3) in float aLambert;  // Pre-calculated Lambert lighting
+layout (location=4) in vec4 aInstance; // xyz=position offset, w=unused
 
 uniform mat4 uView;
 uniform mat4 uProjection;
@@ -98,6 +112,7 @@ out vec3 vNormalWS;
 out vec3 vWorldPos;
 out vec4 vLightSpacePos;
 out float vViewZ;
+out float vLambert;  // Pass through pre-calculated lighting
 
 void main(){
     // No wind animation - static model
@@ -108,6 +123,7 @@ void main(){
     vWorldPos = world.xyz;
     vLightSpacePos = uLightVP * world;
     vViewZ = -(uView * world).z;
+    vLambert = aLambert;  // Pass through
 }
 )GLSL";
 
@@ -118,6 +134,7 @@ in vec3 vNormalWS;
 in vec3 vWorldPos;
 in vec4 vLightSpacePos;
 in float vViewZ;
+in float vLambert;  // Pre-calculated Lambert lighting
 
 uniform sampler2D uShadowMap;
 uniform float uShadowTexel;
@@ -168,10 +185,8 @@ float sampleShadowPCF(float bias)
 }
 
 void main(){
-    // Simple lambert with shadow and a desaturated green tint for grass
-    vec3 N = normalize(vNormalWS);
-    vec3 L = normalize(-uLightDir);
-    float NdotL = max(dot(N, L), 0.0);
+    // Use pre-calculated Lambert lighting (updated when sun moves)
+    float NdotL = vLambert;  // Already clamped to [0,1] during calculation
 
     float bias = 0.0015;
     float visibility = sampleShadowPCF(bias);
@@ -245,16 +260,18 @@ bool ModelInstanceRenderer::initialize() {
 }
 
 void ModelInstanceRenderer::shutdown() {
-    // Clean up all instance buffers
+    // Clean up all instance buffers and their VAOs
     for (auto& kv : m_chunkInstances) {
         if (kv.second.instanceVBO) glDeleteBuffers(1, &kv.second.instanceVBO);
+        if (!kv.second.vaos.empty()) {
+            glDeleteVertexArrays(static_cast<GLsizei>(kv.second.vaos.size()), kv.second.vaos.data());
+        }
     }
     m_chunkInstances.clear();
     
     // Clean up all loaded models
     for (auto& modelPair : m_models) {
         for (auto& prim : modelPair.second.primitives) {
-            if (prim.vao) glDeleteVertexArrays(1, &prim.vao);
             if (prim.vbo) glDeleteBuffers(1, &prim.vbo);
             if (prim.ebo) glDeleteBuffers(1, &prim.ebo);
         }
@@ -307,41 +324,36 @@ bool ModelInstanceRenderer::loadModel(uint8_t blockID, const std::string& path) 
     auto it = m_models.find(blockID);
     if (it != m_models.end()) {
         for (auto& prim : it->second.primitives) {
-            if (prim.vao) glDeleteVertexArrays(1, &prim.vao);
             if (prim.vbo) glDeleteBuffers(1, &prim.vbo);
             if (prim.ebo) glDeleteBuffers(1, &prim.ebo);
         }
     }
     
-    // Build GPU model from CPU data
+    // Build GPU model from CPU data (VBO/EBO only - VAOs created per-chunk)
     ModelGPU gpuModel;
     gpuModel.primitives.clear();
     for (auto& cpuPrim : cpu.primitives) {
         ModelPrimitiveGPU gp;
-        glGenVertexArrays(1, &gp.vao);
-        glBindVertexArray(gp.vao);
+        
+        // Create and upload vertex buffer (initially with default lighting)
         glGenBuffers(1, &gp.vbo);
         glBindBuffer(GL_ARRAY_BUFFER, gp.vbo);
-        glBufferData(GL_ARRAY_BUFFER, cpuPrim.interleaved.size() * sizeof(float), cpuPrim.interleaved.data(), GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, cpuPrim.interleaved.size() * sizeof(float), cpuPrim.interleaved.data(), GL_DYNAMIC_DRAW);  // DYNAMIC for lighting updates
+        
+        // Create and upload index buffer
         if (!cpuPrim.indices.empty()) {
             glGenBuffers(1, &gp.ebo);
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gp.ebo);
             glBufferData(GL_ELEMENT_ARRAY_BUFFER, cpuPrim.indices.size() * sizeof(unsigned int), cpuPrim.indices.data(), GL_STATIC_DRAW);
         }
-        GLsizei stride = sizeof(float) * 8; // pos(3) + normal(3) + uv(2)
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(sizeof(float)*3));
-        glEnableVertexAttribArray(2);
-        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, (void*)(sizeof(float)*6));
-        glBindVertexArray(0);
+        
         gp.indexCount = (int)cpuPrim.indices.size();
         gpuModel.primitives.emplace_back(gp);
     }
     gpuModel.valid = !gpuModel.primitives.empty();
     
-    // Store the model
+    // Store both CPU and GPU models
+    m_cpuModels[blockID] = std::move(cpu);  // Keep CPU data for lighting recalculation
     m_models[blockID] = gpuModel;
     m_modelPaths[blockID] = path;
 
@@ -426,8 +438,44 @@ void ModelInstanceRenderer::update(float deltaTime) {
 }
 
 void ModelInstanceRenderer::setLightingData(const glm::mat4& lightVP, const glm::vec3& lightDir) {
+    // Check if sun direction changed
+    glm::vec3 prevDir = m_lightDir;
     m_lightVP = lightVP;
     m_lightDir = lightDir;
+    
+    // Mark lighting dirty if sun direction changed significantly
+    float dotDiff = glm::dot(prevDir, lightDir);
+    if (dotDiff < 0.9999f) {  // Threshold for change detection
+        m_lightingDirty = true;
+    }
+}
+
+void ModelInstanceRenderer::updateLightingIfNeeded() {
+    if (!m_lightingDirty) return;
+    
+    // Convert sun direction to Vec3
+    Vec3 sunDir(m_lightDir.x, m_lightDir.y, m_lightDir.z);
+    
+    // Recalculate lighting for all CPU models
+    for (auto& cpuPair : m_cpuModels) {
+        cpuPair.second.recalculateLighting(sunDir);
+        
+        // Upload updated vertex data to GPU
+        auto gpuIt = m_models.find(cpuPair.first);
+        if (gpuIt == m_models.end()) continue;
+        
+        for (size_t i = 0; i < cpuPair.second.primitives.size() && i < gpuIt->second.primitives.size(); i++) {
+            const auto& cpuPrim = cpuPair.second.primitives[i];
+            const auto& gpuPrim = gpuIt->second.primitives[i];
+            
+            // Update VBO with new Lambert values
+            glBindBuffer(GL_ARRAY_BUFFER, gpuPrim.vbo);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, cpuPrim.interleaved.size() * sizeof(float), cpuPrim.interleaved.data());
+        }
+    }
+    
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    m_lightingDirty = false;
 }
 
 bool ModelInstanceRenderer::ensureChunkInstancesUploaded(uint8_t blockID, VoxelChunk* chunk) {
@@ -442,18 +490,46 @@ bool ModelInstanceRenderer::ensureChunkInstancesUploaded(uint8_t blockID, VoxelC
     GLsizei count = static_cast<GLsizei>(instances.size());
     if (count == 0) return false;
 
-    // Find or create instance buffer for (chunk, blockID) pair
+    // Buffer must already exist (created by updateModelMatrix)
     auto key = std::make_pair(chunk, blockID);
     auto it = m_chunkInstances.find(key);
-    
-    if (it == m_chunkInstances.end()) {
-        ChunkInstanceBuffer buf;
-        glGenBuffers(1, &buf.instanceVBO);
-        m_chunkInstances.emplace(key, buf);
-        it = m_chunkInstances.find(key);
-    }
+    if (it == m_chunkInstances.end()) return false; // Should never happen
     
     ChunkInstanceBuffer& buf = it->second;
+    
+    // Create per-chunk VAOs if they don't exist (one VAO per primitive)
+    if (buf.vaos.empty()) {
+        buf.vaos.resize(modelIt->second.primitives.size());
+        for (size_t i = 0; i < modelIt->second.primitives.size(); ++i) {
+            const auto& prim = modelIt->second.primitives[i];
+            GLuint vao = 0;
+            glGenVertexArrays(1, &vao);
+            glBindVertexArray(vao);
+            
+            // Bind the model's vertex/index buffers
+            glBindBuffer(GL_ARRAY_BUFFER, prim.vbo);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prim.ebo);
+            
+            // Setup vertex attributes: pos(3), normal(3), uv(2), lambert(1) = 9 floats
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float)*9, (void*)0);
+            glEnableVertexAttribArray(1);
+            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(float)*9, (void*)(sizeof(float)*3));
+            glEnableVertexAttribArray(2);
+            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(float)*9, (void*)(sizeof(float)*6));
+            glEnableVertexAttribArray(3);
+            glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(float)*9, (void*)(sizeof(float)*8));
+            
+            // Bind this chunk's instance buffer (location 4)
+            glBindBuffer(GL_ARRAY_BUFFER, buf.instanceVBO);
+            glEnableVertexAttribArray(4);
+            glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, sizeof(float)*4, (void*)0);
+            glVertexAttribDivisor(4, 1);
+            
+            glBindVertexArray(0);
+            buf.vaos[i] = vao;
+        }
+    }
     
     // Only upload if data hasn't been uploaded yet or chunk mesh needs update
     if (buf.isUploaded && !chunk->getMesh().needsUpdate && buf.count == count) {
@@ -477,28 +553,46 @@ bool ModelInstanceRenderer::ensureChunkInstancesUploaded(uint8_t blockID, VoxelC
     buf.count = count;
     buf.isUploaded = true;
 
-    // Hook instance attrib to all model VAOs for this blockID
-    for (auto& prim : modelIt->second.primitives) {
-        glBindVertexArray(prim.vao);
-        glBindBuffer(GL_ARRAY_BUFFER, buf.instanceVBO);
-        glEnableVertexAttribArray(3);
-        glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, sizeof(float)*4, (void*)0);
-        glVertexAttribDivisor(3, 1);
-        glBindVertexArray(0);
-    }
     return true;
 }
 
-void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const Vec3& chunkLocalPos, const glm::mat4& islandTransform, const glm::mat4& view, const glm::mat4& proj) {
+void ModelInstanceRenderer::updateModelMatrix(uint8_t blockID, VoxelChunk* chunk, const glm::mat4& chunkTransform) {
+    // Store the pre-calculated chunk transform FIRST (before uploading instances)
+    auto key = std::make_pair(chunk, blockID);
+    auto bufIt = m_chunkInstances.find(key);
+    if (bufIt != m_chunkInstances.end()) {
+        bufIt->second.modelMatrix = chunkTransform;
+    } else {
+        // Buffer doesn't exist yet - create it with the correct matrix
+        ChunkInstanceBuffer buf;
+        glGenBuffers(1, &buf.instanceVBO);
+        buf.modelMatrix = chunkTransform;
+        m_chunkInstances.emplace(key, buf);
+    }
+    
+    // NOW upload instances with the correct matrix already set
+    ensureChunkInstancesUploaded(blockID, chunk);
+}
+
+void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const glm::mat4& view, const glm::mat4& proj) {
+    // Update lighting if sun direction changed
+    updateLightingIfNeeded();
+    
     // Check if model is loaded
     auto modelIt = m_models.find(blockID);
     if (modelIt == m_models.end() || !modelIt->second.valid) return;
-    if (!ensureChunkInstancesUploaded(blockID, chunk)) return;
 
     // Get shader for this block type
     auto shaderIt = m_shaders.find(blockID);
     if (shaderIt == m_shaders.end()) return;
     GLuint shader = shaderIt->second;
+
+    // Get instance buffer for this (chunk, blockID) pair
+    auto key = std::make_pair(chunk, blockID);
+    auto bufIt = m_chunkInstances.find(key);
+    if (bufIt == m_chunkInstances.end()) return;  // Model matrix should already be set by updateModelMatrix
+    
+    ChunkInstanceBuffer& buf = bufIt->second;
 
     // Ensure sane fixed-function state before color draw
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -521,14 +615,10 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
     int loc_ShadowMap = glGetUniformLocation(shader, "uShadowMap");
     int loc_Texture = glGetUniformLocation(shader, "uGrassTexture");
 
-    // Matrices - apply island transform (rotation + translation), then chunk offset
+    // Set uniforms - use pre-calculated model matrix from buffer
     glUniformMatrix4fv(loc_View, 1, GL_FALSE, &view[0][0]);
     glUniformMatrix4fv(loc_Proj, 1, GL_FALSE, &proj[0][0]);
-    
-    // Model matrix: island transform * chunk local offset
-    glm::mat4 chunkOffset = glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
-    glm::mat4 model = islandTransform * chunkOffset;
-    glUniformMatrix4fv(loc_Model, 1, GL_FALSE, &model[0][0]);
+    glUniformMatrix4fv(loc_Model, 1, GL_FALSE, &buf.modelMatrix[0][0]);
     glUniform1f(loc_Time, m_time);
 
     // Shadow map lighting
@@ -562,25 +652,15 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
             glUniform1i(loc_Texture, 5);
         }
     }
-
-    // Get instance buffer for this (chunk, blockID) pair
-    auto key = std::make_pair(chunk, blockID);
-    auto bufIt = m_chunkInstances.find(key);
-    if (bufIt == m_chunkInstances.end()) return;  // Should never happen after ensureChunkInstancesUploaded
-    
-    ChunkInstanceBuffer& buf = bufIt->second;
-    
-    // Store model matrix for shadow pass
-    buf.modelMatrix = model;
     
     // Render two-sided foliage (disable culling for grass-like models)
     GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
     if (wasCull) glDisable(GL_CULL_FACE);
     
-    // Render instanced models for each primitive
-    for (auto& prim : modelIt->second.primitives) {
-        glBindVertexArray(prim.vao);
-        glDrawElementsInstanced(GL_TRIANGLES, prim.indexCount, GL_UNSIGNED_INT, 0, buf.count);
+    // Render instanced models using per-chunk VAOs
+    for (size_t i = 0; i < buf.vaos.size() && i < modelIt->second.primitives.size(); ++i) {
+        glBindVertexArray(buf.vaos[i]);
+        glDrawElementsInstanced(GL_TRIANGLES, modelIt->second.primitives[i].indexCount, GL_UNSIGNED_INT, 0, buf.count);
         glBindVertexArray(0);
     }
     if (wasCull) glEnable(GL_CULL_FACE);
@@ -602,6 +682,7 @@ void ModelInstanceRenderer::beginDepthPass(const glm::mat4& lightVP)
             if (m_depthProgram) {
                 m_depth_uLightVP = glGetUniformLocation(m_depthProgram, "uLightVP");
                 m_depth_uModel = glGetUniformLocation(m_depthProgram, "uModel");
+                m_depth_uTime = glGetUniformLocation(m_depthProgram, "uTime");
             }
         }
     }
@@ -614,6 +695,9 @@ void ModelInstanceRenderer::beginDepthPass(const glm::mat4& lightVP)
     glUseProgram(m_depthProgram);
     if (m_depth_uLightVP != -1) {
         glUniformMatrix4fv(m_depth_uLightVP, 1, GL_FALSE, &lightVP[0][0]);
+    }
+    if (m_depth_uTime != -1) {
+        glUniform1f(m_depth_uTime, m_time);  // Apply wind animation to shadows
     }
 }
 
@@ -642,10 +726,10 @@ void ModelInstanceRenderer::renderDepth()
         GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
         if (wasCull) glDisable(GL_CULL_FACE);
         
-        // Render instanced models for each primitive
-        for (auto& prim : modelIt->second.primitives) {
-            glBindVertexArray(prim.vao);
-            glDrawElementsInstanced(GL_TRIANGLES, prim.indexCount, GL_UNSIGNED_INT, 0, buf.count);
+        // Render instanced models using per-chunk VAOs
+        for (size_t i = 0; i < buf.vaos.size() && i < modelIt->second.primitives.size(); ++i) {
+            glBindVertexArray(buf.vaos[i]);
+            glDrawElementsInstanced(GL_TRIANGLES, modelIt->second.primitives[i].indexCount, GL_UNSIGNED_INT, 0, buf.count);
             glBindVertexArray(0);
         }
         
@@ -661,22 +745,3 @@ void ModelInstanceRenderer::endDepthPass(int screenWidth, int screenHeight)
     (void)screenHeight;
 }
 
-void ModelInstanceRenderer::prepareInstancesForShadow(uint8_t blockID, VoxelChunk* chunk, const Vec3& chunkLocalPos, const glm::mat4& islandTransform)
-{
-    // Check if model is loaded
-    auto modelIt = m_models.find(blockID);
-    if (modelIt == m_models.end() || !modelIt->second.valid) return;
-    
-    // Ensure instance buffers are uploaded
-    if (!ensureChunkInstancesUploaded(blockID, chunk)) return;
-    
-    // Calculate and store model matrix for shadow pass
-    glm::mat4 chunkOffset = glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
-    glm::mat4 model = islandTransform * chunkOffset;
-    
-    auto key = std::make_pair(chunk, blockID);
-    auto bufIt = m_chunkInstances.find(key);
-    if (bufIt != m_chunkInstances.end()) {
-        bufIt->second.modelMatrix = model;
-    }
-}

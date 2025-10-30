@@ -1,5 +1,5 @@
 #include "ChatSystem.h"
-#include "../Time/DayNightCycle.h"
+#include "../Time/DayNightController.h"
 #include "../Time/TimeManager.h"
 #include <imgui.h>
 #include <algorithm>
