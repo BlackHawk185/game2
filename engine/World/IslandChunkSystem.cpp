@@ -146,8 +146,10 @@ void IslandChunkSystem::addChunkToIsland(uint32_t islandID, const Vec3& chunkCoo
     if (island->chunks.find(chunkCoord) != island->chunks.end())
         return;
 
-    // Create new chunk
-    island->chunks[chunkCoord] = std::make_unique<VoxelChunk>();
+    // Create new chunk and set island context
+    auto newChunk = std::make_unique<VoxelChunk>();
+    newChunk->setIslandContext(islandID, chunkCoord);
+    island->chunks[chunkCoord] = std::move(newChunk);
 }
 
 void IslandChunkSystem::removeChunkFromIsland(uint32_t islandID, const Vec3& chunkCoord)
@@ -518,6 +520,7 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
         if (!chunkPtr)
         {
             chunkPtr = std::make_unique<VoxelChunk>();
+            chunkPtr->setIslandContext(islandID, chunkCoord);
             isNewChunk = true;
         }
         chunk = chunkPtr.get();
@@ -532,7 +535,7 @@ void IslandChunkSystem::setVoxelInIsland(uint32_t islandID, const Vec3& islandRe
     
     chunk->setVoxel(x, y, z, voxelType);
     chunk->generateMesh();
-    chunk->buildCollisionMesh();  // Rebuild collision mesh for accurate physics
+    chunk->buildCollisionMesh();
 }
 
 void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& islandRelativePos, uint8_t voxelType)
@@ -559,8 +562,10 @@ void IslandChunkSystem::setVoxelWithAutoChunk(uint32_t islandID, const Vec3& isl
         localZ = static_cast<int>(std::floor(islandRelativePos.z)) - (chunkZ * VoxelChunk::SIZE);
 
         std::unique_ptr<VoxelChunk>& chunkPtr = island.chunks[chunkCoord];
-        if (!chunkPtr)
+        if (!chunkPtr) {
             chunkPtr = std::make_unique<VoxelChunk>();
+            chunkPtr->setIslandContext(islandID, chunkCoord);
+        }
         chunk = chunkPtr.get();
     }
 

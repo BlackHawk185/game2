@@ -39,11 +39,17 @@ struct FloatingIsland
 
     static Vec3 islandPosToLocalPos(const Vec3& islandRelativePos) {
         Vec3 chunkCoord = islandPosToChunkCoord(islandRelativePos);
-        return Vec3(
-            islandRelativePos.x - (chunkCoord.x * VoxelChunk::SIZE),
-            islandRelativePos.y - (chunkCoord.y * VoxelChunk::SIZE),
-            islandRelativePos.z - (chunkCoord.z * VoxelChunk::SIZE)
-        );
+        // Proper modulo for negative numbers
+        int x = static_cast<int>(islandRelativePos.x) - (chunkCoord.x * VoxelChunk::SIZE);
+        int y = static_cast<int>(islandRelativePos.y) - (chunkCoord.y * VoxelChunk::SIZE);
+        int z = static_cast<int>(islandRelativePos.z) - (chunkCoord.z * VoxelChunk::SIZE);
+        
+        // Ensure result is always 0-15 for valid chunk-local coordinates
+        if (x < 0) x += VoxelChunk::SIZE;
+        if (y < 0) y += VoxelChunk::SIZE;
+        if (z < 0) z += VoxelChunk::SIZE;
+        
+        return Vec3(x, y, z);
     }
 
     static Vec3 chunkCoordToWorldPos(const Vec3& chunkCoord) {

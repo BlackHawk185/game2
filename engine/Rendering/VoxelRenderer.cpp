@@ -128,13 +128,11 @@ bool VoxelRenderer::initialize() {
     // Enable depth testing
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
-    
-    // Enable face culling
     glEnable(GL_CULL_FACE);
     glCullFace(GL_BACK);
     glFrontFace(GL_CCW);
     
-    std::cout << "VoxelRenderer: Initialization complete" << std::endl;
+    std::cout << "VoxelRenderer: Initialization complete (depth test + back-face culling enabled)" << std::endl;
     return true;
 }
 

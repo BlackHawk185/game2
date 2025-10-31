@@ -28,6 +28,9 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
 
     std::cout << "🌍 Initializing GameState..." << std::endl;
 
+    // Set static island system pointer for inter-chunk culling
+    VoxelChunk::setIslandSystem(&m_islandSystem);
+    
     // Initialize physics system - Re-enabled with fixed BodyID handling
     m_physicsSystem = std::make_unique<PhysicsSystem>();
     // Physics system initialization is automatic - no explicit init needed
@@ -131,7 +134,7 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (multiple floating islands)..." << std::endl;
 
     // **ISLAND CONFIGURATION** - Reduced for physics debugging
-    float mainRadius = 300.0f;     // Main island size (reduced from 500.0f for faster iteration)
+    float mainRadius = 500.0f;     // Main island size (reduced from 500.0f for faster iteration)
     float smallRadius = 10.0f;     // Smaller island size (reduced from 120.0f)
     float spacing = 250.0f;        // Distance between island centers (reduced from 300.0f)
     
@@ -204,11 +207,6 @@ void GameState::createDefaultWorld()
                             }
                         }
                     }
-                    
-                    // Generate mesh WITHOUT LIGHTING during world generation (huge performance boost)
-                    // Lighting will be generated later when needed by the client
-                    const_cast<VoxelChunk*>(chunk.get())->generateMesh(false);
-                    const_cast<VoxelChunk*>(chunk.get())->buildCollisionMesh();
                 }
             }
             

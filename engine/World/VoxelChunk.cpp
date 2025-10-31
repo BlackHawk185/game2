@@ -16,6 +16,9 @@
 #include "../Profiling/Profiler.h"
 #include "IslandChunkSystem.h"  // For inter-island raycast queries
 
+// Static island system pointer for inter-chunk queries
+IslandChunkSystem* VoxelChunk::s_islandSystem = nullptr;
+
 VoxelChunk::VoxelChunk()
 {
     // Initialize voxel data to empty (0 = air)
@@ -73,23 +76,29 @@ void VoxelChunk::setRawVoxelData(const uint8_t* data, uint32_t size)
     meshDirty = true;
 }
 
+void VoxelChunk::setIslandContext(uint32_t islandID, const Vec3& chunkCoord)
+{
+    m_islandID = islandID;
+    m_chunkCoord = chunkCoord;
+}
+
 void VoxelChunk::addCollisionQuad(float x, float y, float z, int face)
 {
     // Each face is a quad (4 vertices)
-    // Face order: 0=+Z, 1=-Z, 2=+Y, 3=-Y, 4=+X, 5=-X
+    // STANDARD face ordering: 0=-Y(bottom), 1=+Y(top), 2=-Z(back), 3=+Z(front), 4=-X(left), 5=+X(right)
     static const Vec3 quadVertices[6][4] = {
-        // +Z
-        {Vec3(0, 0, 1), Vec3(1, 0, 1), Vec3(1, 1, 1), Vec3(0, 1, 1)},
-        // -Z
-        {Vec3(1, 0, 0), Vec3(0, 0, 0), Vec3(0, 1, 0), Vec3(1, 1, 0)},
-        // +Y
+        // -Y (bottom)
+        {Vec3(0, 0, 0), Vec3(1, 0, 0), Vec3(1, 0, 1), Vec3(0, 0, 1)},
+        // +Y (top)
         {Vec3(0, 1, 0), Vec3(0, 1, 1), Vec3(1, 1, 1), Vec3(1, 1, 0)},
-        // -Y
-        {Vec3(1, 0, 0), Vec3(1, 0, 1), Vec3(0, 0, 1), Vec3(0, 0, 0)},
-        // +X
-        {Vec3(1, 0, 1), Vec3(1, 0, 0), Vec3(1, 1, 0), Vec3(1, 1, 1)},
-        // -X
-        {Vec3(0, 0, 0), Vec3(0, 0, 1), Vec3(0, 1, 1), Vec3(0, 1, 0)}};
+        // -Z (back)
+        {Vec3(0, 0, 0), Vec3(0, 1, 0), Vec3(1, 1, 0), Vec3(1, 0, 0)},
+        // +Z (front)
+        {Vec3(0, 0, 1), Vec3(1, 0, 1), Vec3(1, 1, 1), Vec3(0, 1, 1)},
+        // -X (left)
+        {Vec3(0, 0, 0), Vec3(0, 0, 1), Vec3(0, 1, 1), Vec3(0, 1, 0)},
+        // +X (right)
+        {Vec3(1, 0, 0), Vec3(1, 1, 0), Vec3(1, 1, 1), Vec3(1, 0, 1)}};
 
     for (int i = 0; i < 4; ++i)
     {
@@ -112,64 +121,44 @@ bool VoxelChunk::isVoxelSolid(int x, int y, int z) const
     return true;
 }
 
-// Helper: Check if neighbor voxel is solid (intra-chunk only)
-// Returns 0 (AIR) if neighbor is out of bounds
-uint8_t VoxelChunk::getNeighborVoxel(int x, int y, int z, int direction) const
+void VoxelChunk::addQuadWithSharing(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
+                                    std::unordered_map<Vertex, uint32_t>& vertexCache,
+                                    float x, float y, float z, int face, uint8_t blockType)
 {
-    // Direction offsets: 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z
-    static const int dx[] = {1, -1, 0, 0, 0, 0};
-    static const int dy[] = {0, 0, 1, -1, 0, 0};
-    static const int dz[] = {0, 0, 0, 0, 1, -1};
-    
-    int nx = x + dx[direction];
-    int ny = y + dy[direction];
-    int nz = z + dz[direction];
-    
-    // Check if neighbor is within this chunk
-    if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && nz >= 0 && nz < SIZE)
-    {
-        return getVoxel(nx, ny, nz);
-    }
-    
-    // Out of chunk bounds = render face (intra-chunk culling only)
-    return 0;
-}
+    (void)blockType;
 
-void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, float x,
-                         float y, float z, int face, uint8_t blockType)
-{
-    (void)blockType; // Reserved for future texture atlas indexing
-    uint32_t startIndex = static_cast<uint32_t>(vertices.size());
-
-    // Face order: 0=+Z, 1=-Z, 2=+Y, 3=-Y, 4=+X, 5=-X
+    // STANDARD face ordering: 0=-Y(bottom), 1=+Y(top), 2=-Z(back), 3=+Z(front), 4=-X(left), 5=+X(right)
     static const Vec3 quadVertices[6][4] = {
-        // +Z (front)
-        {Vec3(0, 0, 1), Vec3(1, 0, 1), Vec3(1, 1, 1), Vec3(0, 1, 1)},
-        // -Z (back)
-        {Vec3(1, 0, 0), Vec3(0, 0, 0), Vec3(0, 1, 0), Vec3(1, 1, 0)},
+        // -Y (bottom)
+        {Vec3(0, 0, 0), Vec3(1, 0, 0), Vec3(1, 0, 1), Vec3(0, 0, 1)},
         // +Y (top)
         {Vec3(0, 1, 0), Vec3(0, 1, 1), Vec3(1, 1, 1), Vec3(1, 1, 0)},
-        // -Y (bottom)
-        {Vec3(1, 0, 0), Vec3(1, 0, 1), Vec3(0, 0, 1), Vec3(0, 0, 0)},
-        // +X (right)
-        {Vec3(1, 0, 1), Vec3(1, 0, 0), Vec3(1, 1, 0), Vec3(1, 1, 1)},
+        // -Z (back)
+        {Vec3(0, 0, 0), Vec3(0, 1, 0), Vec3(1, 1, 0), Vec3(1, 0, 0)},
+        // +Z (front)
+        {Vec3(0, 0, 1), Vec3(1, 0, 1), Vec3(1, 1, 1), Vec3(0, 1, 1)},
         // -X (left)
-        {Vec3(0, 0, 0), Vec3(0, 0, 1), Vec3(0, 1, 1), Vec3(0, 1, 0)}};
+        {Vec3(0, 0, 0), Vec3(0, 0, 1), Vec3(0, 1, 1), Vec3(0, 1, 0)},
+        // +X (right)
+        {Vec3(1, 0, 0), Vec3(1, 1, 0), Vec3(1, 1, 1), Vec3(1, 0, 1)}};
 
-    // Normals for each face
+    // Normals for each face (MUST match order above)
     static const Vec3 normals[6] = {
-        Vec3(0, 0, 1),   // +Z
-        Vec3(0, 0, -1),  // -Z
-        Vec3(0, 1, 0),   // +Y
-        Vec3(0, -1, 0),  // -Y
-        Vec3(1, 0, 0),   // +X
-        Vec3(-1, 0, 0)   // -X
+        Vec3(0, -1, 0),  // -Y (bottom)
+        Vec3(0, 1, 0),   // +Y (top)
+        Vec3(0, 0, -1),  // -Z (back)
+        Vec3(0, 0, 1),   // +Z (front)
+        Vec3(-1, 0, 0),  // -X (left)
+        Vec3(1, 0, 0)    // +X (right)
     };
 
     // Texture coordinates for each vertex of the quad
     static const float texCoords[4][2] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}, {0.0f, 1.0f}};
 
-    // Add 4 vertices for this quad
+    // Array to store indices for this quad's 4 vertices
+    uint32_t quadIndices[4];
+
+    // Add 4 vertices for this quad (with deduplication)
     for (int i = 0; i < 4; ++i)
     {
         Vertex v;
@@ -183,8 +172,7 @@ void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& i
         v.u = texCoords[i][0];
         v.v = texCoords[i][1];
         
-        // Light mapping: Map world position to light map UVs (32x32 texture)
-        // For now, use simple planar mapping based on face orientation
+        // Light mapping
         switch (face)
         {
             case 0: case 1: // +Z/-Z faces: use X,Y
@@ -201,20 +189,33 @@ void VoxelChunk::addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& i
                 break;
         }
         
-        // Basic ambient occlusion: compute based on neighboring voxels
         v.ao = computeAmbientOcclusion(static_cast<int>(pos.x), static_cast<int>(pos.y), static_cast<int>(pos.z), face);
-        v.faceIndex = static_cast<float>(face);  // Store face index for shader
+        v.faceIndex = static_cast<float>(face);
         
-        vertices.push_back(v);
+        // Check if this vertex already exists in the cache
+        auto it = vertexCache.find(v);
+        if (it != vertexCache.end())
+        {
+            // Reuse existing vertex
+            quadIndices[i] = it->second;
+        }
+        else
+        {
+            // Add new vertex
+            uint32_t newIndex = static_cast<uint32_t>(vertices.size());
+            vertices.push_back(v);
+            vertexCache[v] = newIndex;
+            quadIndices[i] = newIndex;
+        }
     }
 
     // Add 6 indices for two triangles (quad)
-    indices.push_back(startIndex);
-    indices.push_back(startIndex + 1);
-    indices.push_back(startIndex + 2);
-    indices.push_back(startIndex);
-    indices.push_back(startIndex + 2);
-    indices.push_back(startIndex + 3);
+    indices.push_back(quadIndices[0]);
+    indices.push_back(quadIndices[1]);
+    indices.push_back(quadIndices[2]);
+    indices.push_back(quadIndices[0]);
+    indices.push_back(quadIndices[2]);
+    indices.push_back(quadIndices[3]);
 }
 
 void VoxelChunk::generateMesh(bool generateLighting)
@@ -255,8 +256,8 @@ void VoxelChunk::generateMesh(bool generateLighting)
     auto greedyMeshStart = std::chrono::high_resolution_clock::now();
     (void)greedyMeshStart; // Reserved for future timing metrics
 
-    // Use greedy meshing for optimal performance
-    generateGreedyMesh();
+    // Simple mesh generation - one quad per exposed face
+    generateSimpleMesh();
     
     auto collisionStart = std::chrono::high_resolution_clock::now();
     (void)collisionStart; // Reserved for future timing metrics
@@ -876,400 +877,96 @@ bool VoxelChunk::hasLightMapData() const {
 }
 
 // ========================================
-// GREEDY MESHING IMPLEMENTATION
+// UNIFIED CULLING - Works for intra-chunk AND inter-chunk
 // ========================================
 
-void VoxelChunk::generateGreedyMesh()
+bool VoxelChunk::isFaceExposed(int x, int y, int z, int face) const
 {
-    PROFILE_SCOPE("VoxelChunk::generateGreedyMesh");
+    // STANDARD OpenGL/Minecraft face ordering for sanity:
+    // 0=-Y(bottom), 1=+Y(top), 2=-Z(back), 3=+Z(front), 4=-X(left), 5=+X(right)
+    static const int dx[6] = { 0,  0,  0,  0, -1,  1};
+    static const int dy[6] = {-1,  1,  0,  0,  0,  0};
+    static const int dz[6] = { 0,  0, -1,  1,  0,  0};
     
-    // Generate quads for each of the 6 directions (faces)
-    for (int direction = 0; direction < 6; ++direction)
+    // Calculate neighbor position in LOCAL chunk space
+    int nx = x + dx[face];
+    int ny = y + dy[face];
+    int nz = z + dz[face];
+    
+    // Fast path: neighbor is within this chunk
+    if (nx >= 0 && nx < SIZE && ny >= 0 && ny < SIZE && nz >= 0 && nz < SIZE)
     {
-        generateGreedyQuads(direction, mesh.vertices, mesh.indices);
+        return !isVoxelSolid(nx, ny, nz);
     }
+    
+    // Slow path: neighbor is in adjacent chunk - query island system
+    if (m_islandID == 0 || !s_islandSystem) return true;  // No island context = always exposed
+    
+    // Calculate which neighbor chunk we need
+    Vec3 neighborChunkCoord = m_chunkCoord;
+    int localX = nx, localY = ny, localZ = nz;
+    
+    if (nx < 0) { neighborChunkCoord.x -= 1; localX = SIZE - 1; }
+    else if (nx >= SIZE) { neighborChunkCoord.x += 1; localX = 0; }
+    
+    if (ny < 0) { neighborChunkCoord.y -= 1; localY = SIZE - 1; }
+    else if (ny >= SIZE) { neighborChunkCoord.y += 1; localY = 0; }
+    
+    if (nz < 0) { neighborChunkCoord.z -= 1; localZ = SIZE - 1; }
+    else if (nz >= SIZE) { neighborChunkCoord.z += 1; localZ = 0; }
+    
+    // Query neighbor chunk
+    VoxelChunk* neighborChunk = s_islandSystem->getChunkFromIsland(m_islandID, neighborChunkCoord);
+    if (!neighborChunk) return true;  // Neighbor doesn't exist yet = exposed
+    
+    return !neighborChunk->isVoxelSolid(localX, localY, localZ);
 }
 
-void VoxelChunk::generateGreedyQuads(int direction, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices)
+// ========================================
+// SIMPLE MESH GENERATION - NO GREEDY MESHING
+// ========================================
+
+void VoxelChunk::generateSimpleMesh()
 {
-    // Direction mapping:
-    // 0: +X (right), 1: -X (left), 2: +Y (up), 3: -Y (down), 4: +Z (forward), 5: -Z (back)
+    PROFILE_SCOPE("VoxelChunk::generateSimpleMesh");
     
-    // For each direction, we have a different slicing plane
-    int u, v, w;  // u,v = plane coordinates, w = depth coordinate
-    int uMax, vMax, wMax;
+    // Vertex deduplication cache
+    std::unordered_map<Vertex, uint32_t> vertexCache;
     
-    switch (direction)
+    // Iterate through all voxels and generate faces for each direction
+    for (int z = 0; z < SIZE; ++z)
     {
-        case 0: case 1: // X faces
-            u = 1; v = 2; w = 0; // u=Y, v=Z, w=X
-            uMax = SIZE; vMax = SIZE; wMax = SIZE;
-            break;
-        case 2: case 3: // Y faces  
-            u = 0; v = 2; w = 1; // u=X, v=Z, w=Y
-            uMax = SIZE; vMax = SIZE; wMax = SIZE;
-            break;
-        case 4: case 5: // Z faces
-            u = 0; v = 1; w = 2; // u=X, v=Y, w=Z
-            uMax = SIZE; vMax = SIZE; wMax = SIZE;
-            break;
-        default:
-            return;
-    }
-    
-    // Temporary mask to track which voxels need quads
-    std::vector<uint8_t> mask(SIZE * SIZE);
-    
-    // Slice through the chunk in the w direction
-    for (int wPos = 0; wPos < wMax; ++wPos)
-    {
-        // Reset mask for this slice
-        std::fill(mask.begin(), mask.end(), 0);
-        
-        // Build mask for this slice
-        for (int vPos = 0; vPos < vMax; ++vPos)
+        for (int y = 0; y < SIZE; ++y)
         {
-            for (int uPos = 0; uPos < uMax; ++uPos)
+            for (int x = 0; x < SIZE; ++x)
             {
-                int x, y, z;
-                switch (direction)
-                {
-                    case 0: case 1: x = wPos; y = uPos; z = vPos; break;
-                    case 2: case 3: x = uPos; y = wPos; z = vPos; break;
-                    case 4: case 5: x = uPos; y = vPos; z = wPos; break;
-                }
-                
-                // Skip if this is not a solid voxel (air or OBJ-type blocks)
+                // Skip air and OBJ-type blocks
                 if (!isVoxelSolid(x, y, z))
-                {
                     continue;
-                }
                 
-                uint8_t currentVoxel = getVoxel(x, y, z);
+                uint8_t blockType = getVoxel(x, y, z);
                 
-                // Only add face to mask if it's exposed
-                // Face is exposed if neighbor is air OR neighbor is non-solid (OBJ-type block)
-                uint8_t neighborVoxel = getNeighborVoxel(x, y, z, direction);
-                bool neighborIsSolid = (neighborVoxel != 0) && isVoxelSolid(
-                    x + (direction == 0 ? 1 : direction == 1 ? -1 : 0),
-                    y + (direction == 2 ? 1 : direction == 3 ? -1 : 0),
-                    z + (direction == 4 ? 1 : direction == 5 ? -1 : 0)
-                );
-                
-                if (!neighborIsSolid)  // Exposed to air or non-solid block - render this face
+                // Generate ONLY exposed faces (unified culling!)
+                for (int face = 0; face < 6; ++face)
                 {
-                    mask[uPos + vPos * SIZE] = currentVoxel;
+                    // ✅ UNIFIED CULLING - works for intra-chunk AND inter-chunk
+                    if (!isFaceExposed(x, y, z, face))
+                        continue;  // Skip hidden faces
+                    
+                    addQuadWithSharing(mesh.vertices, mesh.indices, vertexCache,
+                           static_cast<float>(x), 
+                           static_cast<float>(y), 
+                           static_cast<float>(z), 
+                           face, blockType);
+                    
+                    addCollisionQuad(static_cast<float>(x), 
+                                   static_cast<float>(y), 
+                                   static_cast<float>(z), 
+                                   face);
                 }
             }
         }
-        
-        // Generate quads from mask using greedy algorithm
-        for (int vPos = 0; vPos < vMax; ++vPos)
-        {
-            for (int uPos = 0; uPos < uMax; )
-            {
-                uint8_t blockType = mask[uPos + vPos * SIZE];
-                if (blockType == 0)
-                {
-                    ++uPos;
-                    continue;
-                }
-                
-                // Find width of this quad
-                int width = 1;
-                while (uPos + width < uMax && 
-                       mask[uPos + width + vPos * SIZE] == blockType)
-                {
-                    ++width;
-                }
-                
-                // Find height of this quad
-                int height = 1;
-                bool canExtendHeight = true;
-                while (vPos + height < vMax && canExtendHeight)
-                {
-                    for (int i = 0; i < width; ++i)
-                    {
-                        if (mask[uPos + i + (vPos + height) * SIZE] != blockType)
-                        {
-                            canExtendHeight = false;
-                            break;
-                        }
-                    }
-                    if (canExtendHeight)
-                        ++height;
-                }
-                
-                // Clear the mask area we just processed
-                for (int h = 0; h < height; ++h)
-                {
-                    for (int w = 0; w < width; ++w)
-                    {
-                        mask[uPos + w + (vPos + h) * SIZE] = 0;
-                    }
-                }
-                
-                // Add the merged quad
-                int x, y, z;
-                switch (direction)
-                {
-                    case 0: case 1: x = wPos; y = uPos; z = vPos; break;
-                    case 2: case 3: x = uPos; y = wPos; z = vPos; break;
-                    case 4: case 5: x = uPos; y = vPos; z = wPos; break;
-                }
-                
-                addGreedyQuad(vertices, indices, x, y, z, width, height, direction, blockType);
-                
-                // Also add to collision mesh (simplified - could be optimized further)
-                for (int h = 0; h < height; ++h)
-                {
-                    for (int w = 0; w < width; ++w)
-                    {
-                        int cx, cy, cz;
-                        switch (direction)
-                        {
-                            case 0: case 1: cx = x; cy = y + w; cz = z + h; break;
-                            case 2: case 3: cx = x + w; cy = y; cz = z + h; break;
-                            case 4: case 5: cx = x + w; cy = y + h; cz = z; break;
-                        }
-                        addCollisionQuad(static_cast<float>(cx), static_cast<float>(cy), static_cast<float>(cz), direction);
-                    }
-                }
-                
-                uPos += width;
-            }
-        }
     }
-}
-
-bool VoxelChunk::canMergeVoxels(uint8_t voxel1, uint8_t voxel2) const
-{
-    // For now, only merge identical block types
-    // Could be extended to merge similar materials later
-    return voxel1 == voxel2;
-}
-
-void VoxelChunk::addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, 
-                               int x, int y, int z, int width, int height, int direction, uint8_t blockType)
-{
-    // Calculate vertices for the merged quad
-    Vec3 quadVertices[4];
-    Vec3 normal;
-    
-    // Calculate normal and base vertices based on direction
-    switch (direction)
-    {
-        case 0: // +X face (right)
-            normal = Vec3(1, 0, 0);
-            quadVertices[0] = Vec3(x + 1, y, z);
-            quadVertices[1] = Vec3(x + 1, y + width, z);
-            quadVertices[2] = Vec3(x + 1, y + width, z + height);
-            quadVertices[3] = Vec3(x + 1, y, z + height);
-            break;
-        case 1: // -X face (left)
-            normal = Vec3(-1, 0, 0);
-            quadVertices[0] = Vec3(x, y, z);
-            quadVertices[1] = Vec3(x, y, z + height);
-            quadVertices[2] = Vec3(x, y + width, z + height);
-            quadVertices[3] = Vec3(x, y + width, z);
-            break;
-        case 2: // +Y face (up)
-            normal = Vec3(0, 1, 0);
-            quadVertices[0] = Vec3(x, y + 1, z);
-            quadVertices[1] = Vec3(x, y + 1, z + height);
-            quadVertices[2] = Vec3(x + width, y + 1, z + height);
-            quadVertices[3] = Vec3(x + width, y + 1, z);
-            break;
-        case 3: // -Y face (down)
-            normal = Vec3(0, -1, 0);
-            quadVertices[0] = Vec3(x, y, z);
-            quadVertices[1] = Vec3(x + width, y, z);
-            quadVertices[2] = Vec3(x + width, y, z + height);
-            quadVertices[3] = Vec3(x, y, z + height);
-            break;
-        case 4: // +Z face (forward)
-            normal = Vec3(0, 0, 1);
-            quadVertices[0] = Vec3(x, y, z + 1);
-            quadVertices[1] = Vec3(x + width, y, z + 1);
-            quadVertices[2] = Vec3(x + width, y + height, z + 1);
-            quadVertices[3] = Vec3(x, y + height, z + 1);
-            break;
-        case 5: // -Z face (back)
-            normal = Vec3(0, 0, -1);
-            quadVertices[0] = Vec3(x, y, z);
-            quadVertices[1] = Vec3(x, y + height, z);
-            quadVertices[2] = Vec3(x + width, y + height, z);
-            quadVertices[3] = Vec3(x + width, y, z);
-            break;
-        default:
-            return;
-    }
-    
-    // Calculate texture coordinates (tiled across the merged quad for proper scaling)
-    // Need to match the texture coordinates with the actual quad vertex ordering
-    float texCoords[4][2];
-    
-    // Use standard texture coordinates without debug borders
-    float uMin = 0.0f;
-    float uMax = static_cast<float>(width);
-    float vMin = 0.0f;
-    float vMax = static_cast<float>(height);
-    
-    switch (direction)
-    {
-        case 0: // +X face (right): vertices go Y=0→width, Z=0→height
-            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
-            texCoords[1][0] = uMax; texCoords[1][1] = vMin;
-            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
-            texCoords[3][0] = uMin; texCoords[3][1] = vMax;
-            break;
-        case 1: // -X face (left): vertices go Z=0→height, Y=0→width  
-            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
-            texCoords[1][0] = uMin; texCoords[1][1] = vMax;
-            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
-            texCoords[3][0] = uMax; texCoords[3][1] = vMin;
-            break;
-        case 2: // +Y face (up): vertices go Z=0→height, X=0→width
-            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
-            texCoords[1][0] = uMin; texCoords[1][1] = vMax;
-            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
-            texCoords[3][0] = uMax; texCoords[3][1] = vMin;
-            break;
-        case 3: // -Y face (down): vertices go X=0→width, Z=0→height
-            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
-            texCoords[1][0] = uMax; texCoords[1][1] = vMin;
-            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
-            texCoords[3][0] = uMin; texCoords[3][1] = vMax;
-            break;
-        case 4: // +Z face (forward): vertices go X=0→width, Y=0→height
-            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
-            texCoords[1][0] = uMax; texCoords[1][1] = vMin;
-            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
-            texCoords[3][0] = uMin; texCoords[3][1] = vMax;
-            break;
-        case 5: // -Z face (back): vertices go Y=0→height, X=0→width
-            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
-            texCoords[1][0] = uMin; texCoords[1][1] = vMax;
-            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
-            texCoords[3][0] = uMax; texCoords[3][1] = vMin;
-            break;
-        default:
-            // Fallback to default texture coordinates
-            texCoords[0][0] = uMin; texCoords[0][1] = vMin;
-            texCoords[1][0] = uMax; texCoords[1][1] = vMin;
-            texCoords[2][0] = uMax; texCoords[2][1] = vMax;
-            texCoords[3][0] = uMin; texCoords[3][1] = vMax;
-            break;
-    }
-    
-    // Calculate light map coordinates for each vertex
-    // With per-face light maps, each face uses its own texture space (0-1 range)
-    float lightMapCoords[4][2];
-    
-    // Map each vertex to its face's light map space (0-1 range)
-    switch (direction)
-    {
-        case 0: // +X face: map Y,Z to light map UV (full 0-1 range)
-            lightMapCoords[0][0] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
-            lightMapCoords[0][1] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
-            lightMapCoords[1][0] = static_cast<float>(y + width) / static_cast<float>(SIZE);   // Y=width
-            lightMapCoords[1][1] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
-            lightMapCoords[2][0] = static_cast<float>(y + width) / static_cast<float>(SIZE);   // Y=width
-            lightMapCoords[2][1] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
-            lightMapCoords[3][0] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
-            lightMapCoords[3][1] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
-            break;
-        case 1: // -X face: map Z,Y to light map UV
-            lightMapCoords[0][0] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
-            lightMapCoords[0][1] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
-            lightMapCoords[1][0] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
-            lightMapCoords[1][1] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
-            lightMapCoords[2][0] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
-            lightMapCoords[2][1] = static_cast<float>(y + width) / static_cast<float>(SIZE);   // Y=width
-            lightMapCoords[3][0] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
-            lightMapCoords[3][1] = static_cast<float>(y + width) / static_cast<float>(SIZE);   // Y=width
-            break;
-        case 2: // +Y face: map Z,X to light map UV
-            lightMapCoords[0][0] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
-            lightMapCoords[0][1] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
-            lightMapCoords[1][0] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
-            lightMapCoords[1][1] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
-            lightMapCoords[2][0] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
-            lightMapCoords[2][1] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
-            lightMapCoords[3][0] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
-            lightMapCoords[3][1] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
-            break;
-        case 3: // -Y face: map X,Z to light map UV
-            lightMapCoords[0][0] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
-            lightMapCoords[0][1] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
-            lightMapCoords[1][0] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
-            lightMapCoords[1][1] = static_cast<float>(z) / static_cast<float>(SIZE);           // Z=0
-            lightMapCoords[2][0] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
-            lightMapCoords[2][1] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
-            lightMapCoords[3][0] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
-            lightMapCoords[3][1] = static_cast<float>(z + height) / static_cast<float>(SIZE);  // Z=height
-            break;
-        case 4: // +Z face: map X,Y to light map UV
-            lightMapCoords[0][0] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
-            lightMapCoords[0][1] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
-            lightMapCoords[1][0] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
-            lightMapCoords[1][1] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
-            lightMapCoords[2][0] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
-            lightMapCoords[2][1] = static_cast<float>(y + height) / static_cast<float>(SIZE);  // Y=height
-            lightMapCoords[3][0] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
-            lightMapCoords[3][1] = static_cast<float>(y + height) / static_cast<float>(SIZE);  // Y=height
-            break;
-        case 5: // -Z face: map Y,X to light map UV
-            lightMapCoords[0][0] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
-            lightMapCoords[0][1] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
-            lightMapCoords[1][0] = static_cast<float>(y + height) / static_cast<float>(SIZE);  // Y=height
-            lightMapCoords[1][1] = static_cast<float>(x) / static_cast<float>(SIZE);           // X=0
-            lightMapCoords[2][0] = static_cast<float>(y + height) / static_cast<float>(SIZE);  // Y=height
-            lightMapCoords[2][1] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
-            lightMapCoords[3][0] = static_cast<float>(y) / static_cast<float>(SIZE);           // Y=0
-            lightMapCoords[3][1] = static_cast<float>(x + width) / static_cast<float>(SIZE);   // X=width
-            break;
-        default:
-            // Fallback: use center coordinates for all vertices
-            float centerU = (x + width * 0.5f) / static_cast<float>(SIZE);
-            float centerV = (y + height * 0.5f) / static_cast<float>(SIZE);
-            for (int i = 0; i < 4; ++i) {
-                lightMapCoords[i][0] = centerU;
-                lightMapCoords[i][1] = centerV;
-            }
-            break;
-    }
-    
-    // Add vertices
-    uint32_t baseIndex = static_cast<uint32_t>(vertices.size());
-    for (int i = 0; i < 4; ++i)
-    {
-        Vertex vertex;
-        vertex.x = quadVertices[i].x;
-        vertex.y = quadVertices[i].y;
-        vertex.z = quadVertices[i].z;
-        vertex.nx = normal.x;
-        vertex.ny = normal.y;
-        vertex.nz = normal.z;
-        vertex.u = texCoords[i][0];
-        vertex.v = texCoords[i][1];
-        vertex.lu = lightMapCoords[i][0];
-        vertex.lv = lightMapCoords[i][1];
-        vertex.ao = computeAmbientOcclusion(x, y, z, direction);
-        vertex.faceIndex = static_cast<float>(direction);  // Store face index for shader
-        vertex.blockType = static_cast<float>(blockType);  // Store block type for texture selection
-        
-        vertices.push_back(vertex);
-    }
-    
-    // Add indices (two triangles)
-    indices.push_back(baseIndex);
-    indices.push_back(baseIndex + 1);
-    indices.push_back(baseIndex + 2);
-    
-    indices.push_back(baseIndex);
-    indices.push_back(baseIndex + 2);
-    indices.push_back(baseIndex + 3);
 }
 
 // Model instance management (for BlockRenderType::OBJ blocks)

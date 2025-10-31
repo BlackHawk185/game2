@@ -1159,8 +1159,8 @@ void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& p
         {
             // Apply the voxel data directly - this replaces any procedural generation
             chunk->setRawVoxelData(voxelData, dataSize);
-            chunk->generateMesh();        // Regenerate the mesh with the new data
-            chunk->buildCollisionMesh();  // Build collision faces from vertices
+            chunk->generateMesh();
+            chunk->buildCollisionMesh();
         }
         else
         {
@@ -1219,8 +1219,26 @@ void GameClient::handleCompressedChunkReceived(uint32_t islandID, const Vec3& ch
     {
         // Apply the voxel data directly
         chunk->setRawVoxelData(voxelData, dataSize);
-        chunk->generateMesh();        // Regenerate the mesh with the new data
-        chunk->buildCollisionMesh();  // Build collision faces from vertices
+        chunk->generateMesh();
+        chunk->buildCollisionMesh();
+        
+        // DEFERRED INTER-CHUNK CULLING: Regenerate all 6 neighbors
+        // This allows them to cull faces that touch this new chunk
+        static const Vec3 neighborOffsets[6] = {
+            Vec3(0, -1, 0), Vec3(0, 1, 0),   // -Y, +Y
+            Vec3(0, 0, -1), Vec3(0, 0, 1),   // -Z, +Z
+            Vec3(-1, 0, 0), Vec3(1, 0, 0)    // -X, +X
+        };
+        
+        for (int i = 0; i < 6; ++i)
+        {
+            Vec3 neighborCoord = chunkCoord + neighborOffsets[i];
+            VoxelChunk* neighbor = islandSystem->getChunkFromIsland(islandID, neighborCoord);
+            if (neighbor)
+            {
+                neighbor->generateMesh();
+            }
+        }
         
         // Don't register with MDI here - syncPhysicsToChunks() will handle it
         // with authoritative transforms after EntityStateUpdate sets correct positions

@@ -24,7 +24,38 @@ struct Vertex
     float ao;          // Ambient occlusion (0.0 = fully occluded, 1.0 = no occlusion)
     float faceIndex;   // Face index (0-5) for selecting correct light map texture
     float blockType;   // Block type ID for texture selection
+    
+    // Equality operator for vertex deduplication
+    bool operator==(const Vertex& other) const {
+        return x == other.x && y == other.y && z == other.z &&
+               nx == other.nx && ny == other.ny && nz == other.nz &&
+               u == other.u && v == other.v &&
+               lu == other.lu && lv == other.lv &&
+               ao == other.ao && faceIndex == other.faceIndex &&
+               blockType == other.blockType;
+    }
 };
+
+// Hash function for Vertex
+namespace std {
+    template<>
+    struct hash<Vertex> {
+        size_t operator()(const Vertex& v) const {
+            // Combine hashes of all fields
+            size_t h1 = hash<float>()(v.x);
+            size_t h2 = hash<float>()(v.y);
+            size_t h3 = hash<float>()(v.z);
+            size_t h4 = hash<float>()(v.nx);
+            size_t h5 = hash<float>()(v.ny);
+            size_t h6 = hash<float>()(v.nz);
+            size_t h7 = hash<float>()(v.u);
+            size_t h8 = hash<float>()(v.v);
+            // Combine using XOR and bit shifting
+            return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ 
+                   (h5 << 4) ^ (h6 << 5) ^ (h7 << 6) ^ (h8 << 7);
+        }
+    };
+}
 
 struct VoxelMesh
 {
@@ -90,11 +121,16 @@ struct CollisionMesh
     }
 };
 
+class IslandChunkSystem;  // Forward declaration
+
 class VoxelChunk
 {
    public:
     static constexpr int SIZE = 16;  // 16x16x16 chunks
     static constexpr int VOLUME = SIZE * SIZE * SIZE;
+    
+    // Static island system pointer for inter-chunk queries
+    static void setIslandSystem(IslandChunkSystem* system) { s_islandSystem = system; }
 
     VoxelChunk();
     ~VoxelChunk();
@@ -184,6 +220,11 @@ class VoxelChunk
     bool checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection, float maxDistance,
                            Vec3& hitPoint, Vec3& hitNormal) const;
 
+   public:
+    // Island context for inter-chunk culling
+    void setIslandContext(uint32_t islandID, const Vec3& chunkCoord);
+    
+
    private:
     std::array<uint8_t, VOLUME> voxels;
     VoxelMesh mesh;
@@ -193,24 +234,30 @@ class VoxelChunk
     bool meshDirty = true;
     bool lightingDirty = true;  // NEW: Lighting needs recalculation
     int mdiIndex = -1;  // Index in MDI renderer for transform updates (-1 = not registered)
+    
+    // Island context for inter-chunk culling
+    uint32_t m_islandID = 0;
+    Vec3 m_chunkCoord{0, 0, 0};
+    
+    // Static island system for inter-chunk queries
+    static IslandChunkSystem* s_islandSystem;
 
     // NEW: Per-block-type model instance positions (for BlockRenderType::OBJ blocks)
     // Key: BlockID, Value: list of instance positions within this chunk
     std::unordered_map<uint8_t, std::vector<Vec3>> m_modelInstances;
 
     // Mesh generation helpers
-    void addQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, float x, float y,
-                 float z, int face, uint8_t blockType);
+    void addQuadWithSharing(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices,
+                            std::unordered_map<Vertex, uint32_t>& vertexCache,
+                            float x, float y, float z, int face, uint8_t blockType);
     void addCollisionQuad(float x, float y, float z, int face);
     bool isVoxelSolid(int x, int y, int z) const;
-    uint8_t getNeighborVoxel(int x, int y, int z, int direction) const;  // Intra-chunk neighbor lookup only
     
-    // Greedy meshing implementation
-    void generateGreedyMesh();
-    void generateGreedyQuads(int direction, std::vector<Vertex>& vertices, std::vector<uint32_t>& indices);
-    bool canMergeVoxels(uint8_t voxel1, uint8_t voxel2) const;
-    void addGreedyQuad(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, 
-                       int x, int y, int z, int width, int height, int direction, uint8_t blockType);
+    // Unified culling - works for intra-chunk AND inter-chunk
+    bool isFaceExposed(int x, int y, int z, int face) const;
+    
+    // Simple meshing implementation
+    void generateSimpleMesh();
     
     // Light mapping utilities
     float computeAmbientOcclusion(int x, int y, int z, int face) const;
