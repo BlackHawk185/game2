@@ -146,14 +146,21 @@ bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t initialBufferChunks)
         return false;
     }
     
-    // Initialize single shadow map (16K for 16 pixels per block at 1024 unit range)
-    if (!g_shadowMap.initialize(16384))
+    // Query max texture size and use 70% for shadow map
+    GLint maxTexSize = 0;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTexSize);
+    int shadowMapSize = static_cast<int>(maxTexSize * 0.7f);
+    // Round down to nearest power of 2 for better compatibility
+    shadowMapSize = 1 << static_cast<int>(std::floor(std::log2(shadowMapSize)));
+    
+    if (!g_shadowMap.initialize(shadowMapSize))
     {
         std::cout << "❌ Failed to initialize shadow map!" << std::endl;
         shutdown();
         return false;
     }
-    std::cout << "✅ Shadow map initialized (16384x16384, 1GB)" << std::endl;
+    std::cout << "✅ Shadow map initialized (" << shadowMapSize << "x" << shadowMapSize 
+              << ", " << (shadowMapSize * shadowMapSize * 4 / (1024 * 1024)) << "MB)" << std::endl;
     
     // Load block textures (shared by all chunks)
     extern TextureManager* g_textureManager;

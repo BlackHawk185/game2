@@ -54,7 +54,6 @@ void main(){
 layout (location=0) in vec3 aPos;
 layout (location=1) in vec3 aNormal;
 layout (location=2) in vec2 aUV;
-layout (location=3) in float aLambert;  // Pre-calculated Lambert lighting
 layout (location=4) in vec4 aInstance; // xyz=position offset (voxel center), w=phase
 
 uniform mat4 uView;
@@ -68,7 +67,6 @@ out vec3 vNormalWS;
 out vec3 vWorldPos;
 out vec4 vLightSpacePos;
 out float vViewZ;
-out float vLambert;  // Pass through pre-calculated lighting
 
 void main(){
     // Wind sway: affect vertices based on their height within the grass model
@@ -88,7 +86,6 @@ void main(){
     vWorldPos = world.xyz;
     vLightSpacePos = uLightVP * world;
     vViewZ = -(uView * world).z;
-    vLambert = aLambert;  // Pass through
 }
 )GLSL";
     
@@ -98,7 +95,6 @@ void main(){
 layout (location=0) in vec3 aPos;
 layout (location=1) in vec3 aNormal;
 layout (location=2) in vec2 aUV;
-layout (location=3) in float aLambert;  // Pre-calculated Lambert lighting
 layout (location=4) in vec4 aInstance; // xyz=position offset, w=unused
 
 uniform mat4 uView;
@@ -112,7 +108,6 @@ out vec3 vNormalWS;
 out vec3 vWorldPos;
 out vec4 vLightSpacePos;
 out float vViewZ;
-out float vLambert;  // Pass through pre-calculated lighting
 
 void main(){
     // No wind animation - static model
@@ -123,7 +118,6 @@ void main(){
     vWorldPos = world.xyz;
     vLightSpacePos = uLightVP * world;
     vViewZ = -(uView * world).z;
-    vLambert = aLambert;  // Pass through
 }
 )GLSL";
 
@@ -134,7 +128,6 @@ in vec3 vNormalWS;
 in vec3 vWorldPos;
 in vec4 vLightSpacePos;
 in float vViewZ;
-in float vLambert;  // Pre-calculated Lambert lighting
 
 uniform sampler2D uShadowMap;
 uniform float uShadowTexel;
@@ -143,11 +136,24 @@ uniform sampler2D uGrassTexture; // engine grass texture with alpha
 
 out vec4 FragColor;
 
-// Poisson disk (match voxel shader)
-const vec2 POISSON[12] = vec2[12](
-    vec2(-0.35, -0.35), vec2(-0.35, 0.35), vec2(0.35, -0.35), vec2(0.35, 0.35),
-    vec2(-0.25, 0.0), vec2(0.25, 0.0), vec2(0.0, -0.25), vec2(0.0, 0.25),
-    vec2(-0.15, -0.15), vec2(-0.15, 0.15), vec2(0.15, -0.15), vec2(0.15, 0.15)
+// Poisson disk with 32 samples for high-quality soft shadows (match voxel shader)
+const vec2 POISSON[32] = vec2[32](
+    vec2(-0.94201624, -0.39906216), vec2(0.94558609, -0.76890725),
+    vec2(-0.09418410, -0.92938870), vec2(0.34495938, 0.29387760),
+    vec2(-0.91588581, 0.45771432), vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543, 0.27676845), vec2(0.97484398, 0.75648379),
+    vec2(0.44323325, -0.97511554), vec2(0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023), vec2(0.79197514, 0.19090188),
+    vec2(-0.24188840, 0.99706507), vec2(-0.81409955, 0.91437590),
+    vec2(0.19984126, 0.78641367), vec2(0.14383161, -0.14100790),
+    vec2(-0.52748980, -0.18467720), vec2(0.64042155, 0.55584620),
+    vec2(-0.58689597, 0.67128760), vec2(0.24767240, -0.51805620),
+    vec2(-0.09192791, -0.54150760), vec2(0.89877152, -0.24330990),
+    vec2(0.33697340, 0.90091330), vec2(-0.41818693, -0.85628360),
+    vec2(0.69197035, -0.06798679), vec2(-0.97010720, 0.16373110),
+    vec2(0.06372385, 0.37408390), vec2(-0.63902735, -0.56419730),
+    vec2(0.56546623, 0.25234550), vec2(-0.23892370, 0.51662970),
+    vec2(0.13814290, 0.98162460), vec2(-0.46671060, 0.16780830)
 );
 
 float sampleShadowPCF(float bias)
@@ -157,7 +163,9 @@ float sampleShadowPCF(float bias)
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
         return 1.0;
     float current = proj.z - bias;
-    float radius = 0.2;  // 5x5 grid covers a wide area
+    
+    // 32*4 = 128 pixel radius in shadow map space
+    float radius = 128.0 * uShadowTexel;
     
     // Sample center first
     float center = texture(uShadowMap, proj.xy).r;
@@ -168,33 +176,34 @@ float sampleShadowPCF(float bias)
         return 1.0;
     }
     
-    // Sample neighbors in 5x5 grid
-    int grid = 5;
-    float step = radius / float(grid - 1);
-    float sum = 0.0;
-    int count = 0;
-    for (int x = 0; x < grid; ++x) {
-        for (int y = 0; y < grid; ++y) {
-            vec2 offset = vec2(float(x) - 2.0, float(y) - 2.0) * step;
-            float d = texture(uShadowMap, proj.xy + offset).r;
-            sum += current <= d ? 1.0 : 0.0;
-            count++;
-        }
+    // Poisson disk sampling
+    float sum = baseShadow;
+    for (int i = 0; i < 32; ++i) {
+        vec2 offset = POISSON[i] * radius;
+        float d = texture(uShadowMap, proj.xy + offset).r;
+        sum += current <= d ? 1.0 : 0.0;
     }
-    return max(baseShadow, sum / float(count));  // Lighten-only: prevents shadow bleeding
+    
+    // Lighten-only: take max of center sample and average
+    return max(baseShadow, sum / 33.0);  // 33 = 32 samples + 1 center
 }
 
 void main(){
-    // Use pre-calculated Lambert lighting (updated when sun moves)
-    float NdotL = vLambert;  // Already clamped to [0,1] during calculation
-
-    float bias = 0.0015;
+    // Slope-scale bias based on surface angle to light
+    vec3 N = normalize(vNormalWS);
+    vec3 L = normalize(-uLightDir);
+    float ndotl = max(dot(N, L), 0.0);
+    float bias = max(0.0, 0.0002 * (1.0 - ndotl));
+    
     float visibility = sampleShadowPCF(bias);
 
     vec4 albedo = texture(uGrassTexture, vUV);
     // Alpha cutout
     if (albedo.a < 0.3) discard;
-    vec3 lit = albedo.rgb * (0.2 + 0.8 * NdotL * visibility);
+    
+    // Match voxel lighting: small ambient + shadow visibility
+    float ambient = 0.04;
+    vec3 lit = albedo.rgb * (ambient + visibility);
     FragColor = vec4(lit, 1.0);
 }
 )GLSL";
@@ -451,32 +460,10 @@ void ModelInstanceRenderer::setLightingData(const glm::mat4& lightVP, const glm:
 }
 
 void ModelInstanceRenderer::updateLightingIfNeeded() {
-    if (!m_lightingDirty) return;
-    
-    // Convert sun direction to Vec3
-    Vec3 sunDir(m_lightDir.x, m_lightDir.y, m_lightDir.z);
-    
-    // Recalculate lighting for all CPU models
-    for (auto& cpuPair : m_cpuModels) {
-        cpuPair.second.recalculateLighting(sunDir);
-        
-        // Upload updated vertex data to GPU
-        auto gpuIt = m_models.find(cpuPair.first);
-        if (gpuIt == m_models.end()) continue;
-        
-        for (size_t i = 0; i < cpuPair.second.primitives.size() && i < gpuIt->second.primitives.size(); i++) {
-            const auto& cpuPrim = cpuPair.second.primitives[i];
-            const auto& gpuPrim = gpuIt->second.primitives[i];
-            
-            // Update VBO with new Lambert values
-            glBindBuffer(GL_ARRAY_BUFFER, gpuPrim.vbo);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, cpuPrim.interleaved.size() * sizeof(float), cpuPrim.interleaved.data());
-        }
-    }
-    
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // No longer need to update vertex buffers - lighting is calculated in shader
     m_lightingDirty = false;
 }
+
 
 bool ModelInstanceRenderer::ensureChunkInstancesUploaded(uint8_t blockID, VoxelChunk* chunk) {
     if (!chunk) return false;
@@ -510,15 +497,13 @@ bool ModelInstanceRenderer::ensureChunkInstancesUploaded(uint8_t blockID, VoxelC
             glBindBuffer(GL_ARRAY_BUFFER, prim.vbo);
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prim.ebo);
             
-            // Setup vertex attributes: pos(3), normal(3), uv(2), lambert(1) = 9 floats
+            // Setup vertex attributes: pos(3), normal(3), uv(2) = 8 floats
             glEnableVertexAttribArray(0);
-            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float)*9, (void*)0);
+            glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float)*8, (void*)0);
             glEnableVertexAttribArray(1);
-            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(float)*9, (void*)(sizeof(float)*3));
+            glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(float)*8, (void*)(sizeof(float)*3));
             glEnableVertexAttribArray(2);
-            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(float)*9, (void*)(sizeof(float)*6));
-            glEnableVertexAttribArray(3);
-            glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(float)*9, (void*)(sizeof(float)*8));
+            glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(float)*8, (void*)(sizeof(float)*6));
             
             // Bind this chunk's instance buffer (location 4)
             glBindBuffer(GL_ARRAY_BUFFER, buf.instanceVBO);

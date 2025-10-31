@@ -935,8 +935,8 @@ void GameClient::renderShadowPass()
     glm::vec3 lightPos = camPos - lightDir * 100.0f;
     glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
     
-    // Shadow map coverage (1024×1024 units with 8192×8192 texture = 8 pixels per block)
-    const float orthoSize = 512.0f;
+    // Shadow map coverage (256×256 units)
+    const float orthoSize = 256.0f;
     
     // Build light view-projection with texel snapping for stability
     glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 300.0f);

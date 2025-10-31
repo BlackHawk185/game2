@@ -104,24 +104,23 @@ bool GLBLoader::loadGLB(const std::string& path, GLBModelCPU& outModel) {
                 uv.resize((pos.size()/3) * 2, 0.0f);
             }
 
-            // Interleave: pos(3), normal(3), uv(2), lambert(1) = 9 floats per vertex
+            // Interleave: pos(3), normal(3), uv(2) = 8 floats per vertex
             GLBPrimitive cpuPrim;
             size_t vcount = pos.size()/3;
-            cpuPrim.interleaved.resize(vcount * 9);  // Changed from 8 to 9
+            cpuPrim.interleaved.resize(vcount * 8);
             cpuPrim.normals.resize(vcount);
             
             for (size_t i=0;i<vcount;i++) {
-                cpuPrim.interleaved[i*9+0] = pos[i*3+0];
-                cpuPrim.interleaved[i*9+1] = pos[i*3+1];
-                cpuPrim.interleaved[i*9+2] = pos[i*3+2];
-                cpuPrim.interleaved[i*9+3] = nor[i*3+0];
-                cpuPrim.interleaved[i*9+4] = nor[i*3+1];
-                cpuPrim.interleaved[i*9+5] = nor[i*3+2];
-                cpuPrim.interleaved[i*9+6] = uv[i*2+0];
-                cpuPrim.interleaved[i*9+7] = uv[i*2+1];
-                cpuPrim.interleaved[i*9+8] = 1.0f;  // Default Lambert value (will be recalculated)
+                cpuPrim.interleaved[i*8+0] = pos[i*3+0];
+                cpuPrim.interleaved[i*8+1] = pos[i*3+1];
+                cpuPrim.interleaved[i*8+2] = pos[i*3+2];
+                cpuPrim.interleaved[i*8+3] = nor[i*3+0];
+                cpuPrim.interleaved[i*8+4] = nor[i*3+1];
+                cpuPrim.interleaved[i*8+5] = nor[i*3+2];
+                cpuPrim.interleaved[i*8+6] = uv[i*2+0];
+                cpuPrim.interleaved[i*8+7] = uv[i*2+1];
                 
-                // Store normal separately for lighting recalculation
+                // Store normal separately for future use if needed
                 cpuPrim.normals[i] = Vec3(nor[i*3+0], nor[i*3+1], nor[i*3+2]);
             }
 
@@ -148,20 +147,4 @@ bool GLBLoader::loadGLB(const std::string& path, GLBModelCPU& outModel) {
 
     outModel.valid = !outModel.primitives.empty();
     return outModel.valid;
-}
-
-// Recalculate Lambert lighting for all vertices based on sun direction
-void GLBModelCPU::recalculateLighting(const Vec3& sunDirection) {
-    Vec3 negSunDir = Vec3(-sunDirection.x, -sunDirection.y, -sunDirection.z);
-    
-    for (auto& prim : primitives) {
-        size_t vcount = prim.normals.size();
-        for (size_t i = 0; i < vcount; i++) {
-            // Calculate Lambert: max(dot(normal, -sunDir), 0.0)
-            float lambert = std::max(0.0f, prim.normals[i].dot(negSunDir));
-            
-            // Store in interleaved buffer at index 8 (pos(3) + normal(3) + uv(2) + lambert(1))
-            prim.interleaved[i*9 + 8] = lambert;
-        }
-    }
 }

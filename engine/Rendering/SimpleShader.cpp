@@ -98,11 +98,24 @@ uniform vec3 uMaterialEmissive;    // Emissive color
 
 out vec4 FragColor;
 
-// Poisson disk
-const vec2 POISSON[12] = vec2[12](
-    vec2(-0.35, -0.35), vec2(-0.35, 0.35), vec2(0.35, -0.35), vec2(0.35, 0.35),
-    vec2(-0.25, 0.0), vec2(0.25, 0.0), vec2(0.0, -0.25), vec2(0.0, 0.25),
-    vec2(-0.15, -0.15), vec2(-0.15, 0.15), vec2(0.15, -0.15), vec2(0.15, 0.15)
+// Poisson disk with 32 samples for high-quality soft shadows
+const vec2 POISSON[32] = vec2[32](
+    vec2(-0.94201624, -0.39906216), vec2(0.94558609, -0.76890725),
+    vec2(-0.09418410, -0.92938870), vec2(0.34495938, 0.29387760),
+    vec2(-0.91588581, 0.45771432), vec2(-0.81544232, -0.87912464),
+    vec2(-0.38277543, 0.27676845), vec2(0.97484398, 0.75648379),
+    vec2(0.44323325, -0.97511554), vec2(0.53742981, -0.47373420),
+    vec2(-0.26496911, -0.41893023), vec2(0.79197514, 0.19090188),
+    vec2(-0.24188840, 0.99706507), vec2(-0.81409955, 0.91437590),
+    vec2(0.19984126, 0.78641367), vec2(0.14383161, -0.14100790),
+    vec2(-0.52748980, -0.18467720), vec2(0.64042155, 0.55584620),
+    vec2(-0.58689597, 0.67128760), vec2(0.24767240, -0.51805620),
+    vec2(-0.09192791, -0.54150760), vec2(0.89877152, -0.24330990),
+    vec2(0.33697340, 0.90091330), vec2(-0.41818693, -0.85628360),
+    vec2(0.69197035, -0.06798679), vec2(-0.97010720, 0.16373110),
+    vec2(0.06372385, 0.37408390), vec2(-0.63902735, -0.56419730),
+    vec2(0.56546623, 0.25234550), vec2(-0.23892370, 0.51662970),
+    vec2(0.13814290, 0.98162460), vec2(-0.46671060, 0.16780830)
 );
 
 float sampleShadowPCF(float bias)
@@ -112,7 +125,9 @@ float sampleShadowPCF(float bias)
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
         return 1.0;
     float current = proj.z - bias;
-    float radius = 0.2;  // 5x5 grid covers a wide area
+    
+    // 32*4 = 128 pixel radius in shadow map space
+    float radius = 128.0 * uShadowTexel;
     
     // Sample center first
     float center = texture(uShadowMap, proj.xy).r;
@@ -123,20 +138,16 @@ float sampleShadowPCF(float bias)
         return 1.0;
     }
     
-    // Sample neighbors in 5x5 grid
-    int grid = 5;
-    float step = radius / float(grid - 1);
-    float sum = 0.0;
-    int count = 0;
-    for (int x = 0; x < grid; ++x) {
-        for (int y = 0; y < grid; ++y) {
-            vec2 offset = vec2(float(x) - 2.0, float(y) - 2.0) * step;
-            float d = texture(uShadowMap, proj.xy + offset).r;
-            sum += current <= d ? 1.0 : 0.0;
-            count++;
-        }
+    // Poisson disk sampling
+    float sum = baseShadow;
+    for (int i = 0; i < 32; ++i) {
+        vec2 offset = POISSON[i] * radius;
+        float d = texture(uShadowMap, proj.xy + offset).r;
+        sum += current <= d ? 1.0 : 0.0;
     }
-    return max(baseShadow, sum / float(count));  // Lighten-only: prevents shadow bleeding
+    
+    // Lighten-only: take max of center sample and average
+    return max(baseShadow, sum / 33.0);  // 33 = 32 samples + 1 center
 }
 
 void main()
@@ -206,18 +217,17 @@ void main()
         
         if (texColor.a < 0.1) { discard; }
 
-        // Slope-scale bias based on N.L to mitigate acne
+        // Slope-scale bias based on surface angle to light
         vec3 N = normalize(Normal);
         vec3 L = normalize(-uLightDir);
         float ndotl = max(dot(N, L), 0.0);
-        float bias = max(0.0015, 0.0035 * (1.0 - ndotl));
+        float bias = max(0.0, 0.0002 * (1.0 - ndotl));
         
         float shadow = sampleShadowPCF(bias);
         
-        // Simple lambert + small ambient floor for readability
-        float lambert = ndotl;
+        // Dark-by-default: only shadow visibility affects lighting (no Lambert)
         float ambient = 0.04;
-        float lit = clamp(ambient + shadow * lambert, 0.0, 1.0);
+        float lit = ambient + shadow;
         finalColor = vec4(texColor.rgb * lit, texColor.a);
     }
 
