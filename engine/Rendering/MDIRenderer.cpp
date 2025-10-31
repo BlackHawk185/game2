@@ -578,10 +578,10 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     // Bind transform SSBO for shader access (binding 1, binding 0 is UBO)
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_transformBuffer);
     
-    // Single MDI draw call for ALL chunks!
+    // Single MDI draw call for ALL active chunks
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
     glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr, 
-                                static_cast<GLsizei>(m_maxChunks), 0);
+                                static_cast<GLsizei>(m_stats.activeChunks), 0);
     
     glBindVertexArray(0);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
@@ -608,10 +608,10 @@ void MDIRenderer::renderAllDepth(SimpleShader* depthShader, const glm::mat4& lig
     // Bind transform SSBO
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_transformBuffer);
     
-    // Single MDI draw call for shadow pass
+    // Single MDI draw call for shadow pass (only active chunks)
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
     glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr,
-                                static_cast<GLsizei>(m_maxChunks), 0);
+                                static_cast<GLsizei>(m_stats.activeChunks), 0);
     
     glBindVertexArray(0);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
@@ -742,20 +742,20 @@ bool MDIRenderer::uploadIndices(uint32_t offset, const void* data, uint32_t size
 
 void MDIRenderer::updateIndirectBuffer()
 {
-    // Upload all draw commands
+    // Upload all draw commands for active chunks
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
     glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, 
-                   m_stats.registeredChunks * sizeof(DrawElementsCommand),
+                   m_stats.activeChunks * sizeof(DrawElementsCommand),
                    m_drawCommands.data());
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 }
 
 void MDIRenderer::updateTransformBuffer()
 {
-    // Upload all transforms
+    // Upload all transforms for active chunks
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_transformBuffer);
     glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
-                   m_stats.registeredChunks * sizeof(glm::mat4),
+                   m_stats.activeChunks * sizeof(glm::mat4),
                    m_transforms.data());
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
@@ -859,10 +859,10 @@ void MDIRenderer::renderDepth()
     // Bind transform SSBO for shader access (binding 1)
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_transformBuffer);
     
-    // Single MDI draw call for shadow pass
+    // Single MDI draw call for shadow pass (only active chunks)
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, m_indirectBuffer);
     glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr,
-                                static_cast<GLsizei>(m_stats.registeredChunks), 0);
+                                static_cast<GLsizei>(m_stats.activeChunks), 0);
     
     glBindVertexArray(0);
     glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);

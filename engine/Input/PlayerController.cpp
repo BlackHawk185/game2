@@ -6,6 +6,7 @@
 #include <iostream>
 
 #include "../World/IslandChunkSystem.h"
+#include "../Profiling/Profiler.h"
 
 PlayerController::PlayerController()
 {
@@ -127,6 +128,7 @@ void PlayerController::updateNoclip(GLFWwindow* window, float deltaTime)
 
 void PlayerController::updatePhysics(GLFWwindow* window, float deltaTime, IslandChunkSystem* islandSystem)
 {
+    PROFILE_FUNCTION();
     (void)islandSystem; // Reserved for future island-specific physics interactions
     
     // ==========================================

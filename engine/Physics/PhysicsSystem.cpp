@@ -7,6 +7,7 @@
 #include "../World/IslandChunkSystem.h"
 #include "../World/VoxelChunk.h"
 #include "../World/BlockType.h"  // For BlockTypeRegistry and BlockTypeInfo
+#include "../Profiling/Profiler.h"
 
 PhysicsSystem g_physics;
 
@@ -19,24 +20,24 @@ PhysicsSystem::~PhysicsSystem()
 
 bool PhysicsSystem::initialize()
 {
-    // Removed verbose debug output
     return true;
 }
 
 void PhysicsSystem::update(float deltaTime)
 {
+    PROFILE_FUNCTION();
     // Apply physics to all entities with Transform and Velocity components
     updateEntities(deltaTime);
 }
 
 void PhysicsSystem::shutdown()
 {
-    // Removed verbose debug output
 }
 
 bool PhysicsSystem::checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirection,
                                       float maxDistance, Vec3& hitPoint, Vec3& hitNormal)
 {
+    PROFILE_FUNCTION();
     if (!m_islandSystem)
         return false;
 
@@ -285,6 +286,7 @@ bool PhysicsSystem::checkChunkCapsuleCollision(const VoxelChunk* chunk, const Ve
 bool PhysicsSystem::checkCapsuleCollision(const Vec3& capsuleCenter, float radius, float height,
                                          Vec3& outNormal, const FloatingIsland** outIsland)
 {
+    PROFILE_FUNCTION();
     if (!m_islandSystem)
         return false;
     
@@ -348,6 +350,7 @@ bool PhysicsSystem::checkCapsuleCollision(const Vec3& capsuleCenter, float radiu
 
 GroundInfo PhysicsSystem::detectGroundCapsule(const Vec3& capsuleCenter, float radius, float height, float rayMargin)
 {
+    PROFILE_FUNCTION();
     GroundInfo info;
     info.isGrounded = false;
     

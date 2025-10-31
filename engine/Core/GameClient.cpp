@@ -208,7 +208,7 @@ bool GameClient::update(float deltaTime)
     // Update client-side physics for smooth island movement
     if (m_gameState)
     {
-        PROFILE_SCOPE("Island physics update");
+        PROFILE_SCOPE("updateIslandPhysics");
         auto* islandSystem = m_gameState->getIslandSystem();
         if (islandSystem)
         {
@@ -829,7 +829,7 @@ void GameClient::renderWorld()
     // Sync island physics to chunk transforms (UNIFIED: updates both MDI and GLB)
     // This is the ONLY place where chunk transforms are calculated
     {
-        PROFILE_SCOPE("Island physics update");
+        PROFILE_SCOPE("syncPhysicsToChunks");
         m_gameState->getIslandSystem()->syncPhysicsToChunks();
     }
 
@@ -838,7 +838,9 @@ void GameClient::renderWorld()
     glm::mat4 projectionMatrix = m_playerController.getCamera().getProjectionMatrix(aspect);
     glm::mat4 viewMatrix = m_playerController.getCamera().getViewMatrix();
 
-    // Shadow depth pass (uses transforms already set by syncPhysicsToChunks)
+    // Shadow depth pass (throttled - only update every Nth frame for performance)
+    m_frameCounter++;
+    if (m_frameCounter % m_shadowUpdateInterval == 0)
     {
         renderShadowPass();
     }
@@ -872,6 +874,7 @@ void GameClient::renderWorld()
         // Render GLB model instances per chunk (transforms already set by syncPhysicsToChunks)
         if (g_modelRenderer)
         {
+            PROFILE_SCOPE("GLB model rendering");
             auto& registry = BlockTypeRegistry::getInstance();
             auto& islands = m_gameState->getIslandSystem()->getIslands();
             

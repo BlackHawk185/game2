@@ -100,8 +100,8 @@ int main(int argc, char* argv[])
 
     // Removed verbose debug output
 
-    // Disable profiler for cleaner console output
-    g_profiler.setEnabled(false);
+    // Enable profiler to diagnose performance bottlenecks
+    g_profiler.setEnabled(true);
 
     g_timeManager = new TimeManager();
     g_timeEffects = new TimeEffects();
@@ -110,16 +110,6 @@ int main(int argc, char* argv[])
     {
         case RunMode::INTEGRATED:
         {
-            // Removed verbose debug output
-            if (enableNetworking)
-            {
-                // Removed verbose debug output
-            }
-            else
-            {
-                // Removed verbose debug output
-            }
-
             // Create and initialize server (ALWAYS with networking enabled for unified
             // architecture)
             GameServer server;
@@ -151,8 +141,6 @@ int main(int argc, char* argv[])
                 server.stop();
                 return 1;
             }
-
-            // Removed verbose debug output
 
             // Main client loop
             auto lastTime = std::chrono::high_resolution_clock::now();

@@ -145,6 +145,10 @@ private:
     // FPS tracking
     float m_lastFrameDeltaTime = 0.016f; // Start at ~60 FPS
     
+    // Shadow update throttling - render shadows every Nth frame
+    uint32_t m_frameCounter = 0;
+    uint32_t m_shadowUpdateInterval = 2;  // Update shadows every 2 frames (half rate)
+    
     // Input state
     struct InputState {
         bool leftMousePressed = false;

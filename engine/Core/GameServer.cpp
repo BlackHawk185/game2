@@ -272,13 +272,8 @@ void GameServer::processQueuedCommands()
     std::vector<PlayerMovementCommand> movements;
     movements.swap(m_pendingPlayerMovements);  // Fast swap, clears original
     
-    for (const auto& cmd : movements)
-    {
-        if (m_gameState)
-        {
-            m_gameState->applyPlayerMovement(cmd.movement, m_fixedDeltaTime);
-        }
-    }
+    // Movement is now handled by client-side PlayerController
+    // Server receives position updates directly from physics
 }
 
 void GameServer::updateTickRateStats(float actualDeltaTime)

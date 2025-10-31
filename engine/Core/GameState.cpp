@@ -33,13 +33,6 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
     
     // Initialize physics system - Re-enabled with fixed BodyID handling
     m_physicsSystem = std::make_unique<PhysicsSystem>();
-    // Physics system initialization is automatic - no explicit init needed
-    /*
-    if (!m_physicsSystem->initialize()) {
-        std::cerr << "Failed to initialize physics system!" << std::endl;
-        return false;
-    }
-    */
 
     // Configure lighting system for maximum performance
     g_globalLighting.setUpdateFrequency(20.0f);   // Increased from 10 FPS to 20 FPS for smoother lighting
@@ -54,7 +47,6 @@ bool GameState::initialize(bool shouldCreateDefaultWorld)
     }
 
     m_initialized = true;
-    // Removed verbose debug output
     return true;
 }
 
@@ -99,16 +91,7 @@ void GameState::updateSimulation(float deltaTime)
 void GameState::setPrimaryPlayerPosition(const Vec3& position)
 {
     // Player position is now managed by PlayerController in GameClient
-    // This method is deprecated but kept for compatibility
     (void)position;
-}
-
-void GameState::applyPlayerMovement(const Vec3& movement, float deltaTime)
-{
-    // Player movement is now managed by PlayerController in GameClient
-    // This method is deprecated but kept for compatibility
-    (void)movement;
-    (void)deltaTime;
 }
 
 bool GameState::setVoxel(uint32_t islandID, const Vec3& localPos, uint8_t voxelType)
@@ -134,8 +117,8 @@ void GameState::createDefaultWorld()
     std::cout << "🏝️ Creating default world (multiple floating islands)..." << std::endl;
 
     // **ISLAND CONFIGURATION** - Reduced for physics debugging
-    float mainRadius = 500.0f;     // Main island size (reduced from 500.0f for faster iteration)
-    float smallRadius = 10.0f;     // Smaller island size (reduced from 120.0f)
+    float mainRadius = 300.0f;     // Main island size (reduced from 500.0f for faster iteration)
+    float smallRadius = 200.0f;     // Smaller island size (reduced from 120.0f)
     float spacing = 250.0f;        // Distance between island centers (reduced from 300.0f)
     
     // Create multiple islands with varied positions

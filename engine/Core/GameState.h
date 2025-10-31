@@ -58,11 +58,6 @@ public:
      */
     void setPrimaryPlayerPosition(const Vec3& position);
     
-    /**
-     * Apply movement input to primary player
-     */
-    void applyPlayerMovement(const Vec3& movement, float deltaTime);
-    
     // ================================
     // WORLD ACCESS
     // ================================

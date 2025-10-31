@@ -57,6 +57,10 @@ void ShadowMap::begin(int cascadeIndex)
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_POLYGON_OFFSET_FILL);
     glPolygonOffset(2.0f, 4.0f);
+    
+    // Disable face culling for shadow pass - render all geometry from light's POV
+    // Ensures shadows are cast correctly regardless of triangle orientation
+    glDisable(GL_CULL_FACE);
 }
 
 GLuint ShadowMap::getDepthTexture(int cascadeIndex) const
@@ -98,6 +102,11 @@ void ShadowMap::end(int screenWidth, int screenHeight)
 {
     glDisable(GL_POLYGON_OFFSET_FILL);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    
+    // Re-enable back-face culling for normal rendering
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
+    
     // Restore default framebuffer draw/read buffers to avoid accidental color suppression
     glDrawBuffer(GL_BACK);
     glReadBuffer(GL_BACK);
