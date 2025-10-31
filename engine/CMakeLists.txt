@@ -28,7 +28,6 @@ add_library(engine STATIC
     Rendering/ModelInstanceRenderer.cpp
     Rendering/BlockHighlightRenderer.cpp
     Rendering/SkyRenderer.cpp
-    Rendering/BloomRenderer.cpp
     Assets/GLBLoader.cpp
     
     # Input systems

@@ -16,7 +16,6 @@
 class GameState;
 class BlockHighlightRenderer;
 class SkyRenderer;
-class BloomRenderer;
 class HUD;
 class PeriodicTableUI;
 struct GLFWwindow;
@@ -142,7 +141,6 @@ private:
     // NEW: Day/night cycle and atmospheric rendering
     std::unique_ptr<DayNightController> m_dayNightController;
     std::unique_ptr<SkyRenderer> m_skyRenderer;
-    std::unique_ptr<BloomRenderer> m_bloomRenderer;
     
     // FPS tracking
     float m_lastFrameDeltaTime = 0.016f; // Start at ~60 FPS

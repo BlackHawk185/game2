@@ -20,7 +20,6 @@
 #include "../Rendering/Renderer.h"
 #include "../Rendering/BlockHighlightRenderer.h"
 #include "../Rendering/SkyRenderer.h"
-#include "../Rendering/BloomRenderer.h"
 #include "../UI/HUD.h"
 #include "../UI/PeriodicTableUI.h"  // NEW: Periodic table UI for hotbar binding
 #include "../Core/Window.h"
@@ -486,14 +485,6 @@ bool GameClient::initializeGraphics()
     } else {
         std::cout << "✅ SkyRenderer initialized" << std::endl;
     }
-    
-    m_bloomRenderer = std::make_unique<BloomRenderer>();
-    if (!m_bloomRenderer->initialize(m_windowWidth, m_windowHeight)) {
-        std::cerr << "Warning: Failed to initialize BloomRenderer" << std::endl;
-        m_bloomRenderer.reset();
-    } else {
-        std::cout << "✅ BloomRenderer initialized" << std::endl;
-    }
 
     // Initialize ImGui
     IMGUI_CHECKVERSION();
@@ -931,56 +922,83 @@ void GameClient::renderShadowPass()
     Vec3 sunDir = m_dayNightController ? m_dayNightController->getSunDirection() : Vec3(-0.3f, -1.0f, -0.2f).normalized();
     glm::vec3 camPos(m_playerController.getCamera().position.x, m_playerController.getCamera().position.y, m_playerController.getCamera().position.z);
     glm::vec3 lightDir(sunDir.x, sunDir.y, sunDir.z);
-    glm::vec3 lightTarget = camPos;
-    glm::vec3 lightPos = camPos - lightDir * 100.0f;
-    glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
     
-    // Shadow map coverage (256×256 units)
-    const float orthoSize = 256.0f;
+    int numCascades = g_shadowMap.getNumCascades();
     
-    // Build light view-projection with texel snapping for stability
-    glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, 1.0f, 300.0f);
+    // Cascade configuration for proper coverage with 32-block overlap
+    // Cascade 0 (near): covers 0-128 blocks from camera, 256x256 units ortho (high detail)
+    // Cascade 1 (far):  covers 0-1000 blocks from camera (render distance), 2048x2048 units ortho
+    // 28-block overlap zone from 100-128 blocks for smooth transitions
+    const float cascade0Split = 128.0f;   // Near cascade max distance
+    const float cascade1Split = 1000.0f;  // Far cascade = camera far plane (render distance)
     
-    // Snap to texel grid to prevent shadow shimmering
-    glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
-    int smWidth = g_shadowMap.getSize();
-    float texelSize = (2.0f * orthoSize) / float(smWidth);
-    glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
-    glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
-    glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
-    glm::mat4 lightVP = lightProj * snapMat * lightView;
+    const float nearOrthoSize = 128.0f;   // Near: 256x256 units coverage
+    const float farOrthoSize = 1024.0f;   // Far: 2048x2048 units coverage
     
-    // Render shadow depth pass (unified for both voxels and GLB models)
-    // Note: Model matrices are already stored during forward rendering in renderModelChunk()
-    if (m_windowWidth > 0 && m_windowHeight > 0)
+    // Render each cascade
+    for (int cascadeIdx = 0; cascadeIdx < numCascades; ++cascadeIdx)
     {
-        // MDI begins shadow pass (binds FBO, clears depth)
-        if (g_mdiRenderer) {
-            g_mdiRenderer->beginDepthPass(lightVP);
-            g_mdiRenderer->renderDepth();
-        }
+        // Select cascade parameters based on index
+        float splitDistance = (cascadeIdx == 0) ? cascade0Split : cascade1Split;
+        float orthoSize = (cascadeIdx == 0) ? nearOrthoSize : farOrthoSize;
+        float nearPlane = 1.0f;
+        float farPlane = splitDistance + 50.0f;  // Extra depth for light frustum
         
-        // GLB models render into same shadow map
-        if (g_modelRenderer) {
-            g_modelRenderer->beginDepthPass(lightVP);  // Sets shader uniforms only
-            g_modelRenderer->renderDepth();
-        }
+        // Build light view matrix centered on camera
+        glm::vec3 lightTarget = camPos;
+        glm::vec3 lightPos = camPos - lightDir * (farPlane * 0.5f);
+        glm::mat4 lightView = glm::lookAt(lightPos, lightTarget, glm::vec3(0,1,0));
         
-        // MDI ends shadow pass (unbinds FBO, restores viewport)
-        if (g_mdiRenderer) {
-            g_mdiRenderer->endDepthPass(m_windowWidth, m_windowHeight);
+        // Build light projection with texel snapping for stability
+        glm::mat4 lightProj = glm::ortho(-orthoSize, orthoSize, -orthoSize, orthoSize, nearPlane, farPlane);
+        
+        // Snap to texel grid to prevent shadow shimmering
+        glm::vec4 centerLS = lightView * glm::vec4(lightTarget, 1.0f);
+        int smWidth = g_shadowMap.getSize();
+        float texelSize = (2.0f * orthoSize) / float(smWidth);
+        glm::vec2 snapped = glm::floor(glm::vec2(centerLS.x, centerLS.y) / texelSize) * texelSize;
+        glm::vec2 delta = snapped - glm::vec2(centerLS.x, centerLS.y);
+        glm::mat4 snapMat = glm::translate(glm::mat4(1.0f), glm::vec3(-delta.x, -delta.y, 0.0f));
+        glm::mat4 lightVP = lightProj * snapMat * lightView;
+        
+        // Store cascade data for shader (splitDistance is the MAX view-space depth for this cascade)
+        CascadeData cascadeData;
+        cascadeData.viewProj = lightVP;
+        cascadeData.splitDistance = splitDistance;  // Shader compares fragment depth against this
+        cascadeData.orthoSize = orthoSize;
+        g_shadowMap.setCascadeData(cascadeIdx, cascadeData);
+        
+        // Render shadow depth pass for this cascade
+        if (m_windowWidth > 0 && m_windowHeight > 0)
+        {
+            // MDI begins shadow pass (binds FBO for this cascade layer)
+            if (g_mdiRenderer) {
+                g_mdiRenderer->beginDepthPass(lightVP, cascadeIdx);
+                g_mdiRenderer->renderDepth();
+            }
+            
+            // GLB models render into same shadow map cascade
+            if (g_modelRenderer) {
+                g_modelRenderer->beginDepthPass(lightVP, cascadeIdx);  // Sets shader uniforms only
+                g_modelRenderer->renderDepth();
+            }
+            
+            // MDI ends shadow pass (unbinds FBO, restores viewport)
+            if (g_mdiRenderer) {
+                g_mdiRenderer->endDepthPass(m_windowWidth, m_windowHeight);
+            }
         }
     }
     
-    // Set lighting data for forward pass (both renderers)
+    // Set lighting data for forward pass (use first cascade for now - will update shader to pick cascade)
     glm::vec3 lightDirVec(lightDir.x, lightDir.y, lightDir.z);
     if (g_mdiRenderer)
     {
-        g_mdiRenderer->setLightingData(lightVP, lightDirVec);
+        g_mdiRenderer->setLightingData(g_shadowMap.getCascade(0).viewProj, lightDirVec);
     }
     if (g_modelRenderer)
     {
-        g_modelRenderer->setLightingData(lightVP, lightDirVec);
+        g_modelRenderer->setLightingData(g_shadowMap.getCascade(0).viewProj, lightDirVec);
     }
 }
 
@@ -1076,11 +1094,6 @@ void GameClient::onWindowResize(int width, int height)
     m_windowWidth = width;
     m_windowHeight = height;
     glViewport(0, 0, width, height);
-    
-    // Resize bloom renderer framebuffers
-    if (m_bloomRenderer) {
-        m_bloomRenderer->resize(width, height);
-    }
 }
 
 void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)

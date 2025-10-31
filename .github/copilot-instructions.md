@@ -41,7 +41,7 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **ECS Framework**: Entity-Component-System for game objects
 - **JobSystem**: Multi-threaded task processing with worker threads
 - **Custom Physics**: Voxel-face-based collision detection with dual-mesh generation
-- **Rendering**: bgfx-based renderer with Dear ImGui dev tools
+- **Rendering**: OpenGL-based renderer with Dear ImGui dev tools
 - **Input**: Camera controls (WASD+mouse, space for jump)
 - **Time Effects**: Time manipulation system (keys 1-5, 0, T for various effects)
 - **Networking**: ENet-based client-server architecture with unified networking paths
@@ -66,7 +66,7 @@ This file is for the AI assistant (GitHub Copilot) to reference when generating 
 - **Build System**: CMake with Visual Studio support
 - **Launch Configurations**: VS Code integration with 3 run modes
 - **Cross-Platform**: Windows, Linux, macOS compatibility maintained
-- **Dependencies**: bgfx, ENet, GLFW, Dear ImGui
+- **Dependencies**: ENet, GLFW, Dear ImGui, OpenGL
 - **Platform**: Currently Windows-focused but designed for cross-platform
 - **Performance**: Optimized for 60+ FPS with multiple islands and custom collision
 - **Physics Architecture**: Custom voxel-face collision system with dual-mesh generation

@@ -29,9 +29,6 @@
 // ENet networking
 #include <enet/enet.h>
 
-// bgfx rendering
-// ...existing code...
-
 // Engine-wide macros and config
 // Project headers should be included in individual source files after pch.h
 // to avoid circular dependencies. Add only stable, external headers here.

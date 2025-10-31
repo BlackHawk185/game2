@@ -66,7 +66,7 @@ public:
     void updateLightingIfNeeded();
 
     // Shadow pass methods (matches MDIRenderer API)
-    void beginDepthPass(const glm::mat4& lightVP);
+    void beginDepthPass(const glm::mat4& lightVP, int cascadeIndex = 0);
     void renderDepth();
     void endDepthPass(int screenWidth, int screenHeight);
 

@@ -129,10 +129,15 @@ in vec3 vWorldPos;
 in vec4 vLightSpacePos;
 in float vViewZ;
 
-uniform sampler2D uShadowMap;
+uniform sampler2DArrayShadow uShadowMap;  // Cascaded shadow map array
 uniform float uShadowTexel;
 uniform vec3 uLightDir;
 uniform sampler2D uGrassTexture; // engine grass texture with alpha
+
+// Cascade uniforms
+uniform mat4 uCascadeVP[2];      // View-projection for each cascade
+uniform float uCascadeSplits[2];  // Split distances for cascades
+uniform int uNumCascades;         // Number of cascades (typically 2)
 
 out vec4 FragColor;
 
@@ -158,34 +163,50 @@ const vec2 POISSON[32] = vec2[32](
 
 float sampleShadowPCF(float bias)
 {
-    vec3 proj = vLightSpacePos.xyz / vLightSpacePos.w;
+    // Select cascade based on view-space depth
+    // Use far cascade (index 1) starting at 64 blocks for smooth transitions
+    int cascadeIndex = 0;
+    float viewDepth = abs(vViewZ);
+    
+    if (viewDepth > 64.0) {
+        cascadeIndex = 1;  // Far cascade starts at 64 blocks
+    }
+    
+    // Transform to light space for selected cascade
+    vec4 lightSpacePos = uCascadeVP[cascadeIndex] * vec4(vWorldPos, 1.0);
+    vec3 proj = lightSpacePos.xyz / lightSpacePos.w;
     proj = proj * 0.5 + 0.5;
+    
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
         return 1.0;
+    
     float current = proj.z - bias;
     
-    // 32*4 = 128 pixel radius in shadow map space
-    float radius = 128.0 * uShadowTexel;
+    // Adjust PCF radius based on cascade to maintain consistent world-space blur
+    // Near cascade (256 units): use 128 pixel radius
+    // Far cascade (2048 units): scale down radius to maintain same world-space coverage
+    float baseRadius = 128.0;
+    float radiusScale = (cascadeIndex == 0) ? 1.0 : 0.125;  // 1/8 for far cascade (256/2048)
+    float radius = baseRadius * radiusScale * uShadowTexel;
     
-    // Sample center first
-    float center = texture(uShadowMap, proj.xy).r;
-    float baseShadow = current <= center ? 1.0 : 0.0;
+    // Sample center first using array shadow sampler
+    float center = texture(uShadowMap, vec4(proj.xy, cascadeIndex, current));
     
     // Early exit if fully lit - prevents shadow bleeding
-    if (baseShadow >= 1.0) {
+    if (center >= 1.0) {
         return 1.0;
     }
     
     // Poisson disk sampling
-    float sum = baseShadow;
+    float sum = center;
     for (int i = 0; i < 32; ++i) {
         vec2 offset = POISSON[i] * radius;
-        float d = texture(uShadowMap, proj.xy + offset).r;
-        sum += current <= d ? 1.0 : 0.0;
+        float d = texture(uShadowMap, vec4(proj.xy + offset, cascadeIndex, current));
+        sum += d;
     }
     
-    // Lighten-only: take max of center sample and average
-    return max(baseShadow, sum / 33.0);  // 33 = 32 samples + 1 center
+    // Average and lighten-only
+    return max(center, sum / 33.0);  // 33 = 32 samples + 1 center
 }
 
 void main(){
@@ -421,7 +442,7 @@ bool ModelInstanceRenderer::loadModel(uint8_t blockID, const std::string& path) 
                 }
             }
             if (m_engineGrassTex == 0) {
-                std::filesystem::path fallback("C:/Users/steve-17\Desktop\game2/assets/textures/grass.png");
+                std::filesystem::path fallback("C:/Users/steve-17/Desktop/game2/assets/textures/grass.png");
                 if (std::filesystem::exists(fallback)) {
                     m_engineGrassTex = g_textureManager->loadTexture(fallback.string(), false, true);
                 }
@@ -594,11 +615,11 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
     int loc_Proj = glGetUniformLocation(shader, "uProjection");
     int loc_Model = glGetUniformLocation(shader, "uModel");
     int loc_Time = glGetUniformLocation(shader, "uTime");
-    int loc_LightVP = glGetUniformLocation(shader, "uLightVP");
     int loc_LightDir = glGetUniformLocation(shader, "uLightDir");
     int loc_ShadowTexel = glGetUniformLocation(shader, "uShadowTexel");
     int loc_ShadowMap = glGetUniformLocation(shader, "uShadowMap");
     int loc_Texture = glGetUniformLocation(shader, "uGrassTexture");
+    int loc_NumCascades = glGetUniformLocation(shader, "uNumCascades");
 
     // Set uniforms - use pre-calculated model matrix from buffer
     glUniformMatrix4fv(loc_View, 1, GL_FALSE, &view[0][0]);
@@ -606,8 +627,20 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
     glUniformMatrix4fv(loc_Model, 1, GL_FALSE, &buf.modelMatrix[0][0]);
     glUniform1f(loc_Time, m_time);
 
-    // Shadow map lighting
-    glUniformMatrix4fv(loc_LightVP, 1, GL_FALSE, &m_lightVP[0][0]);
+    // Set cascade shadow map data
+    int numCascades = g_shadowMap.getNumCascades();
+    glUniform1i(loc_NumCascades, numCascades);
+    
+    for (int i = 0; i < numCascades; ++i) {
+        const CascadeData& cascade = g_shadowMap.getCascade(i);
+        std::string vpName = "uCascadeVP[" + std::to_string(i) + "]";
+        std::string splitName = "uCascadeSplits[" + std::to_string(i) + "]";
+        int loc_CascadeVP = glGetUniformLocation(shader, vpName.c_str());
+        int loc_CascadeSplit = glGetUniformLocation(shader, splitName.c_str());
+        glUniformMatrix4fv(loc_CascadeVP, 1, GL_FALSE, &cascade.viewProj[0][0]);
+        glUniform1f(loc_CascadeSplit, cascade.splitDistance);
+    }
+    
     glUniform3f(loc_LightDir, m_lightDir.x, m_lightDir.y, m_lightDir.z);
     
     // Shadow texel size
@@ -615,9 +648,9 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
     float texel = sz > 0 ? (1.0f / float(sz)) : (1.0f / 8192.0f);
     glUniform1f(loc_ShadowTexel, texel);
     
-    // Bind shadow map texture
+    // Bind cascaded shadow map array texture
     glActiveTexture(GL_TEXTURE7);
-    glBindTexture(GL_TEXTURE_2D, g_shadowMap.getDepthTexture());
+    glBindTexture(GL_TEXTURE_2D_ARRAY, g_shadowMap.getDepthTexture());
     glUniform1i(loc_ShadowMap, 7);
     
     // Bind texture (engine grass.png for grass, GLB albedo for others)
@@ -653,7 +686,7 @@ void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk,
 
 // ========== SHADOW PASS METHODS ==========
 
-void ModelInstanceRenderer::beginDepthPass(const glm::mat4& lightVP)
+void ModelInstanceRenderer::beginDepthPass(const glm::mat4& lightVP, int cascadeIndex)
 {
     // Compile depth shader if not already done
     if (m_depthProgram == 0) {
@@ -675,7 +708,7 @@ void ModelInstanceRenderer::beginDepthPass(const glm::mat4& lightVP)
     if (m_depthProgram == 0) return;  // Failed to compile
     
     // NOTE: Don't call g_shadowMap.begin() here - MDIRenderer already did that
-    // We're just adding more geometry to the same shadow map
+    // We're just adding more geometry to the same shadow map cascade
     
     glUseProgram(m_depthProgram);
     if (m_depth_uLightVP != -1) {

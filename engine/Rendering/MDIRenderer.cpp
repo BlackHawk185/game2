@@ -146,21 +146,20 @@ bool MDIRenderer::initialize(uint32_t maxChunks, uint32_t initialBufferChunks)
         return false;
     }
     
-    // Query max texture size and use 70% for shadow map
+    // Query max texture size and use 50% for shadow map
     GLint maxTexSize = 0;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTexSize);
-    int shadowMapSize = static_cast<int>(maxTexSize * 0.7f);
-    // Round down to nearest power of 2 for better compatibility
-    shadowMapSize = 1 << static_cast<int>(std::floor(std::log2(shadowMapSize)));
     
-    if (!g_shadowMap.initialize(shadowMapSize))
+    // Hardcode shadow map resolution to 16384 for now
+    const int shadowMapSize = 16384;
+    
+    const int NUM_CASCADES = 2;  // Near cascade + far cascade
+    if (!g_shadowMap.initialize(shadowMapSize, NUM_CASCADES))
     {
         std::cout << "❌ Failed to initialize shadow map!" << std::endl;
         shutdown();
         return false;
     }
-    std::cout << "✅ Shadow map initialized (" << shadowMapSize << "x" << shadowMapSize 
-              << ", " << (shadowMapSize * shadowMapSize * 4 / (1024 * 1024)) << "MB)" << std::endl;
     
     // Load block textures (shared by all chunks)
     extern TextureManager* g_textureManager;
@@ -532,8 +531,18 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     m_shader->setMatrix4("uProjection", projectionMatrix);
     m_shader->setInt("uChunkIndex", ShaderMode::USE_MDI_SSBO);  // Use SSBO with gl_BaseInstance
     
-    // Set shadow map lighting data
-    m_shader->setMatrix4("uLightVP", m_lightVP);
+    // Set cascade shadow map data
+    int numCascades = g_shadowMap.getNumCascades();
+    m_shader->setInt("uNumCascades", numCascades);
+    
+    for (int i = 0; i < numCascades; ++i) {
+        const CascadeData& cascade = g_shadowMap.getCascade(i);
+        std::string vpName = "uCascadeVP[" + std::to_string(i) + "]";
+        std::string splitName = "uCascadeSplits[" + std::to_string(i) + "]";
+        m_shader->setMatrix4(vpName.c_str(), cascade.viewProj);
+        m_shader->setFloat(splitName.c_str(), cascade.splitDistance);
+    }
+    
     float texel = 1.0f / float(g_shadowMap.getSize() > 0 ? g_shadowMap.getSize() : 8192);
     m_shader->setFloat("uShadowTexel", texel);
     m_shader->setVector3("uLightDir", Vec3(m_lightDir.x, m_lightDir.y, m_lightDir.z));
@@ -558,9 +567,9 @@ void MDIRenderer::renderAll(const glm::mat4& viewMatrix,
     glBindTexture(GL_TEXTURE_2D, m_sandTextureID);
     m_shader->setInt("uSandTexture", 3);
     
-    // Bind single shadow map
+    // Bind cascaded shadow map array
     glActiveTexture(GL_TEXTURE7);
-    glBindTexture(GL_TEXTURE_2D, g_shadowMap.getDepthTexture());
+    glBindTexture(GL_TEXTURE_2D_ARRAY, g_shadowMap.getDepthTexture());
     m_shader->setInt("uShadowMap", 7);
     
     // Bind VAO
@@ -823,9 +832,9 @@ bool MDIRenderer::initDepthShader()
     return true;
 }
 
-void MDIRenderer::beginDepthPass(const glm::mat4& lightVP)
+void MDIRenderer::beginDepthPass(const glm::mat4& lightVP, int cascadeIndex)
 {
-    g_shadowMap.begin();
+    g_shadowMap.begin(cascadeIndex);
     
     glUseProgram(m_depthProgram);
     if (m_depth_uLightVP != -1) {

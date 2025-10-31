@@ -142,7 +142,7 @@ public:
     /**
      * Render cascaded shadow depth pass for all chunks
      */
-    void beginDepthPass(const glm::mat4& lightVP);
+    void beginDepthPass(const glm::mat4& lightVP, int cascadeIndex = 0);
     void endDepthPass(int screenWidth, int screenHeight);
     void renderDepth();
     
