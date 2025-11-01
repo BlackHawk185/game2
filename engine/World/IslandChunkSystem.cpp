@@ -242,49 +242,73 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     int islandHeight = static_cast<int>(radius * baseHeightRatio);
     int searchRadius = static_cast<int>(radius * 1.4f);
     float radiusSquared = (radius * 1.4f) * (radius * 1.4f);
+    float radiusDivisor = 1.0f / (radius * 1.2f);
     
     long long voxelsGenerated = 0;
     long long voxelsSampled = 0;
     long long voxelsSkipped = 0;
+    long long earlyRejects = 0;
     
     auto noiseStart = std::chrono::high_resolution_clock::now();
     long long noiseTimeUs = 0;
     
-    // Iterate only within spherical bounds
+    // Iterate with optimized loop order (Y outermost for better cache locality)
     for (int y = -islandHeight; y <= islandHeight; y++)
     {
+        float dy = static_cast<float>(y);
+        
+        // **VERTICAL FALLOFF** - Pre-calculate for this Y layer
+        float islandHeightRange = islandHeight * 2.0f;
+        float normalizedY = (dy + islandHeight) / islandHeightRange;
+        float centerOffset = normalizedY - 0.5f;
+        float verticalDensity = 1.0f - (centerOffset * centerOffset * 4.0f);
+        verticalDensity = std::max(0.0f, verticalDensity);
+        
+        // **EARLY OUT** - Skip entire Y layer if vertical density too low
+        if (verticalDensity < 0.01f) {
+            continue;
+        }
+        
         for (int x = -searchRadius; x <= searchRadius; x++)
         {
+            float dx = static_cast<float>(x);
+            float xSquared = dx * dx;
+            
             for (int z = -searchRadius; z <= searchRadius; z++)
             {
                 voxelsSampled++;
                 
+                float dz = static_cast<float>(z);
+                
                 // **SPHERE CULLING** - Skip positions outside island radius
-                float distanceSquared = static_cast<float>(x * x + z * z);
+                float distanceSquared = xSquared + dz * dz;
                 if (distanceSquared > radiusSquared) {
                     voxelsSkipped++;
                     continue;
                 }
                 
-                float dx = static_cast<float>(x);
-                float dy = static_cast<float>(y);
-                float dz = static_cast<float>(z);
-                
-                auto densityStart = std::chrono::high_resolution_clock::now();
-                
-                // **RADIAL FALLOFF**
+                // **RADIAL FALLOFF** (cached sqrt and pre-calculated divisor)
                 float distanceFromCenter = std::sqrt(distanceSquared);
-                float radiusDivisor = 1.0f / (radius * 1.2f);
                 float islandBase = 1.0f - (distanceFromCenter * radiusDivisor);
                 islandBase = std::max(0.0f, islandBase);
                 islandBase = islandBase * islandBase;
                 
-                // **VERTICAL FALLOFF**
-                float islandHeightRange = islandHeight * 2.0f;
-                float normalizedY = (dy + islandHeight) / islandHeightRange;
-                float centerOffset = normalizedY - 0.5f;
-                float verticalDensity = 1.0f - (centerOffset * centerOffset * 4.0f);
-                verticalDensity = std::max(0.0f, verticalDensity);
+                // **EARLY OUT** - Skip if radial falloff too low
+                if (islandBase < 0.01f) {
+                    earlyRejects++;
+                    continue;
+                }
+                
+                // Combined density from radial and vertical falloff
+                float baseDensity = islandBase * verticalDensity;
+                
+                // **EARLY OUT** - Skip noise if base density too low (saves 2 noise calls!)
+                if (baseDensity < 0.05f) {
+                    earlyRejects++;
+                    continue;
+                }
+                
+                auto densityStart = std::chrono::high_resolution_clock::now();
                 
                 // **3D PERLIN NOISE**
                 float volumetricNoise = noise3D.GetNoise(dx, dy, dz);
@@ -320,7 +344,8 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     
     std::cout << "🔨 Voxel Generation: " << voxelGenDuration << "ms (" << voxelsGenerated << " voxels, " 
               << island->chunks.size() << " chunks)" << std::endl;
-    std::cout << "   ├─ Positions Sampled: " << voxelsSampled << " (" << voxelsSkipped << " skipped by sphere culling)" << std::endl;
+    std::cout << "   ├─ Positions Sampled: " << voxelsSampled << " (" << voxelsSkipped << " sphere culled, " 
+              << earlyRejects << " density rejected)" << std::endl;
     std::cout << "   ├─ Noise Generation: " << noiseDuration << "ms (" 
               << (noiseDuration * 100 / std::max(1LL, voxelGenDuration)) << "%)" << std::endl;
     std::cout << "   └─ Loop Overhead: " << loopOverhead << "ms (" 
