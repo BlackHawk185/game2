@@ -70,8 +70,8 @@ public:
     void renderDepth();
     void endDepthPass(int screenWidth, int screenHeight);
 
-    // Generic model chunk rendering - uses pre-stored model matrix
-    void renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const glm::mat4& view, const glm::mat4& proj);
+    // Batched rendering - render ALL chunks for ALL block types efficiently
+    void renderAll(const glm::mat4& view, const glm::mat4& proj);
 
     // Update model matrix without rendering (stores pre-calculated chunk transform)
     void updateModelMatrix(uint8_t blockID, VoxelChunk* chunk, const glm::mat4& chunkTransform);

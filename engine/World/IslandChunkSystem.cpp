@@ -16,10 +16,7 @@
 #include "../Profiling/Profiler.h"
 #include "../Rendering/MDIRenderer.h"
 #include "../Rendering/ModelInstanceRenderer.h"
-#include <FastNoise/FastNoise.h>
-#include <FastNoise/Generators/Perlin.h>
-#include <FastNoise/Generators/Simplex.h>
-#include <FastNoise/Generators/BasicGenerators.h>
+#include "../../libs/FastNoiseLite/FastNoiseLite.h"
 
 IslandChunkSystem g_islandSystem;
 
@@ -197,181 +194,141 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     // Start with a center chunk at origin to ensure we have at least one chunk
     addChunkToIsland(islandID, Vec3(0, 0, 0));
     
-    // **NOISE PARAMETERS** - Tuned for natural island terrain
-    float noiseScale = 0.05f;  // Frequency for detail features
-    float terrainScale = 0.02f;  // Lower frequency for large hills/valleys
-    float densityThreshold = 0.3f;  // Threshold for solid voxels
+    // **NOISE CONFIGURATION**
+    float densityThreshold = 0.35f;
+    float baseHeightRatio = 0.15f;
+    float noise3DFrequency = 0.02f;
+    float noise2DFrequency = 0.015f;
+    int fractalOctaves = 2;
+    float fractalGain = 0.4f;
     
     // **ENVIRONMENT OVERRIDES** for noise parameters
-    const char* scaleEnv = std::getenv("NOISE_SCALE");
-    if (scaleEnv) noiseScale = std::stof(scaleEnv);
+    const char* freq3DEnv = std::getenv("NOISE_FREQ_3D");
+    if (freq3DEnv) noise3DFrequency = std::stof(freq3DEnv);
+    
+    const char* freq2DEnv = std::getenv("NOISE_FREQ_2D");
+    if (freq2DEnv) noise2DFrequency = std::stof(freq2DEnv);
     
     const char* thresholdEnv = std::getenv("NOISE_THRESHOLD");
     if (thresholdEnv) densityThreshold = std::stof(thresholdEnv);
     
-    int voxelsGenerated = 0;
-    int chunksCreated = 0;
+    // Setup noise generators
+    FastNoiseLite noise3D;
+    noise3D.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    noise3D.SetSeed(seed);
+    noise3D.SetFrequency(noise3DFrequency);
+    noise3D.SetFractalType(FastNoiseLite::FractalType_FBm);
+    noise3D.SetFractalOctaves(fractalOctaves);
+    noise3D.SetFractalLacunarity(2.0f);
+    noise3D.SetFractalGain(fractalGain);
+    
+    FastNoiseLite noise2D;
+    noise2D.SetNoiseType(FastNoiseLite::NoiseType_Perlin);
+    noise2D.SetSeed(seed + 1000);
+    noise2D.SetFrequency(noise2DFrequency);
+    noise2D.SetFractalType(FastNoiseLite::FractalType_FBm);
+    noise2D.SetFractalOctaves(fractalOctaves);
+    noise2D.SetFractalLacunarity(2.0f);
+    noise2D.SetFractalGain(fractalGain);
     
     // **SURFACE CACHE** - Track surface positions for decoration pass
     std::vector<Vec3> surfacePositions;
-    surfacePositions.reserve(static_cast<size_t>(radius * radius * 2)); // Rough estimate
-    
-    // **ISLAND HEIGHT CONFIGURATION** - More natural vertical proportions
-    // Increased height ratio for less pancake-like islands
-    float baseHeightRatio = 0.15f;  // 15% of radius for height (increased from 8%)
-    float heightScaling = 1.0f;     // Normal scaling for more vertical variation
-    int islandHeight = static_cast<int>(radius * baseHeightRatio * heightScaling);
-    
-    int searchRadius = static_cast<int>(radius * 1.4f);
+    surfacePositions.reserve(static_cast<size_t>(radius * radius * 2));
     
     auto voxelGenStart = std::chrono::high_resolution_clock::now();
     
-    // **OPTIMIZATION PRECALCULATIONS**
+    // **SPHERE-BOUNDED DENSE SAMPLING**
+    // Calculate island bounds (sphere + vertical extent)
+    int islandHeight = static_cast<int>(radius * baseHeightRatio);
+    int searchRadius = static_cast<int>(radius * 1.4f);
     float radiusSquared = (radius * 1.4f) * (radius * 1.4f);
-    float radiusDivisor = 1.0f / (radius * 1.2f);
-    float seedOffset1 = seed * 0.1f;
-    float seedOffset2 = seed * 0.2f;
-    float seedOffset3 = seed * 0.3f;
-    float seedOffset4 = seed * 0.4f;
-    float seedOffset5 = seed * 0.5f;
     
-    // Iterate through potential island volume
+    long long voxelsGenerated = 0;
+    long long voxelsSampled = 0;
+    long long voxelsSkipped = 0;
+    
+    auto noiseStart = std::chrono::high_resolution_clock::now();
+    long long noiseTimeUs = 0;
+    
+    // Iterate only within spherical bounds
     for (int y = -islandHeight; y <= islandHeight; y++)
     {
-        float dy = static_cast<float>(y);
-        
-        // Pre-calculate vertical density with smooth gradual falloff (no hard cutoffs)
-        float islandHeightRange = islandHeight * 2.0f;
-        float normalizedY = (dy + islandHeight) / islandHeightRange;  // 0 at bottom, 1 at top
-        
-        // Smooth parabolic falloff from center - creates natural rounded shape
-        // Center (0.5) = full density, edges taper gradually
-        float centerOffset = normalizedY - 0.5f;  // -0.5 to +0.5
-        float verticalDensity = 1.0f - (centerOffset * centerOffset * 4.0f);  // Parabola
-        verticalDensity = std::max(0.0f, verticalDensity);  // Clamp to 0-1
-        
-        // Pre-calculate Y-based noise component (shared across X/Z)
-        float noiseY_freq1 = dy * noiseScale * 0.5f + seedOffset2;
-        float noiseY_octave1 = std::cos(noiseY_freq1);
-        
         for (int x = -searchRadius; x <= searchRadius; x++)
         {
-            float dx = static_cast<float>(x);
-            float dx_squared = dx * dx;
-            
-            // Pre-calculate X-based noise components
-            float noiseX_freq1 = dx * noiseScale + seedOffset1;
-            float noiseX_sin1 = std::sin(noiseX_freq1);
-            float terrainX_freq1 = dx * terrainScale + seedOffset4;
-            float terrainX_sin1 = std::sin(terrainX_freq1);
-            
             for (int z = -searchRadius; z <= searchRadius; z++)
             {
+                voxelsSampled++;
+                
+                // **SPHERE CULLING** - Skip positions outside island radius
+                float distanceSquared = static_cast<float>(x * x + z * z);
+                if (distanceSquared > radiusSquared) {
+                    voxelsSkipped++;
+                    continue;
+                }
+                
+                float dx = static_cast<float>(x);
+                float dy = static_cast<float>(y);
                 float dz = static_cast<float>(z);
                 
-                // **OPTIMIZED DISTANCE CHECK** - Use squared distance to avoid sqrt
-                float distanceSquared = dx_squared + dz * dz;
-                if (distanceSquared > radiusSquared) continue; // Early exit
+                auto densityStart = std::chrono::high_resolution_clock::now();
                 
-                // Only calculate sqrt when we know voxel is within radius
+                // **RADIAL FALLOFF**
                 float distanceFromCenter = std::sqrt(distanceSquared);
-                
-                // **BASE ISLAND SHAPE** - Radial falloff for island edges
+                float radiusDivisor = 1.0f / (radius * 1.2f);
                 float islandBase = 1.0f - (distanceFromCenter * radiusDivisor);
                 islandBase = std::max(0.0f, islandBase);
-                islandBase = islandBase * islandBase; // Smooth falloff
+                islandBase = islandBase * islandBase;
                 
-                // **OPTIMIZED 3D NOISE** - Reuse pre-calculated components
-                float surfaceNoise = 0.0f;
-                float amplitude = 1.0f;
-                float frequency = noiseScale;
+                // **VERTICAL FALLOFF**
+                float islandHeightRange = islandHeight * 2.0f;
+                float normalizedY = (dy + islandHeight) / islandHeightRange;
+                float centerOffset = normalizedY - 0.5f;
+                float verticalDensity = 1.0f - (centerOffset * centerOffset * 4.0f);
+                verticalDensity = std::max(0.0f, verticalDensity);
                 
-                // Octave 1 (reuse pre-calculated components)
-                float noiseZ_freq1 = dz * frequency + seedOffset3;
-                float octaveNoise1 = (noiseX_sin1 * noiseY_octave1 * std::sin(noiseZ_freq1) + 1.0f) * 0.5f;
-                surfaceNoise += octaveNoise1 * amplitude;
+                // **3D PERLIN NOISE**
+                float volumetricNoise = noise3D.GetNoise(dx, dy, dz);
+                volumetricNoise = (volumetricNoise + 1.0f) * 0.5f;
                 
-                // Octave 2
-                amplitude *= 0.5f;
-                frequency *= 2.0f;
-                float noiseX_freq2 = dx * frequency + seedOffset1;
-                float noiseY_freq2 = dy * frequency * 0.5f + seedOffset2;
-                float noiseZ_freq2 = dz * frequency + seedOffset3;
-                float octaveNoise2 = (std::sin(noiseX_freq2) * std::cos(noiseY_freq2) * std::sin(noiseZ_freq2) + 1.0f) * 0.5f;
-                surfaceNoise += octaveNoise2 * amplitude;
+                // **2D PERLIN NOISE**
+                float terrainNoise = noise2D.GetNoise(dx, dz);
+                terrainNoise = (terrainNoise + 1.0f) * 0.5f;
                 
-                // Octave 3
-                amplitude *= 0.5f;
-                frequency *= 2.0f;
-                float noiseX_freq3 = dx * frequency + seedOffset1;
-                float noiseY_freq3 = dy * frequency * 0.5f + seedOffset2;
-                float noiseZ_freq3 = dz * frequency + seedOffset3;
-                float octaveNoise3 = (std::sin(noiseX_freq3) * std::cos(noiseY_freq3) * std::sin(noiseZ_freq3) + 1.0f) * 0.5f;
-                surfaceNoise += octaveNoise3 * amplitude;
+                // **FINAL DENSITY**
+                float finalDensity = islandBase * verticalDensity * (volumetricNoise * 0.6f + terrainNoise * 0.4f);
                 
-                // **OPTIMIZED TERRAIN NOISE** - Reuse pre-calculated X component
-                float terrainNoise = 0.0f;
-                amplitude = 0.8f;
-                frequency = terrainScale;
+                auto densityEnd = std::chrono::high_resolution_clock::now();
+                noiseTimeUs += std::chrono::duration_cast<std::chrono::microseconds>(densityEnd - densityStart).count();
                 
-                // Octave 1 (reuse pre-calculated X component)
-                float terrainZ_freq1 = dz * frequency + seedOffset5;
-                float terrainOctave1 = (terrainX_sin1 * std::cos(terrainZ_freq1) + 1.0f) * 0.5f;
-                terrainNoise += terrainOctave1 * amplitude;
-                
-                // Octave 2
-                amplitude *= 0.5f;
-                frequency *= 2.0f;
-                float terrainX_freq2 = dx * frequency + seedOffset4;
-                float terrainZ_freq2 = dz * frequency + seedOffset5;
-                float terrainOctave2 = (std::sin(terrainX_freq2) * std::cos(terrainZ_freq2) + 1.0f) * 0.5f;
-                terrainNoise += terrainOctave2 * amplitude;
-                
-                // **FINAL ISLAND DENSITY** - Combine all factors (smooth, no hard cutoffs)
-                // Parabolic vertical density already creates natural rounded shape
-                float finalDensity = islandBase * verticalDensity *
-                                    (surfaceNoise * 0.6f + terrainNoise * 0.4f);
-                
-                bool shouldPlaceVoxel = (finalDensity > densityThreshold);
-                
-                if (shouldPlaceVoxel)
+                // Place voxel if density exceeds threshold
+                if (finalDensity > densityThreshold)
                 {
-                    // Track chunks before placement
-                    size_t chunksBefore = island->chunks.size();
-                    
-                    // Use island-relative coordinates for placement
-                    Vec3 islandRelativePos(dx, dy, dz);
-                    
-                    // All blocks are dirt
-                    uint8_t blockID = BlockID::DIRT;
-                    
-                    setBlockIDWithAutoChunk(islandID, islandRelativePos, blockID);
-                    
-                    // Cache this as a potential surface position for decoration
-                    surfacePositions.push_back(islandRelativePos);
-                    
+                    Vec3 pos(x, y, z);
+                    setBlockIDWithAutoChunk(islandID, pos, BlockID::DIRT);
+                    surfacePositions.push_back(pos);
                     voxelsGenerated++;
-                    
-                    // Check if a new chunk was created
-                    if (island->chunks.size() > chunksBefore)
-                    {
-                        chunksCreated++;
-                    }
-                }  // End shouldPlaceVoxel
-            }  // End z loop
-        }  // End x loop
-    }  // End y loop
+                }
+            }
+        }
+    }
     
     auto voxelGenEnd = std::chrono::high_resolution_clock::now();
     auto voxelGenDuration = std::chrono::duration_cast<std::chrono::milliseconds>(voxelGenEnd - voxelGenStart).count();
     
+    long long noiseDuration = noiseTimeUs / 1000;
+    long long loopOverhead = voxelGenDuration - noiseDuration;
+    
     std::cout << "🔨 Voxel Generation: " << voxelGenDuration << "ms (" << voxelsGenerated << " voxels, " 
               << island->chunks.size() << " chunks)" << std::endl;
+    std::cout << "   ├─ Positions Sampled: " << voxelsSampled << " (" << voxelsSkipped << " skipped by sphere culling)" << std::endl;
+    std::cout << "   ├─ Noise Generation: " << noiseDuration << "ms (" 
+              << (noiseDuration * 100 / std::max(1LL, voxelGenDuration)) << "%)" << std::endl;
+    std::cout << "   └─ Loop Overhead: " << loopOverhead << "ms (" 
+              << (loopOverhead * 100 / std::max(1LL, voxelGenDuration)) << "%)" << std::endl;
     
-    // **CONNECTIVITY CLEANUP (FAST PATH)** - Remove disconnected satellite chunks
+    // Connectivity cleanup - remove disconnected satellite chunks
     auto connectivityStart = std::chrono::high_resolution_clock::now();
     
-    // Use fast path: assumes (0,0,0) is part of main island, deletes everything else
     int voxelsRemoved = ConnectivityAnalyzer::cleanupSatellites(island, Vec3(0, 0, 0));
     
     if (voxelsRemoved > 0) {
@@ -384,78 +341,91 @@ void IslandChunkSystem::generateFloatingIslandOrganic(uint32_t islandID, uint32_
     auto connectivityDuration = std::chrono::duration_cast<std::chrono::milliseconds>(connectivityEnd - connectivityStart).count();
     std::cout << "🔍 Connectivity Cleanup: " << connectivityDuration << "ms" << std::endl;
     
-    // **DECORATION PASS** - Place grass and trees on surface positions
+    // Decoration pass - place grass on surface positions
     auto decorationStart = std::chrono::high_resolution_clock::now();
     
     int grassPlaced = 0;
-    int treesPlaced = 0; // For future tree implementation
     
-    // Filter surface positions to only include actual surface blocks
-    // (blocks with air above them that survived connectivity cleanup)
     for (const Vec3& pos : surfacePositions) {
-        // Check if this block still exists (wasn't removed by connectivity cleanup)
         uint8_t blockID = getVoxelFromIsland(islandID, pos);
-        if (blockID == BlockID::AIR) continue; // Block was removed
+        if (blockID == BlockID::AIR) continue;
         
-        // Check if the block above is air (this is a surface block)
         Vec3 above = pos + Vec3(0, 1, 0);
         uint8_t blockAbove = getVoxelFromIsland(islandID, above);
-        if (blockAbove != BlockID::AIR) continue; // Not a surface block
+        if (blockAbove != BlockID::AIR) continue;
         
-        // **GRASS DECORATION** - 25% coverage (reduced from 50% for debugging)
         if ((std::rand() % 100) < 25) {
             setBlockIDWithAutoChunk(islandID, above, BlockID::DECOR_GRASS);
             grassPlaced++;
         }
-        
-        // **TREE PLACEMENT** - Future implementation
-        // TODO: Add tree generation logic here
-        // if (shouldPlaceTree(pos, seed)) {
-        //     placeTree(islandID, above, seed);
-        //     treesPlaced++;
-        // }
     }
     
     auto decorationEnd = std::chrono::high_resolution_clock::now();
     auto decorationDuration = std::chrono::duration_cast<std::chrono::milliseconds>(decorationEnd - decorationStart).count();
-    std::cout << "🌿 Decoration Pass: " << decorationDuration << "ms (" << grassPlaced << " grass)" << std::endl;
+    std::cout << "🌿 Decoration: " << decorationDuration << "ms (" << grassPlaced << " grass)" << std::endl;
     
     auto meshGenStart = std::chrono::high_resolution_clock::now();
     
-    // **SINGLE MESH GENERATION PASS** - much faster than per-voxel generation
+    long long renderMeshTime = 0;
+    long long collisionMeshTime = 0;
+    long long mdiRegistrationTime = 0;
+    int chunksProcessed = 0;
+    
     for (auto& [chunkCoord, chunk] : island->chunks)
     {
         if (chunk)
         {
+            auto renderMeshStart = std::chrono::high_resolution_clock::now();
             chunk->generateMesh();
-            chunk->buildCollisionMesh();
+            auto renderMeshEnd = std::chrono::high_resolution_clock::now();
+            renderMeshTime += std::chrono::duration_cast<std::chrono::microseconds>(renderMeshEnd - renderMeshStart).count();
             
-            // Register with MDI renderer for batched rendering (1 draw call for all chunks!)
+            auto collisionMeshStart = std::chrono::high_resolution_clock::now();
+            chunk->buildCollisionMesh();
+            auto collisionMeshEnd = std::chrono::high_resolution_clock::now();
+            collisionMeshTime += std::chrono::duration_cast<std::chrono::microseconds>(collisionMeshEnd - collisionMeshStart).count();
+            
             if (g_mdiRenderer)
             {
-                // Compute chunk local position (relative to island center)
+                auto mdiStart = std::chrono::high_resolution_clock::now();
+                
                 Vec3 chunkLocalPos(
                     chunkCoord.x * VoxelChunk::SIZE,
                     chunkCoord.y * VoxelChunk::SIZE,
                     chunkCoord.z * VoxelChunk::SIZE
                 );
                 
-                // Compute full transform: island transform * chunk local offset
                 glm::mat4 chunkTransform = island->getTransformMatrix() * 
                     glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
                 
                 g_mdiRenderer->queueChunkRegistration(chunk.get(), chunkTransform);
+                
+                auto mdiEnd = std::chrono::high_resolution_clock::now();
+                mdiRegistrationTime += std::chrono::duration_cast<std::chrono::microseconds>(mdiEnd - mdiStart).count();
             }
+            
+            chunksProcessed++;
         }
     }
     
     auto meshGenEnd = std::chrono::high_resolution_clock::now();
     auto meshGenDuration = std::chrono::duration_cast<std::chrono::milliseconds>(meshGenEnd - meshGenStart).count();
     
+    long long renderMeshDuration = renderMeshTime / 1000;
+    long long collisionMeshDuration = collisionMeshTime / 1000;
+    long long mdiRegistrationDuration = mdiRegistrationTime / 1000;
+    
+    std::cout << "📐 Mesh Generation: " << meshGenDuration << "ms (" << chunksProcessed << " chunks)" << std::endl;
+    std::cout << "   ├─ Render: " << renderMeshDuration << "ms (" 
+              << (renderMeshDuration * 100 / std::max(1LL, meshGenDuration)) << "%)" << std::endl;
+    std::cout << "   ├─ Collision: " << collisionMeshDuration << "ms (" 
+              << (collisionMeshDuration * 100 / std::max(1LL, meshGenDuration)) << "%)" << std::endl;
+    std::cout << "   └─ MDI: " << mdiRegistrationDuration << "ms (" 
+              << (mdiRegistrationDuration * 100 / std::max(1LL, meshGenDuration)) << "%)" << std::endl;
+    
     auto totalEnd = std::chrono::high_resolution_clock::now();
     auto totalDuration = std::chrono::duration_cast<std::chrono::milliseconds>(totalEnd - startTime).count();
     
-    std::cout << "📐 Mesh Generation: " << meshGenDuration << "ms (" << island->chunks.size() << " chunks)" << std::endl;
     std::cout << "✅ Island Generation Complete: " << totalDuration << "ms total" << std::endl;
     std::cout << "   └─ Breakdown: Voxels=" << voxelGenDuration << "ms (" 
               << (voxelGenDuration * 100 / std::max(1LL, totalDuration)) << "%), Decoration=" 
@@ -609,14 +579,6 @@ void IslandChunkSystem::getVisibleChunks(const Vec3& viewPosition,
     getAllChunks(outChunks);
 }
 
-void IslandChunkSystem::renderAllIslands()
-{
-    // DEPRECATED: This function is no longer used.
-    // All rendering is now handled by MDIRenderer via GameClient::renderWorld()
-    // Kept for backwards compatibility only.
-    std::cerr << "⚠️  IslandChunkSystem::renderAllIslands() called but deprecated. Use MDIRenderer instead." << std::endl;
-}
-
 void IslandChunkSystem::updateIslandPhysics(float deltaTime)
 {
     std::lock_guard<std::mutex> lock(m_islandsMutex);
@@ -639,7 +601,7 @@ void IslandChunkSystem::updateIslandPhysics(float deltaTime)
 void IslandChunkSystem::syncPhysicsToChunks()
 {
     // UNIFIED TRANSFORM UPDATE: Single source of truth for ALL rendering (MDI + GLB)
-    // This function calculates transforms once and updates both MDI chunks and GLB model instances
+    // Event-driven: Only update chunks whose islands have actually moved
     std::lock_guard<std::mutex> lock(m_islandsMutex);
     
     if (!g_mdiRenderer)
@@ -648,11 +610,27 @@ void IslandChunkSystem::syncPhysicsToChunks()
         return;
     }
     
-    // Get block type registry for GLB model iteration
-    auto& registry = BlockTypeRegistry::getInstance();
+    // Cache OBJ block types once instead of querying every iteration
+    static std::vector<uint8_t> objBlockTypes;
+    static bool objBlockTypesCached = false;
+    if (!objBlockTypesCached)
+    {
+        auto& registry = BlockTypeRegistry::getInstance();
+        for (const auto& blockType : registry.getAllBlockTypes())
+        {
+            if (blockType.renderType == BlockRenderType::OBJ)
+            {
+                objBlockTypes.push_back(blockType.id);
+            }
+        }
+        objBlockTypesCached = true;
+    }
     
     for (auto& [id, island] : m_islands)
     {
+        // Skip islands that haven't moved
+        if (!island.needsPhysicsUpdate) continue;
+        
         // Calculate island transform once (includes rotation + translation)
         glm::mat4 islandTransform = island.getTransformMatrix();
         
@@ -669,36 +647,31 @@ void IslandChunkSystem::syncPhysicsToChunks()
             );
             
             // Compute full transform: island transform * chunk local offset
-            // This is the ONLY place this calculation happens - single source of truth
             glm::mat4 chunkTransform = islandTransform * 
                 glm::translate(glm::mat4(1.0f), glm::vec3(chunkLocalPos.x, chunkLocalPos.y, chunkLocalPos.z));
             
             // === UPDATE MDI RENDERER (voxel chunks) ===
             if (chunk->getMDIIndex() >= 0)
             {
-                // Existing chunk - update transform
                 g_mdiRenderer->updateChunkTransform(chunk->getMDIIndex(), chunkTransform);
             }
             else
             {
-                // New chunk - register with correct transform
                 g_mdiRenderer->queueChunkRegistration(chunk.get(), chunkTransform);
             }
             
-            // === UPDATE GLB MODEL RENDERER (for all block types that use models) ===
-            if (g_modelRenderer)
+            // === UPDATE GLB MODEL RENDERER (only for OBJ block types) ===
+            if (g_modelRenderer && !objBlockTypes.empty())
             {
-                for (const auto& blockType : registry.getAllBlockTypes())
+                for (uint8_t blockID : objBlockTypes)
                 {
-                    if (blockType.renderType == BlockRenderType::OBJ)
-                    {
-                        // Update model matrix for this block type in this chunk
-                        // Uses the same chunkTransform we calculated above
-                        g_modelRenderer->updateModelMatrix(blockType.id, chunk.get(), chunkTransform);
-                    }
+                    g_modelRenderer->updateModelMatrix(blockID, chunk.get(), chunkTransform);
                 }
             }
         }
+        
+        // Clear update flag after processing
+        island.needsPhysicsUpdate = false;
     }
 }
 

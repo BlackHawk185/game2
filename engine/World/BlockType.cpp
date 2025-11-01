@@ -45,13 +45,13 @@ void BlockTypeRegistry::initializeDefaultBlocks() {
     registerBlockType(BlockID::DIRT, "dirt", BlockRenderType::VOXEL, "", BlockProperties::Solid(0.5f));
     registerBlockType(BlockID::GRASS, "grass", BlockRenderType::VOXEL, "", BlockProperties::Solid(0.6f));
     
-    // Decorative/OBJ blocks
-    registerBlockType(BlockID::TREE, "tree", BlockRenderType::OBJ, "assets/models/tree.obj", 
-                     BlockProperties::Solid(2.0f));
-    registerBlockType(BlockID::LAMP, "lamp", BlockRenderType::OBJ, "assets/models/lamp.obj", 
-                     BlockProperties::LightSource(14, 0.5f));
-    registerBlockType(BlockID::ROCK, "rock", BlockRenderType::OBJ, "assets/models/rock.obj", 
-                     BlockProperties::Solid(3.0f));
+    // Decorative/OBJ blocks (disabled - no models available)
+    // registerBlockType(BlockID::TREE, "tree", BlockRenderType::OBJ, "assets/models/tree.glb", 
+    //                  BlockProperties::Solid(2.0f));
+    // registerBlockType(BlockID::LAMP, "lamp", BlockRenderType::OBJ, "assets/models/lamp.glb", 
+    //                  BlockProperties::LightSource(14, 0.5f));
+    // registerBlockType(BlockID::ROCK, "rock", BlockRenderType::OBJ, "assets/models/rock.glb", 
+    //                  BlockProperties::Solid(3.0f));
     
     // Decorative grass tuft (transparent, requires support, fragile)
     BlockProperties grassProps = BlockProperties::Transparent(0.1f);

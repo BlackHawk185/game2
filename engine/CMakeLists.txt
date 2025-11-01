@@ -16,6 +16,7 @@ add_library(engine STATIC
     World/ConnectivityAnalyzer.cpp
     World/ConnectivityTest.cpp
     World/ElementRecipes.cpp
+    World/VoronoiIslandPlacer.cpp
     
     # Rendering systems
     Rendering/Renderer.cpp
@@ -90,7 +91,7 @@ target_include_directories(engine PUBLIC
     ${CMAKE_SOURCE_DIR}/libs/tinygltf
     ${CMAKE_SOURCE_DIR}/libs/stb
     ${CMAKE_SOURCE_DIR}/libs/bimg/3rdparty/stb
-    ${CMAKE_SOURCE_DIR}/libs/FastNoise2/include
+    ${CMAKE_SOURCE_DIR}/libs/FastNoiseLite
 )
 
 target_compile_features(engine PUBLIC cxx_std_17)
@@ -121,7 +122,6 @@ target_link_libraries(engine PUBLIC
     glad
     OpenGL::GL
     glm::glm
-    FastNoise
 )
 
 # Ensure GLFW does not include a GL header (glad provides it)

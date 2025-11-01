@@ -136,11 +136,10 @@ bool GameClient::connectToGameState(GameState* gameState)
         g_physics.setIslandSystem(gameState->getIslandSystem());
     }
 
-    // Set up camera position at spawn point
-    Vec3 playerSpawnPos = Vec3(0.0f, 64.0f, 0.0f);  // Default spawn position
+    // Use calculated spawn position from world generation
+    Vec3 playerSpawnPos = gameState->getPlayerSpawnPosition();
     m_playerController.setPosition(playerSpawnPos);
 
-    // Removed verbose debug output
     return true;
 }
 
@@ -871,30 +870,11 @@ void GameClient::renderWorld()
             lastPrint = now;
         }
         
-        // Render GLB model instances per chunk (transforms already set by syncPhysicsToChunks)
+        // Render GLB model instances with batched rendering
         if (g_modelRenderer)
         {
             PROFILE_SCOPE("GLB model rendering");
-            auto& registry = BlockTypeRegistry::getInstance();
-            auto& islands = m_gameState->getIslandSystem()->getIslands();
-            
-            for (const auto& blockType : registry.getAllBlockTypes())
-            {
-                if (blockType.renderType == BlockRenderType::OBJ)
-                {
-                    // Iterate through all chunks in all islands
-                    for (const auto& [islandID, island] : islands)
-                    {
-                        for (const auto& [chunkCoord, chunk] : island.chunks)
-                        {
-                            if (chunk)
-                            {
-                                g_modelRenderer->renderModelChunk(blockType.id, chunk.get(), viewMatrix, projectionMatrix);
-                            }
-                        }
-                    }
-                }
-            }
+            g_modelRenderer->renderAll(viewMatrix, projectionMatrix);
         }
         
         // Render block highlight (yellow wireframe cube on selected block)
@@ -992,6 +972,10 @@ void GameClient::renderShadowPass()
             }
         }
     }
+    
+    // Restore culling for forward rendering pass (shadow pass disabled it)
+    glEnable(GL_CULL_FACE);
+    glCullFace(GL_BACK);
     
     // Set lighting data for forward pass (use first cascade for now - will update shader to pick cascade)
     glm::vec3 lightDirVec(lightDir.x, lightDir.y, lightDir.z);
@@ -1101,8 +1085,6 @@ void GameClient::onWindowResize(int width, int height)
 
 void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)
 {
-    // Removed verbose debug output
-
     // Create a new GameState for the client based on server data
     m_gameState =
         new GameState();  // Note: This creates a raw pointer, we might want to use unique_ptr later
@@ -1116,9 +1098,7 @@ void GameClient::handleWorldStateReceived(const WorldStateMessage& worldState)
     }
 
     // Spawn player at server-provided location
-    Vec3 spawnPos = worldState.playerSpawnPosition;
-    spawnPos.y += 2.0f;  // Position camera slightly above spawn point
-    m_playerController.setPosition(spawnPos);
+    m_playerController.setPosition(worldState.playerSpawnPosition);
 }
 
 void GameClient::handleCompressedIslandReceived(uint32_t islandID, const Vec3& position,

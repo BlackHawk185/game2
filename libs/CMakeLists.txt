@@ -57,5 +57,5 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(glm)
 
-# FastNoise2 for procedural terrain generation
-add_subdirectory(FastNoise2)
+# FastNoiseLite is header-only, no build needed (included directly in engine code)
+

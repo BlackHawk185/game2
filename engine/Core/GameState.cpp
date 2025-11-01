@@ -4,8 +4,11 @@
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
+#include <future>
+#include <vector>
 
 #include "../World/VoxelChunk.h"
+#include "../World/VoronoiIslandPlacer.h"
 #include "../Rendering/GlobalLightingManager.h"
 
 GameState::GameState()
@@ -114,55 +117,100 @@ Vec3 GameState::getIslandCenter(uint32_t islandID) const
 
 void GameState::createDefaultWorld()
 {
-    std::cout << "🏝️ Creating default world (multiple floating islands)..." << std::endl;
+    std::cout << "🏝️ Creating procedural world with Voronoi island placement..." << std::endl;
 
-    // **ISLAND CONFIGURATION** - Reduced for physics debugging
-    float mainRadius = 300.0f;     // Main island size (reduced from 500.0f for faster iteration)
-    float smallRadius = 200.0f;     // Smaller island size (reduced from 120.0f)
-    float spacing = 250.0f;        // Distance between island centers (reduced from 300.0f)
+    // ═══════════════════════════════════════════════════════════════
+    // VORONOI WORLD GENERATION CONFIG - Centralized for easy tuning
+    // ═══════════════════════════════════════════════════════════════
+    struct WorldGenConfig {
+        // World boundaries
+        float regionSize = 1000.0f;          // World region size (1000x1000 units)
+        
+        // Island generation (density-based for infinite scaling)
+        float islandDensity = 8.0f;          // Islands per 1000x1000 area (scales infinitely!)
+        float minIslandRadius = 80.0f;       // Minimum island size
+        float maxIslandRadius = 500.0f;      // Maximum island size
+        
+        // Advanced Voronoi tuning
+        float verticalSpread = 100.0f;       // Vertical Y-axis spread (±units)
+        float heightNoiseFreq = 0.005f;      // Frequency for Y variation (lower = smoother)
+        float cellThreshold = 0.1f;          // Cell center detection (lower = stricter)
+        
+        // Derived properties (calculated automatically by VoronoiIslandPlacer):
+        // - Actual island count = islandDensity * (regionSize/1000)²
+        // - Cell size ≈ 1000 / sqrt(islandDensity)
+        // - For 1000x1000 region with density 8: ~8 islands, cell size ~354 units
+        // - For 2000x2000 region with density 8: ~32 islands, cell size ~354 units (scales!)
+    } config;
     
-    // Create multiple islands with varied positions
-    uint32_t island1ID = m_islandSystem.createIsland(Vec3(0.0f, 0.0f, 0.0f));        // Center
-    uint32_t island2ID = m_islandSystem.createIsland(Vec3(spacing, 30.0f, 0.0f));   // East
-    uint32_t island3ID = m_islandSystem.createIsland(Vec3(-spacing, -30.0f, 0.0f)); // West
-    uint32_t island4ID = m_islandSystem.createIsland(Vec3(0.0f, 30.0f, spacing));   // North
-    uint32_t island5ID = m_islandSystem.createIsland(Vec3(0.0f, -30.0f, -spacing)); // South
-
-    // Track all islands
-    m_islandIDs.push_back(island1ID);
-    m_islandIDs.push_back(island2ID);
-    m_islandIDs.push_back(island3ID);
-    m_islandIDs.push_back(island4ID);
-    m_islandIDs.push_back(island5ID);
-
-    // **MULTIPLE ISLAND GENERATION** - Create a small archipelago with random seeds
-    std::cout << "[WORLD] Generating " << m_islandIDs.size() << " islands..." << std::endl;
+    uint32_t worldSeed = static_cast<uint32_t>(std::time(nullptr));  // Use time as master seed
     
-    // Generate random seeds for each island (unique world every time)
-    std::srand(static_cast<unsigned int>(std::time(nullptr)));
-    uint32_t seed1 = std::rand();
-    uint32_t seed2 = std::rand();
-    uint32_t seed3 = std::rand();
-    uint32_t seed4 = std::rand();
-    uint32_t seed5 = std::rand();
+    // Calculate actual island count for this region
+    float areaMultiplier = (config.regionSize * config.regionSize) / (1000.0f * 1000.0f);
+    int expectedIslands = static_cast<int>(config.islandDensity * areaMultiplier);
     
-    std::cout << "[WORLD] Using random seeds: " << seed1 << ", " << seed2 << ", " << seed3 << ", " << seed4 << ", " << seed5 << std::endl;
+    std::cout << "[WORLD] World seed: " << worldSeed << std::endl;
+    std::cout << "[WORLD] Region: " << config.regionSize << "x" << config.regionSize << std::endl;
+    std::cout << "[WORLD] Island density: " << config.islandDensity << " per 1000² (expecting ~" 
+              << expectedIslands << " islands)" << std::endl;
     
-    // Generate each island with random seeds for variety
-    std::cout << "[WORLD] Generating island 1 (center, radius=" << mainRadius << ")..." << std::endl;
-    m_islandSystem.generateFloatingIslandOrganic(island1ID, seed1, mainRadius);      // Main island (large)
+    // Generate island definitions using Voronoi cellular noise
+    VoronoiIslandPlacer placer;
+    placer.verticalSpreadMultiplier = config.verticalSpread;
+    placer.heightNoiseFrequency = config.heightNoiseFreq;
+    placer.cellCenterThreshold = config.cellThreshold;
     
-    std::cout << "[WORLD] Generating island 2 (east, radius=" << smallRadius << ")..." << std::endl;
-    m_islandSystem.generateFloatingIslandOrganic(island2ID, seed2, smallRadius);     // East island (smaller)
+    std::vector<IslandDefinition> islandDefs = placer.generateIslands(
+        worldSeed,
+        config.regionSize,
+        config.islandDensity,
+        config.minIslandRadius,
+        config.maxIslandRadius
+    );
     
-    std::cout << "[WORLD] Generating island 3 (west, radius=" << smallRadius << ")..." << std::endl;
-    m_islandSystem.generateFloatingIslandOrganic(island3ID, seed3, smallRadius);     // West island (smaller)
+    std::cout << "[WORLD] Voronoi placement generated " << islandDefs.size() << " islands" << std::endl;
     
-    std::cout << "[WORLD] Generating island 4 (north, radius=" << smallRadius << ")..." << std::endl;
-    m_islandSystem.generateFloatingIslandOrganic(island4ID, seed4, smallRadius);     // North island (smaller)
+    // Create islands from definitions
+    std::vector<uint32_t> islandIDs;
+    islandIDs.reserve(islandDefs.size());
     
-    std::cout << "[WORLD] Generating island 5 (south, radius=" << smallRadius << ")..." << std::endl;
-    m_islandSystem.generateFloatingIslandOrganic(island5ID, seed5, smallRadius);     // South island (smaller)
+    for (const auto& def : islandDefs) {
+        uint32_t islandID = m_islandSystem.createIsland(def.position);
+        islandIDs.push_back(islandID);
+        m_islandIDs.push_back(islandID);
+        
+        std::cout << "[WORLD] Island " << islandID 
+                  << " @ (" << def.position.x << ", " << def.position.y << ", " << def.position.z << ")"
+                  << " radius=" << def.radius << std::endl;
+    }
+    
+    // **PARALLEL ISLAND GENERATION** using std::async
+    std::cout << "[WORLD] Generating islands in parallel..." << std::endl;
+    
+    std::vector<std::future<void>> generationFutures;
+    generationFutures.reserve(islandDefs.size());
+    
+    // Launch all island generations asynchronously
+    for (size_t i = 0; i < islandDefs.size(); ++i) {
+        const IslandDefinition& def = islandDefs[i];
+        uint32_t islandID = islandIDs[i];
+        
+        generationFutures.push_back(std::async(std::launch::async, 
+            [this, islandID, def]() {
+                std::cout << "[WORLD] Generating island " << islandID 
+                          << " (radius=" << def.radius << ")..." << std::endl;
+                m_islandSystem.generateFloatingIslandOrganic(islandID, def.seed, def.radius);
+            }
+        ));
+    }
+    
+    // Wait for all islands to finish generating
+    for (auto& future : generationFutures)
+    {
+        future.get();
+    }
+    
+    std::cout << "[WORLD] All islands generated!" << std::endl;
 
     // Log collision mesh generation for each island
     for (uint32_t islandID : m_islandIDs)
@@ -207,14 +255,17 @@ void GameState::createDefaultWorld()
         }
     }
     
+    // Calculate player spawn position above the first island
+    m_playerSpawnPosition = Vec3(0.0f, 64.0f, 0.0f);  // Default fallback
     
-    // Set player spawn position (will be read by GameClient when it connects)
-    Vec3 islandCenter = m_islandSystem.getIslandCenter(island1ID);
-    // Spawn high above island center to ensure dramatic falling entry and avoid spawning inside geometry
-    Vec3 playerSpawnPos = Vec3(0.0f, 64.0f, 0.0f);  // 64 units straight up from origin
+    if (!islandDefs.empty()) {
+        // Spawn above the first island
+        Vec3 firstIslandCenter = islandDefs[0].position;
+        m_playerSpawnPosition = Vec3(firstIslandCenter.x, firstIslandCenter.y + 64.0f, firstIslandCenter.z);
+    }
 
-    std::cout << "🎯 Player spawn position: (" << playerSpawnPos.x << ", " << playerSpawnPos.y << ", " << playerSpawnPos.z << ")" << std::endl;
-    std::cout << "🏝️  Main island center: (" << islandCenter.x << ", " << islandCenter.y << ", " << islandCenter.z << ")" << std::endl;
+    std::cout << "🎯 Player spawn: (" << m_playerSpawnPosition.x << ", " 
+              << m_playerSpawnPosition.y << ", " << m_playerSpawnPosition.z << ")" << std::endl;
 }
 
 void GameState::updatePhysics(float deltaTime)

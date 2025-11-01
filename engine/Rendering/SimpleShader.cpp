@@ -131,8 +131,9 @@ float sampleShadowPCF(float bias)
     vec3 proj = lightSpacePos.xyz / lightSpacePos.w;
     proj = proj * 0.5 + 0.5;
     
+    // If outside light frustum, surface receives NO light (dark by default)
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
-        return 1.0;
+        return 0.0;
     
     float current = proj.z - bias;
     
@@ -238,7 +239,8 @@ void main()
         
         float shadow = sampleShadowPCF(bias);
         
-        // Dark-by-default: only shadow visibility affects lighting (no Lambert)
+        // Dark-by-default: shadow value represents LIGHT VISIBILITY (reverse shadow map)
+        // Surfaces are unlit unless the light map says they receive light
         float ambient = 0.04;
         float lit = ambient + shadow;
         finalColor = vec4(texColor.rgb * lit, texColor.a);

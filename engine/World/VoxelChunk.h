@@ -157,10 +157,7 @@ class VoxelChunk
     // Mesh generation and management
     void generateMesh(bool generateLighting = true);
 
-    // Rendering
-    void render();                                        // Render at origin (0,0,0)
-    void render(const Vec3& worldOffset);                 // Render at island's world position
-    void renderLOD(int lodLevel, const Vec3& cameraPos);  // New LOD rendering
+    // Mesh state
     bool isDirty() const
     {
         return meshDirty;

@@ -177,8 +177,9 @@ float sampleShadowPCF(float bias)
     vec3 proj = lightSpacePos.xyz / lightSpacePos.w;
     proj = proj * 0.5 + 0.5;
     
+    // If outside light frustum, surface receives NO light (dark by default)
     if (proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0 || proj.z > 1.0)
-        return 1.0;
+        return 0.0;
     
     float current = proj.z - bias;
     
@@ -222,7 +223,8 @@ void main(){
     // Alpha cutout
     if (albedo.a < 0.3) discard;
     
-    // Match voxel lighting: small ambient + shadow visibility
+    // Dark-by-default: visibility value represents LIGHT VISIBILITY (reverse shadow map)
+    // Surfaces are unlit unless the light map says they receive light
     float ambient = 0.04;
     vec3 lit = albedo.rgb * (ambient + visibility);
     FragColor = vec4(lit, 1.0);
@@ -331,24 +333,36 @@ bool ModelInstanceRenderer::loadModel(uint8_t blockID, const std::string& path) 
         return m_models[blockID].valid;
     }
     
-    // Load GLB file from disk
+    // Load GLB file - try multiple path candidates
     GLBModelCPU cpu;
-    std::vector<std::string> candidates{ path,
+    std::vector<std::string> candidates{ 
+        path,
         std::string("../") + path,
         std::string("../../") + path,
         std::string("../../../") + path,
         std::string("C:/Users/steve-17/Desktop/game2/") + path
     };
+    
     bool ok = false;
     std::string resolvedPath;
+    
+    // Try each path without spamming errors - GLBLoader will only log internally
     for (auto& p : candidates) {
-        if (GLBLoader::loadGLB(p, cpu)) { 
-            ok = true; 
-            resolvedPath = p;
-            break;
+        // Check if file exists before attempting load to avoid error spam
+        if (std::filesystem::exists(p)) {
+            if (GLBLoader::loadGLB(p, cpu)) {
+                ok = true;
+                resolvedPath = p;
+                break;
+            }
         }
     }
-    if (!ok) return false;
+    
+    if (!ok) {
+        // Only log once after all attempts failed
+        std::cerr << "Warning: Failed to load model from '" << path << "'" << std::endl;
+        return false;
+    }
 
     // Clear any existing model for this blockID
     auto it = m_models.find(blockID);
@@ -580,107 +594,124 @@ void ModelInstanceRenderer::updateModelMatrix(uint8_t blockID, VoxelChunk* chunk
     ensureChunkInstancesUploaded(blockID, chunk);
 }
 
-void ModelInstanceRenderer::renderModelChunk(uint8_t blockID, VoxelChunk* chunk, const glm::mat4& view, const glm::mat4& proj) {
-    // Update lighting if sun direction changed
+void ModelInstanceRenderer::renderAll(const glm::mat4& view, const glm::mat4& proj) {
+    // Update lighting once for all models
     updateLightingIfNeeded();
     
-    // Check if model is loaded
-    auto modelIt = m_models.find(blockID);
-    if (modelIt == m_models.end() || !modelIt->second.valid) return;
-
-    // Get shader for this block type
-    auto shaderIt = m_shaders.find(blockID);
-    if (shaderIt == m_shaders.end()) return;
-    GLuint shader = shaderIt->second;
-
-    // Get instance buffer for this (chunk, blockID) pair
-    auto key = std::make_pair(chunk, blockID);
-    auto bufIt = m_chunkInstances.find(key);
-    if (bufIt == m_chunkInstances.end()) return;  // Model matrix should already be set by updateModelMatrix
-    
-    ChunkInstanceBuffer& buf = bufIt->second;
-
-    // Ensure sane fixed-function state before color draw
+    // Set global GL state once
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glDrawBuffer(GL_BACK);
     glReadBuffer(GL_BACK);
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_POLYGON_OFFSET_FILL);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-
-    glUseProgram(shader);
-
-    // Get uniform locations for this shader
-    int loc_View = glGetUniformLocation(shader, "uView");
-    int loc_Proj = glGetUniformLocation(shader, "uProjection");
-    int loc_Model = glGetUniformLocation(shader, "uModel");
-    int loc_Time = glGetUniformLocation(shader, "uTime");
-    int loc_LightDir = glGetUniformLocation(shader, "uLightDir");
-    int loc_ShadowTexel = glGetUniformLocation(shader, "uShadowTexel");
-    int loc_ShadowMap = glGetUniformLocation(shader, "uShadowMap");
-    int loc_Texture = glGetUniformLocation(shader, "uGrassTexture");
-    int loc_NumCascades = glGetUniformLocation(shader, "uNumCascades");
-
-    // Set uniforms - use pre-calculated model matrix from buffer
-    glUniformMatrix4fv(loc_View, 1, GL_FALSE, &view[0][0]);
-    glUniformMatrix4fv(loc_Proj, 1, GL_FALSE, &proj[0][0]);
-    glUniformMatrix4fv(loc_Model, 1, GL_FALSE, &buf.modelMatrix[0][0]);
-    glUniform1f(loc_Time, m_time);
-
-    // Set cascade shadow map data
-    int numCascades = g_shadowMap.getNumCascades();
-    glUniform1i(loc_NumCascades, numCascades);
     
-    for (int i = 0; i < numCascades; ++i) {
-        const CascadeData& cascade = g_shadowMap.getCascade(i);
-        std::string vpName = "uCascadeVP[" + std::to_string(i) + "]";
-        std::string splitName = "uCascadeSplits[" + std::to_string(i) + "]";
-        int loc_CascadeVP = glGetUniformLocation(shader, vpName.c_str());
-        int loc_CascadeSplit = glGetUniformLocation(shader, splitName.c_str());
-        glUniformMatrix4fv(loc_CascadeVP, 1, GL_FALSE, &cascade.viewProj[0][0]);
-        glUniform1f(loc_CascadeSplit, cascade.splitDistance);
-    }
-    
-    glUniform3f(loc_LightDir, m_lightDir.x, m_lightDir.y, m_lightDir.z);
-    
-    // Shadow texel size
-    int sz = g_shadowMap.getSize();
-    float texel = sz > 0 ? (1.0f / float(sz)) : (1.0f / 8192.0f);
-    glUniform1f(loc_ShadowTexel, texel);
-    
-    // Bind cascaded shadow map array texture
-    glActiveTexture(GL_TEXTURE7);
-    glBindTexture(GL_TEXTURE_2D_ARRAY, g_shadowMap.getDepthTexture());
-    glUniform1i(loc_ShadowMap, 7);
-    
-    // Bind texture (engine grass.png for grass, GLB albedo for others)
-    if (loc_Texture>=0) {
-        glActiveTexture(GL_TEXTURE5);
-        GLuint tex = 0;
-        if (blockID == 13 && m_engineGrassTex) {  // 13 = BlockID::DECOR_GRASS
-            tex = m_engineGrassTex;
-        } else {
-            auto texIt = m_albedoTextures.find(blockID);
-            if (texIt != m_albedoTextures.end()) {
-                tex = texIt->second;
-            }
-        }
-        if (tex) {
-            glBindTexture(GL_TEXTURE_2D, tex);
-            glUniform1i(loc_Texture, 5);
-        }
-    }
-    
-    // Render two-sided foliage (disable culling for grass-like models)
+    // Disable culling once for foliage rendering
     GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
     if (wasCull) glDisable(GL_CULL_FACE);
     
-    // Render instanced models using per-chunk VAOs
-    for (size_t i = 0; i < buf.vaos.size() && i < modelIt->second.primitives.size(); ++i) {
-        glBindVertexArray(buf.vaos[i]);
-        glDrawElementsInstanced(GL_TRIANGLES, modelIt->second.primitives[i].indexCount, GL_UNSIGNED_INT, 0, buf.count);
-        glBindVertexArray(0);
+    // Extract camera position from view matrix for distance culling
+    glm::mat4 invView = glm::inverse(view);
+    glm::vec3 cameraPos = glm::vec3(invView[3]);
+    const float maxRenderDistance = 512.0f;  // LOD render limit for GLB objects
+    const float maxRenderDistanceSq = maxRenderDistance * maxRenderDistance;
+    
+    // Calculate shadow map data once
+    int numCascades = g_shadowMap.getNumCascades();
+    int shadowSize = g_shadowMap.getSize();
+    float shadowTexel = shadowSize > 0 ? (1.0f / float(shadowSize)) : (1.0f / 8192.0f);
+    
+    // Bind shadow map texture once (all shaders use same binding)
+    glActiveTexture(GL_TEXTURE7);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, g_shadowMap.getDepthTexture());
+    
+    // Iterate through each block type with loaded models
+    for (const auto& [blockID, model] : m_models) {
+        if (!model.valid) continue;
+        
+        // Get shader for this block type
+        auto shaderIt = m_shaders.find(blockID);
+        if (shaderIt == m_shaders.end()) continue;
+        GLuint shader = shaderIt->second;
+        
+        // Bind shader ONCE per block type
+        glUseProgram(shader);
+        
+        // Cache uniform locations for this shader
+        int loc_View = glGetUniformLocation(shader, "uView");
+        int loc_Proj = glGetUniformLocation(shader, "uProjection");
+        int loc_Model = glGetUniformLocation(shader, "uModel");
+        int loc_Time = glGetUniformLocation(shader, "uTime");
+        int loc_LightDir = glGetUniformLocation(shader, "uLightDir");
+        int loc_ShadowTexel = glGetUniformLocation(shader, "uShadowTexel");
+        int loc_ShadowMap = glGetUniformLocation(shader, "uShadowMap");
+        int loc_Texture = glGetUniformLocation(shader, "uGrassTexture");
+        int loc_NumCascades = glGetUniformLocation(shader, "uNumCascades");
+        
+        // Set uniforms that are constant across all chunks (ONCE per block type)
+        glUniformMatrix4fv(loc_View, 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv(loc_Proj, 1, GL_FALSE, &proj[0][0]);
+        glUniform1f(loc_Time, m_time);
+        glUniform3f(loc_LightDir, m_lightDir.x, m_lightDir.y, m_lightDir.z);
+        glUniform1f(loc_ShadowTexel, shadowTexel);
+        glUniform1i(loc_ShadowMap, 7);
+        glUniform1i(loc_NumCascades, numCascades);
+        
+        // Set cascade shadow map data ONCE per block type
+        for (int i = 0; i < numCascades; ++i) {
+            const CascadeData& cascade = g_shadowMap.getCascade(i);
+            std::string vpName = "uCascadeVP[" + std::to_string(i) + "]";
+            std::string splitName = "uCascadeSplits[" + std::to_string(i) + "]";
+            int loc_CascadeVP = glGetUniformLocation(shader, vpName.c_str());
+            int loc_CascadeSplit = glGetUniformLocation(shader, splitName.c_str());
+            glUniformMatrix4fv(loc_CascadeVP, 1, GL_FALSE, &cascade.viewProj[0][0]);
+            glUniform1f(loc_CascadeSplit, cascade.splitDistance);
+        }
+        
+        // Bind texture ONCE per block type
+        if (loc_Texture >= 0) {
+            glActiveTexture(GL_TEXTURE5);
+            GLuint tex = 0;
+            if (blockID == 13 && m_engineGrassTex) {  // 13 = BlockID::DECOR_GRASS
+                tex = m_engineGrassTex;
+            } else {
+                auto texIt = m_albedoTextures.find(blockID);
+                if (texIt != m_albedoTextures.end()) {
+                    tex = texIt->second;
+                }
+            }
+            if (tex) {
+                glBindTexture(GL_TEXTURE_2D, tex);
+                glUniform1i(loc_Texture, 5);
+            }
+        }
+        
+        // Now render ALL chunks that have instances of this block type
+        for (auto& [key, buf] : m_chunkInstances) {
+            // Only render chunks with this specific blockID
+            if (key.second != blockID) continue;
+            if (buf.count == 0) continue;
+            if (!buf.isUploaded) continue;
+            
+            // Distance culling: Extract chunk position from model matrix and check distance
+            glm::vec3 chunkPos = glm::vec3(buf.modelMatrix[3]);
+            glm::vec3 delta = cameraPos - chunkPos;
+            float distanceSq = glm::dot(delta, delta);
+            if (distanceSq > maxRenderDistanceSq) continue;  // Skip distant chunks
+            
+            // Set model matrix (this is the ONLY per-chunk uniform)
+            glUniformMatrix4fv(loc_Model, 1, GL_FALSE, &buf.modelMatrix[0][0]);
+            
+            // Render instanced models using per-chunk VAOs
+            for (size_t i = 0; i < buf.vaos.size() && i < model.primitives.size(); ++i) {
+                glBindVertexArray(buf.vaos[i]);
+                glDrawElementsInstanced(GL_TRIANGLES, model.primitives[i].indexCount, GL_UNSIGNED_INT, 0, buf.count);
+            }
+        }
     }
+    
+    // Cleanup
+    glBindVertexArray(0);
     if (wasCull) glEnable(GL_CULL_FACE);
 }
 
@@ -740,9 +771,7 @@ void ModelInstanceRenderer::renderDepth()
             glUniformMatrix4fv(m_depth_uModel, 1, GL_FALSE, &model[0][0]);
         }
         
-        // Render two-sided (disable culling for grass)
-        GLboolean wasCull = glIsEnabled(GL_CULL_FACE);
-        if (wasCull) glDisable(GL_CULL_FACE);
+        // Culling already disabled by CascadedShadowMap::begin() - don't touch it
         
         // Render instanced models using per-chunk VAOs
         for (size_t i = 0; i < buf.vaos.size() && i < modelIt->second.primitives.size(); ++i) {
@@ -750,8 +779,6 @@ void ModelInstanceRenderer::renderDepth()
             glDrawElementsInstanced(GL_TRIANGLES, modelIt->second.primitives[i].indexCount, GL_UNSIGNED_INT, 0, buf.count);
             glBindVertexArray(0);
         }
-        
-        if (wasCull) glEnable(GL_CULL_FACE);
     }
 }
 

@@ -101,7 +101,7 @@ int main(int argc, char* argv[])
     // Removed verbose debug output
 
     // Enable profiler to diagnose performance bottlenecks
-    g_profiler.setEnabled(true);
+    g_profiler.setEnabled(false);  // Disabled - profiling complete
 
     g_timeManager = new TimeManager();
     g_timeEffects = new TimeEffects();

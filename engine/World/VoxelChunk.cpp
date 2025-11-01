@@ -125,8 +125,6 @@ void VoxelChunk::addQuadWithSharing(std::vector<Vertex>& vertices, std::vector<u
                                     std::unordered_map<Vertex, uint32_t>& vertexCache,
                                     float x, float y, float z, int face, uint8_t blockType)
 {
-    (void)blockType;
-
     // STANDARD face ordering: 0=-Y(bottom), 1=+Y(top), 2=-Z(back), 3=+Z(front), 4=-X(left), 5=+X(right)
     static const Vec3 quadVertices[6][4] = {
         // -Y (bottom)
@@ -191,6 +189,7 @@ void VoxelChunk::addQuadWithSharing(std::vector<Vertex>& vertices, std::vector<u
         
         v.ao = computeAmbientOcclusion(static_cast<int>(pos.x), static_cast<int>(pos.y), static_cast<int>(pos.z), face);
         v.faceIndex = static_cast<float>(face);
+        v.blockType = static_cast<float>(blockType);  // ✅ FIX: Actually set the block type!
         
         // Check if this vertex already exists in the cache
         auto it = vertexCache.find(v);
@@ -394,36 +393,6 @@ bool VoxelChunk::checkRayCollision(const Vec3& rayOrigin, const Vec3& rayDirecti
     }
 
     return hit;
-}
-
-void VoxelChunk::render()
-{
-    render(Vec3(0, 0, 0));
-}
-
-void VoxelChunk::render(const Vec3& worldOffset)
-{
-    PROFILE_SCOPE("VoxelChunk::render");
-    
-    if (meshDirty)
-    {
-        PROFILE_SCOPE("generateMesh");
-        generateMesh();
-    }
-
-    if (mesh.vertices.empty())
-        return;
-
-    // DEPRECATED: This function is no longer used - MDI renderer handles all chunk rendering
-    // through registerChunk() and updateChunkTransform() instead
-    (void)worldOffset;
-}
-
-void VoxelChunk::renderLOD(int lodLevel, const Vec3& cameraPos)
-{
-    (void)lodLevel; (void)cameraPos; // Reserved for future LOD system
-    // Simple LOD implementation - just render normally for now
-    render();
 }
 
 int VoxelChunk::calculateLOD(const Vec3& cameraPos) const

@@ -102,6 +102,11 @@ public:
      */
     const std::vector<uint32_t>& getAllIslandIDs() const { return m_islandIDs; }
     
+    /**
+     * Get the calculated player spawn position (set during world generation)
+     */
+    Vec3 getPlayerSpawnPosition() const { return m_playerSpawnPosition; }
+    
 private:
     // Core systems
     IslandChunkSystem m_islandSystem;
@@ -109,6 +114,7 @@ private:
     
     // World state
     std::vector<uint32_t> m_islandIDs;  // Track all created islands
+    Vec3 m_playerSpawnPosition;          // Calculated spawn position above first island
     
     // State flags
     bool m_initialized = false;

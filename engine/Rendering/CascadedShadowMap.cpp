@@ -103,9 +103,8 @@ void ShadowMap::end(int screenWidth, int screenHeight)
     glDisable(GL_POLYGON_OFFSET_FILL);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     
-    // Re-enable back-face culling for normal rendering
-    glEnable(GL_CULL_FACE);
-    glCullFace(GL_BACK);
+    // DON'T re-enable culling here - we might be rendering multiple cascades in sequence
+    // Caller will restore culling state after ALL cascades are rendered
     
     // Restore default framebuffer draw/read buffers to avoid accidental color suppression
     glDrawBuffer(GL_BACK);
